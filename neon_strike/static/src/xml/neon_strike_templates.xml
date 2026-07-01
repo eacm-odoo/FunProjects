@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Part of Odoo. See LICENSE file for full copyright and licensing details. -->
+<templates xml:space="preserve">
+
+<t t-name="neon_strike.Game">
+    <div class="o_neon_strike d-flex flex-column h-100">
+        <div class="ns_toolbar d-flex align-items-center px-3 py-2">
+            <span class="ns_logo me-3">NEON STRIKE</span>
+            <button class="btn btn-sm ns_btn me-2" t-on-click="toggleMute">
+                <i t-attf-class="fa {{ state.muted ? 'fa-volume-off' : 'fa-volume-up' }} me-1" role="img" aria-label="Sonido"/>Sonido
+            </button>
+            <button class="btn btn-sm ns_btn" t-on-click="restart">
+                <i class="fa fa-refresh me-1" role="img" aria-label="Reiniciar"/>Reiniciar
+            </button>
+            <span class="ms-auto">
+                <a href="https://www.odoo.com/page/brand-assets" target="_blank" rel="noreferrer" class="ns_brand_link">built on Odoo</a>
+            </span>
+        </div>
+        <div class="ns_body d-flex flex-grow-1">
+            <div class="ns_stage flex-grow-1">
+                <canvas t-ref="canvas"/>
+            </div>
+            <aside class="ns_leaderboard p-3">
+                <h5 class="mb-3">
+                    <i class="fa fa-trophy me-2" role="img" aria-label="Trofeo"/>Marcadores
+                </h5>
+                <table class="table table-sm ns_table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Jugador</th>
+                            <th class="text-end">Puntos</th>
+                            <th class="text-end">Oleada</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <t t-foreach="state.scores" t-as="s" t-key="s.id">
+                            <tr>
+                                <td t-out="s_index + 1"/>
+                                <td t-out="s.player_name"/>
+                                <td class="text-end" t-out="fmt(s.score)"/>
+                                <td class="text-end" t-out="s.wave"/>
+                            </tr>
+                        </t>
+                        <tr t-if="!state.scores.length">
+                            <td colspan="4" class="text-muted">Sin puntuaciones aún. ¡Sé el primero!</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p class="ns_hint mb-0">Arrastra para mover la nave. Cápsulas: T triple · S escudo · B bomba · + vida.</p>
+            </aside>
+        </div>
+    </div>
+</t>
+
+</templates>
