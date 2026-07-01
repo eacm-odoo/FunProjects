@@ -1,0 +1,109 @@
+// Part of Odoo. See LICENSE file for full copyright and licensing details.
+// Paleta basada en Odoo brand assets: https://www.odoo.com/page/brand-assets
+$ns-odoo-purple: #714B67;
+$ns-bg: #0a0b14;
+$ns-panel: #10121f;
+$ns-cyan: #5ee1ff;
+
+.o_neon_strike {
+    background: $ns-bg;
+    min-height: 100%;
+
+    .ns_toolbar {
+        background: $ns-odoo-purple;
+        color: #fff;
+
+        .ns_logo {
+            font-weight: 600;
+            letter-spacing: 2px;
+            color: $ns-cyan;
+        }
+
+        .ns_btn {
+            background: rgba(255, 255, 255, 0.12);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.25);
+
+            &:hover {
+                background: rgba(255, 255, 255, 0.22);
+                color: #fff;
+            }
+        }
+
+        .ns_brand_link {
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 12px;
+            text-decoration: none;
+
+            &:hover {
+                color: #fff;
+                text-decoration: underline;
+            }
+        }
+    }
+
+    .ns_body {
+        min-height: 0;
+    }
+
+    .ns_stage {
+        position: relative;
+        min-height: 420px;
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+            touch-action: none;
+        }
+    }
+
+    .ns_leaderboard {
+        width: 300px;
+        flex: 0 0 300px;
+        background: $ns-panel;
+        border-left: 2px solid $ns-odoo-purple;
+        color: #e8ecff;
+
+        h5 {
+            color: $ns-cyan;
+        }
+
+        .ns_table {
+            color: #e8ecff;
+
+            th {
+                color: #b7a3b1;
+                border-color: #2a2d44;
+                font-weight: 500;
+            }
+
+            td {
+                border-color: #1c1f33;
+            }
+        }
+
+        .ns_hint {
+            color: #8d93b8;
+            font-size: 12px;
+        }
+    }
+
+    @media (max-width: 900px) {
+        .ns_body {
+            flex-direction: column;
+        }
+
+        .ns_leaderboard {
+            width: 100%;
+            flex: 1 1 auto;
+            border-left: 0;
+            border-top: 2px solid $ns-odoo-purple;
+        }
+
+        .ns_stage {
+            min-height: 360px;
+        }
+    }
+}
