@@ -5,6 +5,16 @@ $ns-bg: #0a0b14;
 $ns-panel: #10121f;
 $ns-cyan: #5ee1ff;
 
+// Página pública (/neon): el juego se monta aquí y cubre toda la ventana,
+// por encima de cualquier chrome que añada web.frontend_layout.
+.o_neon_strike_root {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    overflow: hidden;
+    background: $ns-bg;
+}
+
 .o_neon_strike {
     background: $ns-bg;
     min-height: 100%;
@@ -30,6 +40,16 @@ $ns-cyan: #5ee1ff;
             }
         }
 
+        .ns_room {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.85);
+
+            b {
+                color: $ns-cyan;
+                letter-spacing: 1px;
+            }
+        }
+
         .ns_brand_link {
             color: rgba(255, 255, 255, 0.85);
             font-size: 12px;
@@ -40,6 +60,169 @@ $ns-cyan: #5ee1ff;
                 text-decoration: underline;
             }
         }
+    }
+
+    // ---------------------------------------------------------------- //
+    // Menú y lobby                                                      //
+    // ---------------------------------------------------------------- //
+    .ns_menu {
+        background: radial-gradient(circle at 50% 0%, #161a2e 0%, $ns-bg 70%);
+        overflow: auto;
+    }
+
+    .ns_menu_card {
+        width: 100%;
+        max-width: 420px;
+        background: $ns-panel;
+        border: 1px solid rgba(94, 225, 255, 0.15);
+        border-radius: 12px;
+        color: #e8ecff;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+
+        .ns_title {
+            color: $ns-cyan;
+            font-weight: 600;
+            letter-spacing: 2px;
+        }
+
+        .ns_sub {
+            color: #8d93b8;
+            font-size: 13px;
+        }
+
+        .ns_hr {
+            border-color: #232640;
+            margin: 1.25rem 0;
+        }
+    }
+
+    .ns_cta {
+        background: $ns-odoo-purple;
+        color: #fff;
+        font-weight: 500;
+        border: 0;
+        padding: 0.6rem;
+
+        &:hover {
+            background: darken($ns-odoo-purple, 6%);
+            color: #fff;
+        }
+
+        &.ns_cta_alt {
+            background: rgba(94, 225, 255, 0.14);
+            color: $ns-cyan;
+            border: 1px solid rgba(94, 225, 255, 0.4);
+
+            &:hover {
+                background: rgba(94, 225, 255, 0.24);
+            }
+        }
+    }
+
+    .ns_nick_label {
+        display: block;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #8d93b8;
+        margin-bottom: 0.25rem;
+    }
+
+    .ns_input_nick {
+        background: #0c0e1a;
+        border: 1px solid #2a2d44;
+        color: #e8ecff;
+
+        &::placeholder {
+            color: #5b608a;
+        }
+
+        &:focus {
+            background: #0c0e1a;
+            color: #fff;
+            border-color: $ns-cyan;
+            box-shadow: none;
+        }
+    }
+
+    .ns_input_code {
+        background: #0c0e1a;
+        border: 1px solid #2a2d44;
+        color: #e8ecff;
+        text-transform: uppercase;
+
+        &::placeholder {
+            color: #5b608a;
+            text-transform: none;
+        }
+
+        &:focus {
+            background: #0c0e1a;
+            color: #fff;
+            border-color: $ns-cyan;
+            box-shadow: none;
+        }
+    }
+
+    .ns_error {
+        color: #ff8f8f;
+        font-size: 13px;
+    }
+
+    .ns_code_box {
+        background: #0c0e1a;
+        border: 1px dashed rgba(94, 225, 255, 0.4);
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+        text-align: center;
+
+        .ns_code_label {
+            display: block;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #8d93b8;
+        }
+
+        .ns_code {
+            font-size: 26px;
+            font-weight: 600;
+            letter-spacing: 3px;
+            color: $ns-cyan;
+        }
+    }
+
+    .ns_players_head {
+        color: #b7a3b1;
+        font-size: 13px;
+    }
+
+    .ns_players {
+        .ns_dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 8px currentColor;
+        }
+
+        .ns_you {
+            color: $ns-cyan;
+            font-size: 12px;
+        }
+
+        .ns_host_tag {
+            font-size: 11px;
+            color: #b78bad;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+    }
+
+    .ns_waiting {
+        color: #8d93b8;
+        font-size: 13px;
+        text-align: center;
     }
 
     .ns_body {
@@ -70,23 +253,33 @@ $ns-cyan: #5ee1ff;
             color: $ns-cyan;
         }
 
-        .ns_table {
-            color: #e8ecff;
-
-            th {
-                color: #b7a3b1;
-                border-color: #2a2d44;
-                font-weight: 500;
-            }
-
-            td {
-                border-color: #1c1f33;
-            }
-        }
-
         .ns_hint {
             color: #8d93b8;
             font-size: 12px;
+            margin-top: 0.75rem;
+        }
+    }
+
+    .ns_table {
+        color: #e8ecff;
+
+        th {
+            color: #b7a3b1;
+            border-color: #2a2d44;
+            font-weight: 500;
+        }
+
+        td {
+            border-color: #1c1f33;
+        }
+
+        .ns_coop_tag {
+            font-size: 10px;
+            padding: 1px 5px;
+            border-radius: 4px;
+            background: rgba(123, 255, 176, 0.15);
+            color: #7bffb0;
+            white-space: nowrap;
         }
     }
 

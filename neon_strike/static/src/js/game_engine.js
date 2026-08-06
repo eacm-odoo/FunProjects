@@ -2,63 +2,103 @@
 /* Part of Odoo. See LICENSE file for full copyright and licensing details.
  * Neon Strike - motor del juego (canvas 2D + Web Audio sintetizado).
  * Sin dependencias externas: el componente OWL solo instancia esta clase.
+ *
+ * Soporta N naves (hasta 4) con vidas individuales, caída y revivir. Puede correr
+ * en tres roles:
+ *   - "solo":  simulacion local de 1 jugador (raton/tactil).
+ *   - "host":  simula toda la partida y expone snapshot() para difundir por el bus.
+ *   - "guest": no simula; renderiza el snapshot recibido (applySnapshot) e informa
+ *              su puntero por onLocalInput.
+ * El juego se simula siempre en un espacio logico fijo (LW x LH) para que las
+ * coordenadas sean identicas en todas las maquinas; el render se escala al canvas.
  */
+
+const SHIP_COLORS = ["#5ee1ff", "#ff8fb3", "#7bffb0", "#ffd166"];
+const REVIVE_FRAMES = 120;
+const COMBO_MAX = 25;
 
 export class NeonStrikeEngine {
     /**
      * @param {HTMLCanvasElement} canvas
-     * @param {Object} callbacks - { onGameOver({score, wave, best}) }
+     * @param {Object} callbacks
+     * @param {function} [callbacks.onGameOver] - ({score, wave, best})
+     * @param {function} [callbacks.onLocalInput] - (tx, ty) puntero local (guest)
+     * @param {"solo"|"host"|"guest"} [callbacks.role="solo"]
+     * @param {number} [callbacks.players=1] - numero de naves
+     * @param {number} [callbacks.localSlot=0] - slot controlado localmente
+     * @param {string[]} [callbacks.names] - nombre por slot
+     * @param {boolean} [callbacks.hotseat=false] - segunda nave por teclado (WASD)
      */
     constructor(canvas, callbacks = {}) {
         this.cv = canvas;
         this.g = canvas.getContext("2d");
         this.cb = callbacks;
 
+        this.role = callbacks.role || "solo";
+        // Lista explícita de slots (multijugador); si falta, se deriva 0..players-1.
+        // Los slots pueden ser NO contiguos si alguien abandonó el lobby.
+        this.slots = callbacks.slots && callbacks.slots.length ? callbacks.slots : null;
+        this.players = Math.max(1, callbacks.players || (this.slots ? this.slots.length : 1));
+        this.localSlot = callbacks.localSlot || 0;
+        this.names = callbacks.names || null;
+        this.hotseat = !!callbacks.hotseat;
+
         this.state = "start";
         this.muted = false;
         this.AC = null;
 
+        // Espacio logico fijo (independiente del tamano de ventana).
         this.W = 680;
         this.H = 540;
+        this.dpr = 1;
+        this.scale = 1;
+        this.ox = 0;
+        this.oy = 0;
+
         this.frame = 0;
         this.slowMo = 0;
 
-        this.ship = { x: 0, y: 0, tx: 0, ty: 0, inv: 0, shield: 0 };
+        this.ships = [];
         this.bullets = [];
         this.ebullets = [];
         this.enemies = [];
+        this.rocks = [];
         this.parts = [];
         this.pops = [];
         this.pups = [];
         this.stars = [];
+        this._events = [];
 
         this.score = 0;
         this.best = 0;
-        this.lives = 3;
         this.wave = 0;
         this.combo = 1;
         this.comboT = 0;
         this.shake = 0;
-        this.fireT = 0;
-        this.weapon = "single";
-        this.weaponT = 0;
         this.flashT = 0;
         this.waveDelay = 0;
+        this.rockT = 200;
         this.bossAlive = false;
+        this.keys = {};
 
         this._raf = null;
         this._loop = this._loopFn.bind(this);
         this._pd = (e) => this._pointerDown(e);
         this._pm = (e) => this._pointerMove(e);
+        this._kd = (e) => { this.keys[(e.key || "").toLowerCase()] = true; };
+        this._ku = (e) => { this.keys[(e.key || "").toLowerCase()] = false; };
         this.cv.addEventListener("pointerdown", this._pd);
         this.cv.addEventListener("pointermove", this._pm);
+        if (this.hotseat) {
+            window.addEventListener("keydown", this._kd);
+            window.addEventListener("keyup", this._ku);
+        }
         this._ro = new ResizeObserver(() => this.resize());
         this._ro.observe(this.cv.parentElement);
 
         this.resize();
         this.initStars();
-        this.ship.x = this.ship.tx = this.W / 2;
-        this.ship.y = this.ship.ty = this.H - 70;
+        this._initShips();
     }
 
     /* ------------------------------------------------------------------ */
@@ -79,6 +119,10 @@ export class NeonStrikeEngine {
         this._ro.disconnect();
         this.cv.removeEventListener("pointerdown", this._pd);
         this.cv.removeEventListener("pointermove", this._pm);
+        if (this.hotseat) {
+            window.removeEventListener("keydown", this._kd);
+            window.removeEventListener("keyup", this._ku);
+        }
         if (this.AC) {
             try {
                 this.AC.close();
@@ -100,17 +144,25 @@ export class NeonStrikeEngine {
         this.state = "start";
     }
 
+    /** Arranca una partida (host/solo). Los guests obtienen el estado por snapshot. */
+    beginPlay() {
+        this.reset();
+        this.state = "playing";
+    }
+
     resize() {
         const el = this.cv.parentElement;
         if (!el) {
             return;
         }
-        this.W = Math.max(320, el.clientWidth || 680);
-        this.H = Math.max(360, el.clientHeight || 540);
-        const dpr = window.devicePixelRatio || 1;
-        this.cv.width = this.W * dpr;
-        this.cv.height = this.H * dpr;
-        this.g.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const cw = Math.max(1, el.clientWidth || this.W);
+        const ch = Math.max(1, el.clientHeight || this.H);
+        this.dpr = window.devicePixelRatio || 1;
+        this.cv.width = cw * this.dpr;
+        this.cv.height = ch * this.dpr;
+        this.scale = Math.min(cw / this.W, ch / this.H);
+        this.ox = (cw - this.W * this.scale) / 2;
+        this.oy = (ch - this.H * this.scale) / 2;
     }
 
     _loopFn() {
@@ -119,7 +171,11 @@ export class NeonStrikeEngine {
         if (this.slowMo > 0) {
             this.slowMo--;
         }
-        this.update(ts);
+        if (this.role === "guest") {
+            this._guestUpdate(ts);
+        } else {
+            this.update(ts);
+        }
         this.render();
         this._raf = requestAnimationFrame(this._loop);
     }
@@ -251,9 +307,102 @@ export class NeonStrikeEngine {
         }
     }
 
+    /** Registra un evento cosmetico para reproducir en los guests. */
+    _ev(obj) {
+        if (this.role === "host") {
+            this._events.push(obj);
+        }
+    }
+
+    _playEvent(ev) {
+        if (ev.k === "boom") {
+            this.burst(ev.x, ev.y, ev.c || "#ffffff", ev.b ? 70 : 22, ev.b ? 7 : 4.5);
+            this.burst(ev.x, ev.y, "#ffffff", ev.b ? 24 : 6, 3);
+            if (ev.b) { this.sBigBoom(); } else { this.sBoom(); }
+        } else if (ev.k === "hit") {
+            this.burst(ev.x, ev.y, ev.c || "#5ee1ff", 40, 6);
+            this.sHit();
+        } else if (ev.k === "pup") {
+            this.burst(ev.x, ev.y, "#7bffb0", 14, 3);
+            this.sPup();
+        } else if (ev.k === "wave") {
+            this.sWave();
+        } else if (ev.k === "bomb") {
+            this.sBigBoom();
+        }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Naves                                                               */
+    /* ------------------------------------------------------------------ */
+
+    mkShip(slot) {
+        return {
+            slot,
+            name: (this.names && this.names[slot]) || "J" + (slot + 1),
+            color: SHIP_COLORS[slot % SHIP_COLORS.length],
+            x: 0, y: 0, tx: 0, ty: 0,
+            inv: 0, shield: 0,
+            weapon: "single", weaponT: 0, fireT: 0,
+            lives: 3, down: false, reviveProgress: 0,
+        };
+    }
+
+    _initShips() {
+        this.ships = [];
+        // Usa los slots reales (pueden no ser contiguos) para que cada jugador
+        // conserve su nave/color/nombre aunque otro haya abandonado el lobby.
+        const slots = this.slots || Array.from({ length: this.players }, (_v, i) => i);
+        const p = slots.length;
+        slots.forEach((slot, idx) => {
+            const sp = this.mkShip(slot);
+            sp.x = sp.tx = (this.W * (idx + 1)) / (p + 1);
+            sp.y = sp.ty = this.H - 70;
+            this.ships.push(sp);
+        });
+    }
+
+    _livingShips() {
+        return this.ships.filter((s) => !s.down);
+    }
+
+    _nearestShip(x, y) {
+        let best = null;
+        let bd = Infinity;
+        for (const s of this.ships) {
+            if (s.down) {
+                continue;
+            }
+            const dx = s.x - x;
+            const dy = s.y - y;
+            const d = dx * dx + dy * dy;
+            if (d < bd) {
+                bd = d;
+                best = s;
+            }
+        }
+        return best;
+    }
+
+    _aimShip() {
+        const alive = this._livingShips();
+        if (!alive.length) {
+            return null;
+        }
+        return alive[Math.floor(Math.random() * alive.length)];
+    }
+
     /* ------------------------------------------------------------------ */
     /* Entidades                                                           */
     /* ------------------------------------------------------------------ */
+
+    _enemyR(type) {
+        return type === "boss" ? 44 : type === "tank" ? 20 : type === "speedy" ? 10 : 14;
+    }
+
+    _enemyColor(type) {
+        return type === "boss" ? "#ff4d4d" : type === "tank" ? "#9b5de5" : type === "speedy" ? "#ffd166" : "#ff5d8f";
+    }
 
     mkEnemy(type, x, y) {
         if (type === "drone") {
@@ -265,13 +414,15 @@ export class NeonStrikeEngine {
         if (type === "tank") {
             return { type, x, y, r: 20, hp: 4, mhp: 4, c: "#9b5de5", t: Math.random() * 200, val: 300, flash: 0 };
         }
-        const hp = 35 + this.wave * 9;
+        const hp = 35 + this.wave * 9 + (this.players - 1) * 25;
         return { type: "boss", x, y, r: 44, hp, mhp: hp, c: "#ff4d4d", t: 0, val: 5000, flash: 0 };
     }
 
     spawnWave() {
         this.wave++;
         this.sWave();
+        this._ev({ k: "wave" });
+        const p = this.players;
         if (this.wave % 4 === 0) {
             this.enemies.push(this.mkEnemy("boss", this.W / 2, -90));
             this.bossAlive = true;
@@ -279,19 +430,43 @@ export class NeonStrikeEngine {
             return;
         }
         this.pop(this.W / 2, this.H / 2 - 50, "Oleada " + this.wave, "#8be9ff", 30, 80);
-        const n = 4 + this.wave * 2;
+        const n = 5 + this.wave * 2 + p * 2;
         for (let i = 0; i < n; i++) {
             const r = Math.random();
             let type = "drone";
-            if (this.wave > 1 && r < 0.28) {
+            if (this.wave > 1 && r < 0.3) {
                 type = "speedy";
             }
             if (this.wave > 2 && r > 0.8) {
                 type = "tank";
             }
             this.enemies.push(
-                this.mkEnemy(type, 40 + Math.random() * (this.W - 80), -30 - i * 55 - Math.random() * 40)
+                this.mkEnemy(type, 40 + Math.random() * (this.W - 80), -30 - i * 48 - Math.random() * 40)
             );
+        }
+        // Un par de asteroides al inicio de oleada, mas a partir de la 3.
+        const rocks = 1 + Math.floor(this.wave / 3);
+        for (let i = 0; i < rocks; i++) {
+            this.spawnRock();
+        }
+    }
+
+    spawnRock(x, y, r) {
+        const rad = r || 16 + Math.random() * 24;
+        this.rocks.push({
+            x: x != null ? x : 30 + Math.random() * (this.W - 60),
+            y: y != null ? y : -40,
+            vx: (Math.random() - 0.5) * 1.6,
+            vy: 0.7 + Math.random() * 1.3,
+            r: rad,
+            rot: Math.random() * 6.2832,
+            vr: (Math.random() - 0.5) * 0.06,
+            hp: Math.max(1, Math.round(rad / 9)),
+            spin: [],
+        });
+        const rk = this.rocks[this.rocks.length - 1];
+        for (let k = 0; k < 8; k++) {
+            rk.spin.push(0.7 + Math.random() * 0.4);
         }
     }
 
@@ -306,25 +481,32 @@ export class NeonStrikeEngine {
 
     killEnemy(e, i) {
         this.enemies.splice(i, 1);
-        this.burst(e.x, e.y, e.c, e.type === "boss" ? 90 : 24, e.type === "boss" ? 8 : 4.5);
-        this.burst(e.x, e.y, "#ffffff", e.type === "boss" ? 30 : 8, 3);
+        const big = e.type === "boss";
+        this.burst(e.x, e.y, e.c, big ? 90 : 24, big ? 8 : 4.5);
+        this.burst(e.x, e.y, "#ffffff", big ? 30 : 8, 3);
+        this._ev({ k: "boom", x: e.x, y: e.y, c: e.c, b: big ? 1 : 0 });
         const pts = e.val * this.combo;
         this.score += pts;
-        this.pop(e.x, e.y, "+" + pts.toLocaleString(), "#fff", e.type === "boss" ? 24 : 13);
-        this.combo = Math.min(this.combo + 1, 15);
+        this.pop(e.x, e.y, "+" + pts.toLocaleString(), "#fff", big ? 24 : 13);
+        this.combo = Math.min(this.combo + 1, COMBO_MAX);
         this.comboT = 170;
-        this.shake = Math.min(this.shake + (e.type === "boss" ? 22 : 5), 24);
-        if (e.type === "boss") {
+        this.shake = Math.min(this.shake + (big ? 22 : 5), 24);
+        if (big) {
             this.sBigBoom();
             this.bossAlive = false;
-            this.slowMo = 40;
-            this.dropPup(e.x - 30, e.y);
-            this.dropPup(e.x + 30, e.y);
-            this.lives = Math.min(5, this.lives + 1);
-            this.pop(e.x, e.y - 40, "¡Vida extra!", "#7bffb0", 16);
+            if (this.players === 1) {
+                this.slowMo = 40;
+            }
+            this.dropPup(e.x - 40, e.y);
+            this.dropPup(e.x, e.y);
+            this.dropPup(e.x + 40, e.y);
+            for (const sp of this._livingShips()) {
+                sp.lives = Math.min(5, sp.lives + 1);
+            }
+            this.pop(e.x, e.y - 40, "¡Vida extra para todos!", "#7bffb0", 16);
         } else {
             this.sBoom();
-            if (Math.random() < 0.13) {
+            if (Math.random() < 0.22) {
                 this.dropPup(e.x, e.y);
             }
         }
@@ -333,6 +515,7 @@ export class NeonStrikeEngine {
     bomb() {
         this.flashT = 12;
         this.sBigBoom();
+        this._ev({ k: "bomb" });
         this.shake = 20;
         for (let i = this.enemies.length - 1; i >= 0; i--) {
             const e = this.enemies[i];
@@ -346,12 +529,12 @@ export class NeonStrikeEngine {
                 this.killEnemy(e, i);
             }
         }
+        this.rocks = [];
         this.ebullets = [];
     }
 
-    hurtShip() {
-        const sp = this.ship;
-        if (sp.inv > 0) {
+    hurtShip(sp) {
+        if (sp.down || sp.inv > 0) {
             return;
         }
         if (sp.shield > 0) {
@@ -362,128 +545,139 @@ export class NeonStrikeEngine {
             this.pop(sp.x, sp.y - 30, "¡Escudo roto!", "#7bffb0", 14);
             return;
         }
-        this.lives--;
+        sp.lives--;
         this.sHit();
+        this._ev({ k: "hit", x: sp.x, y: sp.y, c: sp.color });
         this.shake = 18;
-        this.slowMo = 28;
-        this.burst(sp.x, sp.y, "#5ee1ff", 50, 7);
-        this.burst(sp.x, sp.y, "#ff8f5d", 30, 5);
-        sp.inv = 110;
+        if (this.players === 1) {
+            this.slowMo = 28;
+        }
+        this.burst(sp.x, sp.y, sp.color, 46, 7);
+        this.burst(sp.x, sp.y, "#ff8f5d", 26, 5);
         this.combo = 1;
-        if (this.lives <= 0) {
-            this.state = "over";
-            this.best = Math.max(this.best, this.score);
-            if (this.cb.onGameOver) {
-                this.cb.onGameOver({ score: this.score, wave: this.wave, best: this.best });
+        if (sp.lives <= 0) {
+            sp.down = true;
+            sp.reviveProgress = 0;
+            sp.shield = 0;
+            sp.weapon = "single";
+            this.burst(sp.x, sp.y, sp.color, 44, 7);
+            this.pop(sp.x, sp.y - 30, sp.name + " caído", "#ff8f8f", 15);
+            if (this._livingShips().length === 0) {
+                this.state = "over";
+                this.best = Math.max(this.best, this.score);
+                if (this.cb.onGameOver) {
+                    this.cb.onGameOver({ score: this.score, wave: this.wave, best: this.best });
+                }
             }
+        } else {
+            sp.inv = 110;
         }
     }
 
     reset() {
         this.score = 0;
-        this.lives = 3;
         this.wave = 0;
         this.combo = 1;
         this.comboT = 0;
-        this.weapon = "single";
-        this.weaponT = 0;
         this.bullets = [];
         this.ebullets = [];
         this.enemies = [];
+        this.rocks = [];
         this.parts = [];
         this.pops = [];
         this.pups = [];
         this.shake = 0;
         this.slowMo = 0;
         this.flashT = 0;
+        this.rockT = 180;
         this.bossAlive = false;
-        this.ship.x = this.ship.tx = this.W / 2;
-        this.ship.y = this.ship.ty = this.H - 70;
-        this.ship.inv = 90;
-        this.ship.shield = 0;
-        this.waveDelay = 40;
+        this._events = [];
+        this._initShips();
+        for (const sp of this.ships) {
+            sp.inv = 90;
+        }
+        this.waveDelay = 30;
     }
 
     /* ------------------------------------------------------------------ */
-    /* Update                                                              */
+    /* Update (host / solo)                                                */
     /* ------------------------------------------------------------------ */
 
     update(ts) {
         const W = this.W;
         const H = this.H;
-        const sp = this.ship;
 
-        for (const s of this.stars) {
-            s.y += s.z * (1.2 + this.wave * 0.06) * ts;
-            if (s.y > H) {
-                s.y = -4;
-                s.x = Math.random() * W;
-            }
-        }
+        this._updateStars(ts);
 
         if (this.state !== "playing") {
-            for (let i = this.parts.length - 1; i >= 0; i--) {
-                const p = this.parts[i];
-                p.x += p.vx * ts;
-                p.y += p.vy * ts;
-                p.life -= ts;
-                if (p.life <= 0) {
-                    this.parts.splice(i, 1);
-                }
-            }
-            for (let i = this.pops.length - 1; i >= 0; i--) {
-                const p = this.pops[i];
-                p.y += p.vy * ts;
-                p.life -= ts;
-                if (p.life <= 0) {
-                    this.pops.splice(i, 1);
-                }
-            }
+            this._updateFx(ts);
             return;
         }
 
-        sp.x += (sp.tx - sp.x) * 0.2 * ts;
-        sp.y += (sp.ty - sp.y) * 0.2 * ts;
-        sp.x = Math.max(20, Math.min(W - 20, sp.x));
-        sp.y = Math.max(70, Math.min(H - 24, sp.y));
-        if (sp.inv > 0) {
-            sp.inv -= ts;
-        }
-        if (this.frame % 2 === 0) {
-            this.parts.push({
-                x: sp.x + (Math.random() - 0.5) * 6,
-                y: sp.y + 16,
-                vx: (Math.random() - 0.5) * 0.6,
-                vy: 2.2,
-                r: Math.random() * 2 + 1,
-                c: "#3fa9ff",
-                life: 16,
-                ml: 16,
-            });
+        // Control hotseat: la nave slot 1 se mueve con WASD.
+        if (this.hotseat && this.ships[1] && !this.ships[1].down) {
+            const sp = this.ships[1];
+            const spd = 7;
+            if (this.keys.w) { sp.ty -= spd; }
+            if (this.keys.s) { sp.ty += spd; }
+            if (this.keys.a) { sp.tx -= spd; }
+            if (this.keys.d) { sp.tx += spd; }
+            sp.tx = Math.max(20, Math.min(W - 20, sp.tx));
+            sp.ty = Math.max(70, Math.min(H - 24, sp.ty));
         }
 
-        this.fireT -= ts;
-        if (this.fireT <= 0) {
-            this.fireT = this.weapon === "triple" ? 8 : 9;
-            this.sShoot();
-            this.burst(sp.x, sp.y - 20, "#aef1ff", 3, 1.5);
-            if (this.weapon === "triple") {
-                this.bullets.push(
-                    { x: sp.x, y: sp.y - 16, vx: 0, vy: -11 },
-                    { x: sp.x - 8, y: sp.y - 10, vx: -1.8, vy: -10.5 },
-                    { x: sp.x + 8, y: sp.y - 10, vx: 1.8, vy: -10.5 }
-                );
-            } else {
-                this.bullets.push({ x: sp.x, y: sp.y - 16, vx: 0, vy: -11 });
+        // Naves vivas: movimiento, estela, disparo, timers.
+        for (const sp of this.ships) {
+            if (sp.down) {
+                continue;
+            }
+            sp.x += (sp.tx - sp.x) * 0.2 * ts;
+            sp.y += (sp.ty - sp.y) * 0.2 * ts;
+            sp.x = Math.max(20, Math.min(W - 20, sp.x));
+            sp.y = Math.max(70, Math.min(H - 24, sp.y));
+            if (sp.inv > 0) {
+                sp.inv -= ts;
+            }
+            if (this.frame % 2 === 0) {
+                this.parts.push({
+                    x: sp.x + (Math.random() - 0.5) * 6,
+                    y: sp.y + 16,
+                    vx: (Math.random() - 0.5) * 0.6,
+                    vy: 2.2,
+                    r: Math.random() * 2 + 1,
+                    c: "#3fa9ff",
+                    life: 16,
+                    ml: 16,
+                });
+            }
+            sp.fireT -= ts;
+            if (sp.fireT <= 0) {
+                sp.fireT = sp.weapon === "triple" ? 8 : 9;
+                if (sp.slot === this.localSlot) {
+                    this.sShoot();
+                }
+                this.burst(sp.x, sp.y - 20, "#aef1ff", 3, 1.5);
+                if (sp.weapon === "triple") {
+                    this.bullets.push(
+                        { x: sp.x, y: sp.y - 16, vx: 0, vy: -11 },
+                        { x: sp.x - 8, y: sp.y - 10, vx: -1.8, vy: -10.5 },
+                        { x: sp.x + 8, y: sp.y - 10, vx: 1.8, vy: -10.5 }
+                    );
+                } else {
+                    this.bullets.push({ x: sp.x, y: sp.y - 16, vx: 0, vy: -11 });
+                }
+            }
+            if (sp.weaponT > 0) {
+                sp.weaponT -= ts;
+                if (sp.weaponT <= 0) {
+                    sp.weapon = "single";
+                    this.pop(sp.x, sp.y - 30, "Disparo normal", "#8be9ff", 12);
+                }
             }
         }
-        if (this.weaponT > 0) {
-            this.weaponT -= ts;
-            if (this.weaponT <= 0) {
-                this.weapon = "single";
-                this.pop(sp.x, sp.y - 30, "Disparo normal", "#8be9ff", 12);
-            }
-        }
+
+        this._updateRevive(ts);
+
         if (this.comboT > 0) {
             this.comboT -= ts;
             if (this.comboT <= 0) {
@@ -491,6 +685,7 @@ export class NeonStrikeEngine {
             }
         }
 
+        // Balas propias.
         for (let i = this.bullets.length - 1; i >= 0; i--) {
             const b = this.bullets[i];
             b.x += b.vx * ts;
@@ -499,6 +694,7 @@ export class NeonStrikeEngine {
                 this.bullets.splice(i, 1);
             }
         }
+        // Balas enemigas.
         for (let i = this.ebullets.length - 1; i >= 0; i--) {
             const b = this.ebullets[i];
             b.x += b.vx * ts;
@@ -507,14 +703,100 @@ export class NeonStrikeEngine {
                 this.ebullets.splice(i, 1);
                 continue;
             }
-            const dx = b.x - sp.x;
-            const dy = b.y - sp.y;
-            if (dx * dx + dy * dy < 270) {
+            let hit = false;
+            for (const sp of this.ships) {
+                if (sp.down || sp.inv > 0) {
+                    continue;
+                }
+                const dx = b.x - sp.x;
+                const dy = b.y - sp.y;
+                if (dx * dx + dy * dy < 270) {
+                    hit = true;
+                    this.hurtShip(sp);
+                    break;
+                }
+            }
+            if (hit) {
                 this.ebullets.splice(i, 1);
-                this.hurtShip();
             }
         }
 
+        this._updateEnemies(ts);
+        this._updateRocks(ts);
+        this._updatePups(ts);
+        this._updateFx(ts);
+
+        if (this.enemies.length === 0) {
+            this.waveDelay -= ts;
+            if (this.waveDelay <= 0) {
+                this.spawnWave();
+                this.waveDelay = 45;
+            }
+        }
+        this.rockT -= ts;
+        if (this.rockT <= 0) {
+            this.rockT = Math.max(80, 220 - this.wave * 12);
+            this.spawnRock();
+        }
+        if (this.shake > 0) {
+            this.shake *= 0.88;
+        }
+        if (this.flashT > 0) {
+            this.flashT -= ts;
+        }
+    }
+
+    _updateStars(ts) {
+        for (const s of this.stars) {
+            s.y += s.z * (1.2 + this.wave * 0.06) * ts;
+            if (s.y > this.H) {
+                s.y = -4;
+                s.x = Math.random() * this.W;
+            }
+        }
+    }
+
+    _updateRevive(ts) {
+        for (const dn of this.ships) {
+            if (!dn.down) {
+                continue;
+            }
+            let reviver = false;
+            for (const sp of this.ships) {
+                if (sp.down || sp === dn) {
+                    continue;
+                }
+                const dx = sp.x - dn.x;
+                const dy = sp.y - dn.y;
+                if (dx * dx + dy * dy < 42 * 42) {
+                    reviver = true;
+                    break;
+                }
+            }
+            if (reviver) {
+                dn.reviveProgress += ts;
+                if (this.frame % 18 === 0) {
+                    this.sTick();
+                }
+                if (dn.reviveProgress >= REVIVE_FRAMES) {
+                    dn.down = false;
+                    dn.lives = 1;
+                    dn.inv = 120;
+                    dn.reviveProgress = 0;
+                    this.burst(dn.x, dn.y, "#7bffb0", 40, 6);
+                    this.pop(dn.x, dn.y - 30, "¡" + dn.name + " revive!", "#7bffb0", 16);
+                    this.sPup();
+                    this._ev({ k: "pup", x: dn.x, y: dn.y });
+                }
+            } else if (dn.reviveProgress > 0) {
+                dn.reviveProgress = Math.max(0, dn.reviveProgress - ts * 0.5);
+            }
+        }
+    }
+
+    _updateEnemies(ts) {
+        const W = this.W;
+        const H = this.H;
         for (let i = this.enemies.length - 1; i >= 0; i--) {
             const e = this.enemies[i];
             e.t += ts;
@@ -523,15 +805,21 @@ export class NeonStrikeEngine {
                 e.x += Math.sin(e.t * 0.05) * 1.1 * ts;
             } else if (e.type === "speedy") {
                 e.y += (3 + this.wave * 0.08) * ts;
-                e.x += (sp.x - e.x) * 0.006 * ts;
+                const tgt = this._nearestShip(e.x, e.y);
+                if (tgt) {
+                    e.x += (tgt.x - e.x) * 0.006 * ts;
+                }
             } else if (e.type === "tank") {
                 e.y += 0.65 * ts;
                 if (e.y > 0 && Math.floor(e.t) % 150 === 0) {
-                    const dx = sp.x - e.x;
-                    const dy = sp.y - e.y;
-                    const d = Math.sqrt(dx * dx + dy * dy) || 1;
-                    this.ebullets.push({ x: e.x, y: e.y, vx: (dx / d) * 2.6, vy: (dy / d) * 2.6 });
-                    this.sTick();
+                    const tgt = this._aimShip();
+                    if (tgt) {
+                        const dx = tgt.x - e.x;
+                        const dy = tgt.y - e.y;
+                        const d = Math.sqrt(dx * dx + dy * dy) || 1;
+                        this.ebullets.push({ x: e.x, y: e.y, vx: (dx / d) * 2.6, vy: (dy / d) * 2.6 });
+                        this.sTick();
+                    }
                 }
             } else {
                 if (e.y < 95) {
@@ -548,13 +836,16 @@ export class NeonStrikeEngine {
                         this.sTick();
                     }
                     if (Math.floor(e.t) % 55 === 27) {
-                        const dx = sp.x - e.x;
-                        const dy = sp.y - e.y;
-                        const d = Math.sqrt(dx * dx + dy * dy) || 1;
-                        for (let k = -1; k <= 1; k++) {
-                            this.ebullets.push({ x: e.x, y: e.y, vx: (dx / d) * 3 + k * 0.7, vy: (dy / d) * 3 });
+                        const tgt = this._aimShip();
+                        if (tgt) {
+                            const dx = tgt.x - e.x;
+                            const dy = tgt.y - e.y;
+                            const d = Math.sqrt(dx * dx + dy * dy) || 1;
+                            for (let k = -1; k <= 1; k++) {
+                                this.ebullets.push({ x: e.x, y: e.y, vx: (dx / d) * 3 + k * 0.7, vy: (dy / d) * 3 });
+                            }
+                            this.sTick();
                         }
-                        this.sTick();
                     }
                 }
             }
@@ -562,16 +853,28 @@ export class NeonStrikeEngine {
                 this.enemies.splice(i, 1);
                 continue;
             }
-            const dx = e.x - sp.x;
-            const dy = e.y - sp.y;
-            const rr = e.r + 13;
-            if (dx * dx + dy * dy < rr * rr) {
-                this.hurtShip();
-                if (e.type !== "boss") {
-                    this.killEnemy(e, i);
+            // Colision con naves.
+            let killedByShip = false;
+            for (const sp of this.ships) {
+                if (sp.down) {
+                    continue;
                 }
+                const dx = e.x - sp.x;
+                const dy = e.y - sp.y;
+                const rr = e.r + 13;
+                if (dx * dx + dy * dy < rr * rr) {
+                    this.hurtShip(sp);
+                    if (e.type !== "boss") {
+                        this.killEnemy(e, i);
+                        killedByShip = true;
+                    }
+                    break;
+                }
+            }
+            if (killedByShip) {
                 continue;
             }
+            // Balas propias.
             for (let j = this.bullets.length - 1; j >= 0; j--) {
                 const b = this.bullets[j];
                 const bx = b.x - e.x;
@@ -590,7 +893,76 @@ export class NeonStrikeEngine {
                 }
             }
         }
+    }
 
+    _updateRocks(ts) {
+        const W = this.W;
+        const H = this.H;
+        for (let i = this.rocks.length - 1; i >= 0; i--) {
+            const rk = this.rocks[i];
+            rk.x += rk.vx * ts;
+            rk.y += rk.vy * ts;
+            rk.rot += rk.vr * ts;
+            if (rk.x < rk.r) { rk.vx = Math.abs(rk.vx); }
+            if (rk.x > W - rk.r) { rk.vx = -Math.abs(rk.vx); }
+            if (rk.y > H + rk.r + 20) {
+                this.rocks.splice(i, 1);
+                continue;
+            }
+            // Colision con naves.
+            let broke = false;
+            for (const sp of this.ships) {
+                if (sp.down) {
+                    continue;
+                }
+                const dx = rk.x - sp.x;
+                const dy = rk.y - sp.y;
+                const rr = rk.r + 12;
+                if (dx * dx + dy * dy < rr * rr) {
+                    this.hurtShip(sp);
+                    this._breakRock(rk, i);
+                    broke = true;
+                    break;
+                }
+            }
+            if (broke) {
+                continue;
+            }
+            // Balas propias.
+            for (let j = this.bullets.length - 1; j >= 0; j--) {
+                const b = this.bullets[j];
+                const bx = b.x - rk.x;
+                const by = b.y - rk.y;
+                if (bx * bx + by * by < (rk.r + 3) * (rk.r + 3)) {
+                    this.bullets.splice(j, 1);
+                    rk.hp--;
+                    this.burst(b.x, b.y, "#c9c9d6", 4, 2);
+                    if (rk.hp <= 0) {
+                        this._breakRock(rk, i);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    _breakRock(rk, i) {
+        this.rocks.splice(i, 1);
+        this.burst(rk.x, rk.y, "#b9bcd0", 20, 4.5);
+        this._ev({ k: "boom", x: rk.x, y: rk.y, c: "#b9bcd0", b: 0 });
+        this.sBoom();
+        this.shake = Math.min(this.shake + 4, 24);
+        this.score += 50 * this.combo;
+        this.pop(rk.x, rk.y, "+" + (50 * this.combo).toLocaleString(), "#c9c9d6", 12);
+        if (rk.r > 24) {
+            for (let k = 0; k < 2; k++) {
+                this.spawnRock(rk.x + (k ? 12 : -12), rk.y, rk.r * 0.55);
+            }
+        }
+    }
+
+    _updatePups(ts) {
+        const H = this.H;
         for (let i = this.pups.length - 1; i >= 0; i--) {
             const p = this.pups[i];
             p.y += p.vy * ts;
@@ -599,29 +971,42 @@ export class NeonStrikeEngine {
                 this.pups.splice(i, 1);
                 continue;
             }
-            const dx = p.x - sp.x;
-            const dy = p.y - sp.y;
-            if (dx * dx + dy * dy < 650) {
+            let picker = null;
+            for (const sp of this.ships) {
+                if (sp.down) {
+                    continue;
+                }
+                const dx = p.x - sp.x;
+                const dy = p.y - sp.y;
+                if (dx * dx + dy * dy < 650) {
+                    picker = sp;
+                    break;
+                }
+            }
+            if (picker) {
                 this.pups.splice(i, 1);
                 this.sPup();
                 this.burst(p.x, p.y, "#7bffb0", 14, 3);
+                this._ev({ k: "pup", x: p.x, y: p.y });
                 if (p.t === "T") {
-                    this.weapon = "triple";
-                    this.weaponT = 650;
-                    this.pop(sp.x, sp.y - 30, "¡Triple disparo!", "#5ee1ff", 15);
+                    picker.weapon = "triple";
+                    picker.weaponT = 650;
+                    this.pop(picker.x, picker.y - 30, "¡Triple disparo!", "#5ee1ff", 15);
                 } else if (p.t === "S") {
-                    sp.shield = 1;
-                    this.pop(sp.x, sp.y - 30, "¡Escudo!", "#7bffb0", 15);
+                    picker.shield = 1;
+                    this.pop(picker.x, picker.y - 30, "¡Escudo!", "#7bffb0", 15);
                 } else if (p.t === "B") {
                     this.bomb();
-                    this.pop(sp.x, sp.y - 30, "¡BOMBA!", "#ffb347", 18);
+                    this.pop(picker.x, picker.y - 30, "¡BOMBA!", "#ffb347", 18);
                 } else {
-                    this.lives = Math.min(5, this.lives + 1);
-                    this.pop(sp.x, sp.y - 30, "¡Vida extra!", "#ff8fb3", 15);
+                    picker.lives = Math.min(5, picker.lives + 1);
+                    this.pop(picker.x, picker.y - 30, "¡Vida extra!", "#ff8fb3", 15);
                 }
             }
         }
+    }
 
+    _updateFx(ts) {
         for (let i = this.parts.length - 1; i >= 0; i--) {
             const p = this.parts[i];
             p.x += p.vx * ts;
@@ -641,14 +1026,34 @@ export class NeonStrikeEngine {
                 this.pops.splice(i, 1);
             }
         }
+    }
 
-        if (this.enemies.length === 0) {
-            this.waveDelay -= ts;
-            if (this.waveDelay <= 0) {
-                this.spawnWave();
-                this.waveDelay = 70;
+    /* ------------------------------------------------------------------ */
+    /* Update (guest): interpolacion, sin simulacion                       */
+    /* ------------------------------------------------------------------ */
+
+    _guestUpdate(ts) {
+        this._updateStars(ts);
+        for (const sp of this.ships) {
+            sp.x += (sp.tx - sp.x) * 0.3 * ts;
+            sp.y += (sp.ty - sp.y) * 0.3 * ts;
+            if (sp.inv > 0) {
+                sp.inv -= ts;
+            }
+            if (!sp.down && this.state === "playing" && this.frame % 2 === 0) {
+                this.parts.push({
+                    x: sp.x + (Math.random() - 0.5) * 6,
+                    y: sp.y + 16,
+                    vx: (Math.random() - 0.5) * 0.6,
+                    vy: 2.2,
+                    r: Math.random() * 2 + 1,
+                    c: "#3fa9ff",
+                    life: 16,
+                    ml: 16,
+                });
             }
         }
+        this._updateFx(ts);
         if (this.shake > 0) {
             this.shake *= 0.88;
         }
@@ -658,12 +1063,102 @@ export class NeonStrikeEngine {
     }
 
     /* ------------------------------------------------------------------ */
+    /* Red: entrada remota y snapshot                                      */
+    /* ------------------------------------------------------------------ */
+
+    /** Host: aplica el puntero de un guest. */
+    setRemoteInput(slot, tx, ty) {
+        const sp = this.ships.find((s) => s.slot === slot);
+        if (sp && !sp.down) {
+            sp.tx = tx;
+            sp.ty = ty;
+        }
+    }
+
+    /** Host: estado compacto para difundir por el bus. */
+    snapshot() {
+        const snap = {
+            st: this.state,
+            sc: this.score,
+            wv: this.wave,
+            cb: this.combo,
+            ct: this.comboT,
+            sk: Math.round(this.shake),
+            fl: Math.round(this.flashT),
+            ships: this.ships.map((s) => ({
+                s: s.slot, n: s.name, c: s.color,
+                x: Math.round(s.x), y: Math.round(s.y),
+                iv: s.inv > 0 ? 1 : 0, sd: s.shield,
+                dn: s.down ? 1 : 0, rp: Math.round(s.reviveProgress),
+                wp: s.weapon === "triple" ? 1 : 0, lv: s.lives,
+            })),
+            en: this.enemies.map((e) => ({
+                t: e.type, x: Math.round(e.x), y: Math.round(e.y),
+                h: e.hp, mh: e.mhp, f: e.flash > 0 ? 1 : 0, tt: Math.round(e.t),
+            })),
+            bu: this.bullets.map((b) => [Math.round(b.x), Math.round(b.y)]),
+            eb: this.ebullets.map((b) => [Math.round(b.x), Math.round(b.y)]),
+            pu: this.pups.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y), t: p.t, ph: p.ph })),
+            rk: this.rocks.map((r) => ({ x: Math.round(r.x), y: Math.round(r.y), r: Math.round(r.r), a: r.rot, sp: r.spin })),
+            ev: this._events,
+        };
+        this._events = [];
+        return snap;
+    }
+
+    /** Guest: aplica un snapshot recibido. */
+    applySnapshot(snap) {
+        this.state = snap.st;
+        this.score = snap.sc;
+        this.wave = snap.wv;
+        this.combo = snap.cb;
+        this.comboT = snap.ct;
+        this.shake = snap.sk;
+        this.flashT = snap.fl;
+        // Naves por slot (interpolacion de posicion).
+        const slots = [];
+        for (const s of snap.ships) {
+            slots.push(s.s);
+            let sp = this.ships.find((k) => k.slot === s.s);
+            if (!sp) {
+                sp = this.mkShip(s.s);
+                sp.x = s.x;
+                sp.y = s.y;
+                this.ships.push(sp);
+            }
+            sp.name = s.n;
+            sp.color = s.c;
+            sp.tx = s.x;
+            sp.ty = s.y;
+            sp.inv = s.iv ? 8 : 0;
+            sp.shield = s.sd;
+            sp.down = !!s.dn;
+            sp.reviveProgress = s.rp;
+            sp.weapon = s.wp ? "triple" : "single";
+            sp.lives = s.lv;
+        }
+        this.ships = this.ships.filter((sp) => slots.includes(sp.slot));
+        // Entidades directas (sin interpolar en esta version).
+        this.enemies = snap.en.map((e) => ({
+            type: e.t, x: e.x, y: e.y, r: this._enemyR(e.t),
+            hp: e.h, mhp: e.mh, c: this._enemyColor(e.t),
+            flash: e.f ? 4 : 0, t: e.tt,
+        }));
+        this.bullets = snap.bu.map((b) => ({ x: b[0], y: b[1], vx: 0, vy: 0 }));
+        this.ebullets = snap.eb.map((b) => ({ x: b[0], y: b[1], vx: 0, vy: 0 }));
+        this.pups = snap.pu.map((p) => ({ x: p.x, y: p.y, t: p.t, ph: p.ph, r: 13 }));
+        this.rocks = snap.rk.map((r) => ({ x: r.x, y: r.y, r: r.r, rot: r.a, spin: r.sp || [] }));
+        for (const ev of snap.ev || []) {
+            this._playEvent(ev);
+        }
+    }
+
+    /* ------------------------------------------------------------------ */
     /* Render                                                              */
     /* ------------------------------------------------------------------ */
 
-    drawShipBody() {
+    drawShip(sp) {
         const g = this.g;
-        const sp = this.ship;
         if (sp.inv > 0 && (this.frame >> 2) % 2 === 0) {
             return;
         }
@@ -672,7 +1167,7 @@ export class NeonStrikeEngine {
         const tilt = Math.max(-0.35, Math.min(0.35, (sp.tx - sp.x) * 0.02));
         g.rotate(tilt);
         g.globalCompositeOperation = "lighter";
-        g.fillStyle = "rgba(94,225,255,0.12)";
+        g.fillStyle = this.glow(sp.color, 0.12);
         g.beginPath();
         g.arc(0, 0, 26, 0, 6.2832);
         g.fill();
@@ -685,7 +1180,7 @@ export class NeonStrikeEngine {
         g.closePath();
         g.fill();
         g.globalCompositeOperation = "source-over";
-        g.fillStyle = "#5ee1ff";
+        g.fillStyle = sp.color;
         g.beginPath();
         g.moveTo(0, -18);
         g.lineTo(13, 14);
@@ -707,6 +1202,36 @@ export class NeonStrikeEngine {
             g.arc(0, 0, 24, 0, 6.2832);
             g.stroke();
         }
+        g.restore();
+    }
+
+    drawWreck(sp) {
+        const g = this.g;
+        g.save();
+        g.translate(sp.x, sp.y);
+        g.globalAlpha = 0.45 + Math.sin(this.frame * 0.1) * 0.1;
+        g.strokeStyle = "rgba(190,190,210,0.7)";
+        g.lineWidth = 2;
+        g.beginPath();
+        g.moveTo(0, -14);
+        g.lineTo(11, 12);
+        g.lineTo(-3, 5);
+        g.lineTo(-12, 12);
+        g.closePath();
+        g.stroke();
+        g.globalAlpha = 1;
+        if (sp.reviveProgress > 0) {
+            g.strokeStyle = sp.color;
+            g.lineWidth = 3;
+            g.beginPath();
+            g.arc(0, 0, 22, -Math.PI / 2, -Math.PI / 2 + (sp.reviveProgress / REVIVE_FRAMES) * 6.2832);
+            g.stroke();
+        }
+        g.fillStyle = "rgba(255,150,150,0.85)";
+        g.font = "500 11px system-ui,sans-serif";
+        g.textAlign = "center";
+        g.textBaseline = "middle";
+        g.fillText(sp.name + " caído", 0, 30);
         g.restore();
     }
 
@@ -790,11 +1315,48 @@ export class NeonStrikeEngine {
         }
     }
 
+    drawRock(rk) {
+        const g = this.g;
+        g.save();
+        g.translate(rk.x, rk.y);
+        g.rotate(rk.rot);
+        g.fillStyle = "#3a3d52";
+        g.strokeStyle = "#7d8199";
+        g.lineWidth = 2;
+        g.beginPath();
+        const spin = rk.spin && rk.spin.length ? rk.spin : [1, 1, 1, 1, 1, 1, 1, 1];
+        for (let k = 0; k < spin.length; k++) {
+            const a = (k / spin.length) * 6.2832;
+            const px = Math.cos(a) * rk.r * spin[k];
+            const py = Math.sin(a) * rk.r * spin[k];
+            if (k) { g.lineTo(px, py); } else { g.moveTo(px, py); }
+        }
+        g.closePath();
+        g.fill();
+        g.stroke();
+        g.restore();
+    }
+
     render() {
         const g = this.g;
         const W = this.W;
         const H = this.H;
+        const dpr = this.dpr;
+
+        // Limpia todo el canvas fisico (barras de letterbox en negro).
+        g.setTransform(1, 0, 0, 1, 0, 0);
+        g.fillStyle = "#05060e";
+        g.fillRect(0, 0, this.cv.width, this.cv.height);
+
+        // Transform del mundo logico (escalado + centrado).
+        g.setTransform(dpr, 0, 0, dpr, 0, 0);
+        g.translate(this.ox, this.oy);
+        g.scale(this.scale, this.scale);
+
         g.save();
+        g.beginPath();
+        g.rect(0, 0, W, H);
+        g.clip();
         g.fillStyle = "#05060e";
         g.fillRect(0, 0, W, H);
         if (this.shake > 0.5) {
@@ -830,6 +1392,9 @@ export class NeonStrikeEngine {
             g.fill();
         }
         g.globalCompositeOperation = "source-over";
+        for (const rk of this.rocks) {
+            this.drawRock(rk);
+        }
         for (const p of this.pups) {
             const col = p.t === "T" ? "#5ee1ff" : p.t === "S" ? "#7bffb0" : p.t === "B" ? "#ffb347" : "#ff8fb3";
             const bob = Math.sin(p.ph) * 2;
@@ -851,7 +1416,13 @@ export class NeonStrikeEngine {
             this.drawEnemy(e);
         }
         if (this.state !== "start") {
-            this.drawShipBody();
+            for (const sp of this.ships) {
+                if (sp.down) {
+                    this.drawWreck(sp);
+                } else {
+                    this.drawShip(sp);
+                }
+            }
         }
         for (const p of this.pops) {
             g.globalAlpha = Math.max(0, p.life / p.ml);
@@ -868,6 +1439,13 @@ export class NeonStrikeEngine {
         }
         g.restore();
 
+        this._renderHud();
+    }
+
+    _renderHud() {
+        const g = this.g;
+        const W = this.W;
+        const H = this.H;
         g.textBaseline = "middle";
         if (this.state === "playing" || this.state === "over") {
             g.textAlign = "left";
@@ -887,20 +1465,31 @@ export class NeonStrikeEngine {
             g.fillStyle = "rgba(180,210,255,0.7)";
             g.font = "500 13px system-ui,sans-serif";
             g.fillText("Oleada " + this.wave, W / 2, 22);
-            for (let i = 0; i < this.lives; i++) {
-                g.fillStyle = "#5ee1ff";
-                g.beginPath();
-                g.moveTo(W - 20 - i * 20, 14);
-                g.lineTo(W - 14 - i * 20, 26);
-                g.lineTo(W - 26 - i * 20, 26);
-                g.closePath();
-                g.fill();
-            }
-            if (this.weapon === "triple") {
-                g.textAlign = "right";
-                g.fillStyle = "#5ee1ff";
+            // Panel por jugador (arriba a la derecha).
+            let py = 16;
+            g.textAlign = "right";
+            for (const sp of this.ships) {
                 g.font = "500 12px system-ui,sans-serif";
-                g.fillText("triple " + Math.ceil(this.weaponT / 60) + "s", W - 14, 42);
+                if (sp.down) {
+                    g.fillStyle = "rgba(255,130,130,0.85)";
+                    const pct = Math.floor((sp.reviveProgress / REVIVE_FRAMES) * 100);
+                    g.fillText(sp.name + " · caído " + pct + "%", W - 14, py);
+                } else {
+                    g.fillStyle = sp.color;
+                    let hearts = "";
+                    for (let k = 0; k < sp.lives; k++) {
+                        hearts += "▲";
+                    }
+                    let extra = hearts;
+                    if (sp.weapon === "triple") {
+                        extra += "  ✦";
+                    }
+                    if (sp.shield > 0) {
+                        extra += "  ◯";
+                    }
+                    g.fillText(sp.name + "  " + extra, W - 14, py);
+                }
+                py += 18;
             }
         }
         if (this.state === "start") {
@@ -916,9 +1505,15 @@ export class NeonStrikeEngine {
             g.font = "400 15px system-ui,sans-serif";
             g.fillText("Arrastra para moverte · disparo automático", W / 2, H / 2 - 16);
             g.fillText("Sobrevive las oleadas y derrota a los jefes", W / 2, H / 2 + 8);
-            g.fillStyle = "rgba(255,255,255," + pul + ")";
-            g.font = "500 18px system-ui,sans-serif";
-            g.fillText("Toca para jugar", W / 2, H / 2 + 58);
+            if (this.role !== "guest") {
+                g.fillStyle = "rgba(255,255,255," + pul + ")";
+                g.font = "500 18px system-ui,sans-serif";
+                g.fillText("Toca para jugar", W / 2, H / 2 + 58);
+            } else {
+                g.fillStyle = "rgba(180,210,255,0.7)";
+                g.font = "400 15px system-ui,sans-serif";
+                g.fillText("Esperando al anfitrión…", W / 2, H / 2 + 58);
+            }
             g.fillStyle = "#b78bad";
             g.font = "500 12px system-ui,sans-serif";
             g.fillText("Odoo 19 · módulo neon_strike", W / 2, H / 2 + 88);
@@ -937,9 +1532,15 @@ export class NeonStrikeEngine {
             g.font = "400 15px system-ui,sans-serif";
             g.fillText("Récord: " + this.best.toLocaleString() + " · Oleada " + this.wave, W / 2, H / 2 + 16);
             const pul = 0.7 + Math.sin(this.frame * 0.08) * 0.3;
-            g.fillStyle = "rgba(255,255,255," + pul + ")";
-            g.font = "500 17px system-ui,sans-serif";
-            g.fillText("Toca para reintentar", W / 2, H / 2 + 62);
+            if (this.role !== "guest") {
+                g.fillStyle = "rgba(255,255,255," + pul + ")";
+                g.font = "500 17px system-ui,sans-serif";
+                g.fillText("Toca para reintentar", W / 2, H / 2 + 62);
+            } else {
+                g.fillStyle = "rgba(180,210,255,0.7)";
+                g.font = "400 15px system-ui,sans-serif";
+                g.fillText("Esperando al anfitrión…", W / 2, H / 2 + 62);
+            }
         }
     }
 
@@ -950,26 +1551,35 @@ export class NeonStrikeEngine {
     _ptr(e) {
         const r = this.cv.getBoundingClientRect();
         return {
-            x: e.clientX - r.left,
-            y: e.clientY - r.top,
+            x: (e.clientX - r.left - this.ox) / this.scale,
+            y: (e.clientY - r.top - this.oy) / this.scale,
             touch: e.pointerType === "touch",
         };
+    }
+
+    _applyLocalInput(x, y) {
+        const sp = this.ships.find((s) => s.slot === this.localSlot);
+        if (sp) {
+            sp.tx = x;
+            sp.ty = y;
+        }
+        if (this.role === "guest" && this.cb.onLocalInput) {
+            this.cb.onLocalInput(x, y);
+        }
     }
 
     _pointerDown(e) {
         this.audio();
         const p = this._ptr(e);
-        if (this.state !== "playing") {
-            this.reset();
-            this.state = "playing";
+        // Solo el host/solo puede arrancar o reintentar tocando; el guest no.
+        if (this.role !== "guest" && this.state !== "playing") {
+            this.beginPlay();
         }
-        this.ship.tx = p.x;
-        this.ship.ty = p.touch ? p.y - 60 : p.y;
+        this._applyLocalInput(p.x, p.touch ? p.y - 60 : p.y);
     }
 
     _pointerMove(e) {
         const p = this._ptr(e);
-        this.ship.tx = p.x;
-        this.ship.ty = p.touch ? p.y - 60 : p.y;
+        this._applyLocalInput(p.x, p.touch ? p.y - 60 : p.y);
     }
 }

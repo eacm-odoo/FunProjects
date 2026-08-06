@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of Odoo. See LICENSE file for full copyright and licensing details. -->
+<odoo>
+
+    <!-- Página pública que sirve el juego OWL sin necesidad de login ni del
+         módulo website. Se apoya en `web.frontend_layout` (solo depende de `web`)
+         para cargar los assets frontend y la session info de forma canónica; el
+         componente se monta en `.o_neon_strike_root` (ver el bootstrap en
+         neon_strike_game.js), que se posiciona a pantalla completa por CSS. -->
+    <template id="page" name="Neon Strike">
+        <t t-call="web.frontend_layout">
+            <t t-set="title">Neon Strike</t>
+            <t t-set="additional_head">
+                <meta name="generator" content="Odoo"/>
+                <meta name="author" content="Odoo"/>
+            </t>
+            <div class="o_neon_strike_root"/>
+        </t>
+    </template>
+
+</odoo>

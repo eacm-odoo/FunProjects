@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 # Part of Odoo. See LICENSE file for full copyright and licensing details.
-from odoo import fields, models
+from odoo import api, fields, models
 
 
 class NeonStrikeScore(models.Model):
     """Puntuación de una partida de Neon Strike.
 
-    Cada registro se crea desde el cliente (OWL) al terminar una partida.
-    El jugador es siempre el usuario conectado (default), de modo que el
-    leaderboard es multi-usuario sin configuración extra.
+    Cada registro se crea al terminar una partida. El juego es público (sin
+    login): el jugador se identifica por un apodo. ``user_id`` solo se rellena si
+    resultó ser un usuario de Odoo conectado. El leaderboard es global y único.
     """
 
     _name = "neon.strike.score"
@@ -18,14 +18,30 @@ class NeonStrikeScore(models.Model):
 
     user_id = fields.Many2one(
         "res.users",
-        string="Jugador",
-        required=True,
+        string="Usuario",
         index=True,
         ondelete="cascade",
-        default=lambda self: self.env.user,
     )
+    nickname = fields.Char(string="Apodo")
     player_name = fields.Char(
-        related="user_id.name", store=True, string="Nombre",
+        compute="_compute_player_name", store=True, string="Nombre",
     )
     score = fields.Integer(string="Puntos", required=True)
     wave = fields.Integer(string="Oleada alcanzada")
+    mode = fields.Selection(
+        [("solo", "Individual"), ("coop", "Cooperativo")],
+        string="Modo",
+        default="solo",
+        required=True,
+    )
+    player_count = fields.Integer(string="Jugadores", default=1)
+    match_id = fields.Many2one(
+        "neon.strike.match",
+        string="Partida",
+        ondelete="set null",
+    )
+
+    @api.depends("nickname", "user_id.name")
+    def _compute_player_name(self):
+        for score in self:
+            score.player_name = score.nickname or score.user_id.name or "Jugador"
