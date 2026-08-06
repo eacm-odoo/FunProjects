@@ -1,3 +1,5 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_neon_strike_score_user,neon.strike.score.user,model_neon_strike_score,base.group_user,1,0,1,0
+access_neon_strike_score_user,neon.strike.score.user,model_neon_strike_score,base.group_user,1,0,0,0
 access_neon_strike_score_admin,neon.strike.score.admin,model_neon_strike_score,base.group_system,1,1,1,1
+access_neon_strike_match_admin,neon.strike.match.admin,model_neon_strike_match,base.group_system,1,1,1,1
+access_neon_strike_participant_admin,neon.strike.participant.admin,model_neon_strike_participant,base.group_system,1,1,1,1

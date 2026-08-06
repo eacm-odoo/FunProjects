@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="website_menu_pingpong" model="website.menu">
+        <field name="name">Ping Pong</field>
+        <field name="url">/pingpong</field>
+        <field name="parent_id" ref="website.main_menu"/>
+        <field name="sequence">90</field>
+    </record>
+</odoo>

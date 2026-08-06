@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="pingpong_match_view_list" model="ir.ui.view">
+        <field name="name">pingpong.match.list</field>
+        <field name="model">pingpong.match</field>
+        <field name="arch" type="xml">
+            <list string="Partidos" decoration-success="won == True" decoration-muted="won == False">
+                <field name="create_date" string="Fecha"/>
+                <field name="partner_id"/>
+                <field name="difficulty"/>
+                <field name="player_score" sum="Puntos jugador"/>
+                <field name="machine_score" sum="Puntos máquina"/>
+                <field name="margin"/>
+                <field name="hits" optional="show"/>
+                <field name="rallies" optional="hide"/>
+                <field name="won" widget="boolean_toggle" readonly="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="pingpong_match_view_form" model="ir.ui.view">
+        <field name="name">pingpong.match.form</field>
+        <field name="model">pingpong.match</field>
+        <field name="arch" type="xml">
+            <form string="Partido">
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="partner_id"/>
+                            <field name="difficulty"/>
+                            <field name="create_date" string="Jugado el" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="player_score"/>
+                            <field name="machine_score"/>
+                            <field name="margin"/>
+                            <field name="hits"/>
+                            <field name="rallies"/>
+                            <field name="won"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="pingpong_match_view_graph" model="ir.ui.view">
+        <field name="name">pingpong.match.graph</field>
+        <field name="model">pingpong.match</field>
+        <field name="arch" type="xml">
+            <graph string="Partidos" type="bar">
+                <field name="difficulty"/>
+                <field name="margin" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="pingpong_match_view_search" model="ir.ui.view">
+        <field name="name">pingpong.match.search</field>
+        <field name="model">pingpong.match</field>
+        <field name="arch" type="xml">
+            <search string="Partidos">
+                <field name="partner_id"/>
+                <field name="difficulty"/>
+                <filter name="filter_won" string="Victorias" domain="[('won','=',True)]"/>
+                <filter name="filter_lost" string="Derrotas" domain="[('won','=',False)]"/>
+                <separator/>
+                <filter name="filter_registered" string="Jugadores registrados" domain="[('partner_id','!=',False)]"/>
+                <group>
+                    <filter name="group_difficulty" string="Dificultad" context="{'group_by': 'difficulty'}"/>
+                    <filter name="group_partner" string="Jugador" context="{'group_by': 'partner_id'}"/>
+                    <filter name="group_date" string="Fecha" context="{'group_by': 'create_date:day'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="pingpong_match_action" model="ir.actions.act_window">
+        <field name="name">Partidos</field>
+        <field name="res_model">pingpong.match</field>
+        <field name="view_mode">list,form,graph</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Todavía no hay partidos</p>
+            <p>Abre /pingpong y juega uno: el resultado aparecerá aquí.</p>
+        </field>
+    </record>
+
+    <record id="pingpong_play_action" model="ir.actions.act_url">
+        <field name="name">Jugar</field>
+        <field name="url">/pingpong</field>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem id="menu_pingpong_root" name="Ping Pong 3D" sequence="95"/>
+    <menuitem id="menu_pingpong_play" name="Jugar" parent="menu_pingpong_root" action="pingpong_play_action" sequence="10"/>
+    <menuitem id="menu_pingpong_matches" name="Partidos" parent="menu_pingpong_root" action="pingpong_match_action" sequence="20"/>
+</odoo>
