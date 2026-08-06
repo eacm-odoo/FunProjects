@@ -131,6 +131,14 @@
                     <p class="o_pp_error" t-if="state.error" t-out="state.error"/>
                     <p class="o_pp_error" t-if="state.opponentGone" t-out="state.opponentGone"/>
 
+                    <!-- The bus with nothing on it. Compare against the figure
+                         shown during play: if this one is small and that one is
+                         not, the traffic is the problem, not the server. -->
+                    <p class="o_pp_probe" t-if="state.idleRtt">
+                        Bus en reposo: <b><t t-out="state.idleRtt"/> ms</b>
+                        <span> (HTTP <t t-out="state.idleHttp"/> ms)</span>
+                    </p>
+
                     <div class="o_pp_row" style="margin-top:22px">
                         <button class="o_pp_btn primary" t-if="isHost"
                                 t-att-disabled="!canStart or state.busy"
