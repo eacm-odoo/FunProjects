@@ -62,6 +62,8 @@ export class PingPongGame extends Component {
             rtt: 0,
             httpRtt: 0,
             selfRtt: 0,
+            fps: 0,
+            worstFrame: 0,
             idleRtt: 0,
             idleHttp: 0,
             superseded: 0,
@@ -416,6 +418,8 @@ export class PingPongGame extends Component {
                 this.state.rtt = status.rtt;
                 this.state.httpRtt = status.httpRtt;
                 this.state.selfRtt = status.selfRtt;
+                this.state.fps = status.frame.fps;
+                this.state.worstFrame = status.frame.worst;
                 this.state.superseded = status.superseded;
                 this.state.inFlight = status.inFlight;
             },

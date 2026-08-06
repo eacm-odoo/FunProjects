@@ -49,11 +49,12 @@
                      t-att-title="'Total al rival: ' + state.rtt + ' ms · ida y vuelta a mí mismo: '
                                   + state.selfRtt + ' ms · solo HTTP: ' + state.httpRtt
                                   + ' ms · en vuelo: ' + state.inFlight
-                                  + ' · descartados por obsoletos: ' + state.superseded">
+                                  + ' · descartados por obsoletos: ' + state.superseded
+                                  + ' · peor frame: ' + state.worstFrame + ' ms'">
                     <span t-att-class="'dot ' + (state.rtt &lt; 120 ? 'good' : (state.rtt &lt; 250 ? 'fair' : 'poor'))"/>
                     <t t-out="state.rtt"/> ms
                     <small t-if="state.httpRtt">
-                        http <t t-out="state.httpRtt"/><t t-if="state.selfRtt"> · yo <t t-out="state.selfRtt"/></t>
+                        http <t t-out="state.httpRtt"/><t t-if="state.selfRtt"> · yo <t t-out="state.selfRtt"/></t><t t-if="state.fps"> · <t t-out="state.fps"/> fps</t>
                     </small>
                 </div>
             </t>
