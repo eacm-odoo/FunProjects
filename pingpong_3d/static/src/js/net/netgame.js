@@ -26,13 +26,22 @@ import {
     encodeSnapshot,
 } from "./protocol.js";
 
-/* Rates, in ticks of the 240 Hz simulation. Event driven rather than fast: the
- * ball follows a closed-form path between strokes, so a guest predicts it almost
- * exactly and only needs correcting when something discrete happens. A hit, a
- * bounce, a point or a serve is sent the instant it occurs; the periodic
- * snapshot is only there to stop small errors accumulating. */
-const SNAPSHOT_EVERY = 24;        // 10 Hz
-const INPUT_EVERY = 20;           // 12 Hz
+/* Rates, in ticks of the 240 Hz simulation.
+ *
+ * Event driven rather than fast: the ball follows a closed-form path between
+ * strokes, so a guest predicts it almost exactly and only needs correcting when
+ * something discrete happens. A hit, a serve or a point is sent the instant it
+ * occurs; the periodic snapshot only stops small errors accumulating.
+ *
+ * These numbers are deliberately low. What costs on Odoo's bus is the *count*
+ * of notifications, not their size: the websocket process runs a full ORM query
+ * per notification delivered (`bus.bus._poll`), and it is cooperative, so those
+ * queries do not overlap. Measured on a one-worker Odoo.sh build, delivery sat
+ * at ~120 ms with an idle bus and ~700 ms once two players were pushing 25
+ * messages a second at it. Raising these rates does not make the game smoother,
+ * it makes it worse. */
+const SNAPSHOT_EVERY = 48;        // 5 Hz
+const INPUT_EVERY = 30;           // 8 Hz
 const SAMPLE_EVERY = 4;           // record the paddle at 60 Hz
 const SAMPLES_PER_MESSAGE = 4;
 
@@ -96,7 +105,6 @@ export class NetGame {
         this.lastAppliedTick = -1;
         this.lastHitTick = -Infinity;
         this.claimId = 0;
-        this.openClaims = new Map();
         this.rewindTicks = REWIND_TICKS_MIN;
 
         this.stats = {
@@ -303,7 +311,6 @@ export class NetGame {
             vec(event.outVel),
             vec(event.outSpin)
         );
-        this.openClaims.set(this.claimId, event.tick);
         this.send(MSG.CLAIM, claim);
         this.stats.claimsSent++;
     }
@@ -502,12 +509,7 @@ export class NetGame {
                     type: "end", score: msg.score, hits: msg.hits, rallies: msg.rallies,
                 });
                 break;
-            case "hok":
-                this.openClaims.delete(msg.id);
-                this.stats.claimsAccepted++;
-                break;
             case "hno":
-                this.openClaims.delete(msg.id);
                 this.stats.claimsRejected++;
                 this.engine.emit({ type: "claim:rejected", reason: msg.r });
                 break;
@@ -689,8 +691,11 @@ export class NetGame {
         this.sim.hit(side);
         this._replayTo(now, COSMETIC);
         this.stats.claimsAccepted++;
-        this.send(MSG.EVENT, { e: "hok", id: msg.id, t: tick });
-        this._sendSnapshot();                        // let the guest confirm at once
+        // No acknowledgement is sent. The guest already drew this stroke and the
+        // host just agreed with it, so an "accepted" message would carry no
+        // information at the cost of a notification -- and notifications are the
+        // scarce resource. Only a rejection has anything to say.
+        this._sendSnapshot();                        // the correction, if any
     }
 
     _acceptServe(stored, now, id) {
@@ -703,7 +708,6 @@ export class NetGame {
         this.sim.serve(this.remoteSide);             // same seed, same serve
         this._replayTo(now, COSMETIC);
         this.stats.claimsAccepted++;
-        this.send(MSG.EVENT, { e: "hok", id, t: stored.tick });
         this._sendSnapshot();
     }
 
