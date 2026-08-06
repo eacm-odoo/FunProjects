@@ -53,6 +53,17 @@ const REWIND_TICKS_MIN = 48;
 const REWIND_TICKS_MAX = 220;
 const FUTURE_SLACK_TICKS = 12;
 
+/* How far back a correction may re-simulate.
+ *
+ * A snapshot describes a state from half a round trip ago, so replaying it costs
+ * one physics step per tick of latency. At 850 ms that is a hundred steps per
+ * snapshot, several times a second, on top of the 240 the match already runs --
+ * and it feeds back on itself, because the busier the main thread gets the later
+ * every timestamp looks. Past this budget a periodic snapshot is not worth what
+ * it costs: the immediate hit and point events carry the match on their own, and
+ * they are the ones that matter. */
+const REPLAY_BUDGET_TICKS = 96;   // 400 ms
+
 /* Reconciliation thresholds, in metres. */
 const DEADZONE = 0.008;
 const DEADZONE_AFTER_HIT = 0.025;
@@ -111,6 +122,7 @@ export class NetGame {
             snapshotsIn: 0, snapshotsOut: 0, stale: 0,
             claimsSent: 0, claimsAccepted: 0, claimsRejected: 0,
             corrections: 0, snaps: 0, worstError: 0, lastError: 0, errorSum: 0, errorCount: 0,
+            tooOld: 0, replayedTicks: 0,
         };
 
         this.sync = new ClockSync((payload) => this.transport.send(MSG.PING, payload));
@@ -399,6 +411,11 @@ export class NetGame {
         }
 
         const now = this.sim.tick;
+        if (now - state.tick > REPLAY_BUDGET_TICKS) {
+            this.stats.tooOld++;
+            this.lastAppliedTick = state.tick;
+            return;                                  // costs more than it is worth
+        }
         const predicted = this.ring.get(state.tick);
         if (state.tick > now || !predicted) {
             this._adopt(state, now, true);
@@ -473,7 +490,8 @@ export class NetGame {
         this.replaying = true;
         this.sim.mutedEvents = muted;
         let guard = 0;
-        while (this.sim.tick < targetTick && guard++ < 600) {
+        this.stats.replayedTicks += Math.max(0, targetTick - this.sim.tick);
+        while (this.sim.tick < targetTick && guard++ < REPLAY_BUDGET_TICKS * 2) {
             const past = this.ring.get(this.sim.tick + 1);
             if (past) {
                 this.sim.paddle[0].fromArray(past.paddle[0]);
@@ -743,6 +761,7 @@ export class NetGame {
             rtt: Math.round(this.sync.rtt),
             httpRtt: transport && transport.httpRtt ? transport.httpRtt : 0,
             selfRtt: this.selfRtt,
+            frame: this.engine.frameStats ? this.engine.frameStats : { fps: 0, worst: 0 },
             inFlight: transport ? transport.inFlight || 0 : 0,
             superseded: transport ? transport.superseded || 0 : 0,
             offset: Math.round(this.sync.offset),

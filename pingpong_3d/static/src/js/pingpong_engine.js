@@ -69,6 +69,11 @@ export class PingPongEngine {
 
         this.pointer = { x: 0, y: 0 };
         this.clock = new MatchClock();
+        /* Frame times, so a stalled main thread can be told apart from a slow
+           link. Anything a browser cannot deliver in 16 ms also delays every
+           network callback by the same amount, and that delay is indistinguishable
+           from latency when you only look at a round trip. */
+        this._frameTimes = [];
 
         this.sim = new PingPongSim({
             matchPoint,
@@ -237,8 +242,13 @@ export class PingPongEngine {
     _frame() {
         this.rafId = requestAnimationFrame(() => this._frame());
         const now = Date.now();
-        const dt = Math.min(0.05, (now - this.lastFrame) / 1000);
+        const raw = now - this.lastFrame;
+        const dt = Math.min(0.05, raw / 1000);
         this.lastFrame = now;
+        this._frameTimes.push(raw);
+        if (this._frameTimes.length > 120) {
+            this._frameTimes.shift();
+        }
 
         if (this.running) {
             this._updateLocalPaddle(dt);
@@ -259,6 +269,20 @@ export class PingPongEngine {
         }
 
         this.view.draw(this.sim, dt);
+    }
+
+    /** Median and worst frame time over the last couple of seconds, in ms. */
+    get frameStats() {
+        if (!this._frameTimes.length) {
+            return { median: 0, worst: 0, fps: 0 };
+        }
+        const sorted = [...this._frameTimes].sort((a, b) => a - b);
+        const median = sorted[Math.floor(sorted.length / 2)];
+        return {
+            median: Math.round(median),
+            worst: Math.round(sorted[sorted.length - 1]),
+            fps: median ? Math.round(1000 / median) : 0,
+        };
     }
 
     _resize() {
