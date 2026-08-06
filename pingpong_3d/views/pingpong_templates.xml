@@ -1,100 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <template id="game_page" name="Ping Pong 3D">&lt;!DOCTYPE html&gt;
-        <html lang="es">
-            <head>
-                <meta charset="utf-8"/>
-                <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-                <title>Ping Pong 3D</title>
-                <link rel="preconnect" href="https://fonts.googleapis.com"/>
-                <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin"/>
-                <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
-                <link rel="stylesheet" type="text/css" href="/pingpong_3d/static/src/css/pingpong.css"/>
-                <script type="importmap">
-                {
-                  "imports": {
-                    "three": "https://unpkg.com/three@0.184.0/build/three.module.js",
-                    "three/addons/controls/OrbitControls.js": "https://unpkg.com/three@0.184.0/examples/jsm/controls/OrbitControls.js",
-                    "three/addons/exporters/OBJExporter.js": "https://unpkg.com/three@0.184.0/examples/jsm/exporters/OBJExporter.js",
-                    "three/addons/exporters/GLTFExporter.js": "https://unpkg.com/three@0.184.0/examples/jsm/exporters/GLTFExporter.js"
-                  },
-                  "integrity": {
-                    "https://unpkg.com/three@0.184.0/build/three.module.js": "sha384-8FCZ1eVO6it4+pbec2aDtnTrwjWXZLJRC+MAGCIPDgsYnUrl/E0A2YlF8ioMKI/J",
-                    "https://unpkg.com/three@0.184.0/build/three.core.js": "sha384-dw2ooPewaEIrAgl6oFDBmmBWCE9oW9LxRGcfwZ0hLvEprzo202wXl7vCYHRlSnOT",
-                    "https://unpkg.com/three@0.184.0/examples/jsm/controls/OrbitControls.js": "sha384-4rziNxOBZKQ69i+w+f89KJ55TCYquwchVbByQwmaOeIOXdOU2PLDn3kOfXHwIJC9",
-                    "https://unpkg.com/three@0.184.0/examples/jsm/exporters/OBJExporter.js": "sha384-nbwtoZENJD3Vq+ACK0CuGQdPMuDWHkamC2KJD70EV5nfg6jQjfppKOea07YJN+N3",
-                    "https://unpkg.com/three@0.184.0/examples/jsm/exporters/GLTFExporter.js": "sha384-VofkvpG6HERhFCYbsUOHeNXBCqID2nfqkQqnVzE1jc/oPcz+qJ13ADdXH08hE+cQ"
-                  }
-                }
-                </script>
-                <script type="text/javascript">
-                    window.PINGPONG_SCORE_URL = "/pingpong/score";
-                </script>
-            </head>
-            <body>
-                <div id="app"></div>
-                
-                <div class="ui">
-                  <div class="hud" id="hud">
-                    <div class="side you"><div class="lbl">Tú</div><div class="val" id="sp">0</div></div>
-                    <div class="mid"><div class="diff" id="dLabel">Normal</div><div class="serve" id="serveLabel">Saca: tú</div></div>
-                    <div class="side cpu"><div class="lbl">Máquina</div><div class="val" id="sa">0</div></div>
-                  </div>
-                
-                  <div class="meters" id="meters">
-                    <div class="meter"><div class="t"><span>Potencia</span><b id="powV">0.0 m/s</b></div><div class="bar"><i id="powB"></i></div></div>
-                    <div class="meter"><div class="t"><span>Efecto</span><b id="spinV">—</b></div><div class="bar spin"><i id="spinB"></i></div></div>
-                  </div>
-                
-                  <div class="hint" id="hint">
-                    <b>Mueve el ratón</b> para colocar la pala: horizontal apunta, vertical sube o baja.<br/>
-                    <b>Golpea con movimiento</b>: barrer hacia arriba da liftado, hacia abajo cortado, y de lado efecto lateral.<br/>
-                    <kbd>Espacio</kbd> saque · <kbd>P</kbd> pausa · <kbd>C</kbd> cámara
-                  </div>
-                
-                  <div class="toast" id="toast"></div>
-                
-                  <div class="screen" id="startScreen">
-                    <div class="card">
-                      <div class="brand"><span class="dot"></span>Ping Pong 3D</div>
-                      <h1>Juega contra la máquina</h1>
-                      <p>Física real: gravedad, resistencia del aire y efecto Magnus. El liftado hunde la bola, el cortado la frena y el lateral la curva. Primero en llegar a 11 puntos gana.</p>
-                      <div class="diffs" id="diffs"></div>
-                      <div class="row">
-                        <button class="btn primary" id="playBtn">Empezar partido</button>
-                        <button class="btn ghost" id="camBtn">Cámara: jugador</button>
-                      </div>
-                    </div>
-                  </div>
-                
-                  <div class="screen hidden" id="pauseScreen">
-                    <div class="card">
-                      <div class="brand"><span class="dot"></span>Pausa</div>
-                      <h1 id="pauseScore">0 — 0</h1>
-                      <p>El partido está detenido. Puedes seguir o volver al menú para cambiar la dificultad.</p>
-                      <div class="row" style="margin-top:24px">
-                        <button class="btn primary" id="resumeBtn">Continuar</button>
-                        <button class="btn ghost" id="menuBtn">Volver al menú</button>
-                      </div>
-                    </div>
-                  </div>
-                
-                  <div class="screen hidden" id="endScreen">
-                    <div class="card">
-                      <div class="brand"><span class="dot"></span><span id="endKicker">Fin del partido</span></div>
-                      <h1 id="endTitle">¡Ganaste!</h1>
-                      <div class="final"><b id="endScore">11 — 7</b><span id="endMeta">Dificultad Normal · 24 golpes</span></div>
-                      <div class="row" style="margin-top:26px">
-                        <button class="btn primary" id="againBtn">Revancha</button>
-                        <button class="btn ghost" id="endMenuBtn">Cambiar dificultad</button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+    <!--
+        Full-screen game page.
 
-                <a href="/" class="back-link">&#8592; Volver</a>
-                <script type="module" src="/pingpong_3d/static/src/js/pingpong.js"></script>
-            </body>
-        </html>
+        It used to be a standalone HTML document with an importmap pointing at
+        unpkg. It now goes through web.frontend_layout so the page gets the Odoo
+        module registry, rpc and bus_service, while three.js is served from
+        static/lib. no_header/no_footer strip the portal navbar that would
+        otherwise sit on top of the canvas.
+
+        The game assets live in their own bundle rather than in
+        web.assets_frontend: three.js is a couple of megabytes of source and has
+        no business being downloaded on every page of the website. That bundle
+        is fetched at runtime by static/src/boot/pingpong_boot.js, which is the
+        module's only entry in web.assets_frontend. A `t-call-assets` here would
+        run before Odoo's module loader exists.
+
+        The whole interface is an OWL app mounted on .o_pingpong_root, so the
+        only thing this template carries is the anchor and its configuration.
+    -->
+    <template id="game_page" name="Ping Pong 3D">
+        <t t-call="web.frontend_layout">
+            <t t-set="title">Ping Pong 3D</t>
+            <t t-set="no_header" t-value="True"/>
+            <t t-set="no_footer" t-value="True"/>
+            <t t-set="body_classname" t-value="'o_pingpong_page'"/>
+            <t t-set="head">
+                <meta name="author" content="Odoo"/>
+                <meta name="generator" content="Odoo"/>
+            </t>
+
+            <div class="o_pingpong_root" t-att-data-score-url="score_url"/>
+        </t>
     </template>
 </odoo>
