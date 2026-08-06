@@ -1,3 +1,7 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_pingpong_match_user,pingpong.match.user,model_pingpong_match,base.group_user,1,0,0,0
 access_pingpong_match_manager,pingpong.match.manager,model_pingpong_match,base.group_system,1,1,1,1
+access_pingpong_session_user,pingpong.session.user,model_pingpong_session,base.group_user,1,0,0,0
+access_pingpong_session_manager,pingpong.session.manager,model_pingpong_session,base.group_system,1,1,1,1
+access_pingpong_participant_user,pingpong.participant.user,model_pingpong_participant,base.group_user,1,0,0,0
+access_pingpong_participant_manager,pingpong.participant.manager,model_pingpong_participant,base.group_system,1,1,1,1

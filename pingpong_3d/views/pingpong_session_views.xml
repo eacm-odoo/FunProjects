@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+        Backend views for the live rooms.
+
+        These exist to debug the online mode: which rooms are open, who is in
+        them and whether their heartbeat is still coming. Nobody plays from here,
+        and the public never reaches these models through the ORM anyway.
+    -->
+    <record id="pingpong_session_view_list" model="ir.ui.view">
+        <field name="name">pingpong.session.list</field>
+        <field name="model">pingpong.session</field>
+        <field name="arch" type="xml">
+            <list string="Salas"
+                  decoration-info="state == 'playing'"
+                  decoration-muted="state in ('over', 'abandoned')">
+                <field name="create_date" string="Creada"/>
+                <field name="code"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'playing'"
+                       decoration-warning="state in ('waiting', 'ready')"/>
+                <field name="player_count" string="Jugadores"/>
+                <field name="host_score"/>
+                <field name="guest_score"/>
+                <field name="is_public_queue" optional="show"/>
+                <field name="last_activity" optional="show"/>
+                <field name="match_point" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="pingpong_session_view_form" model="ir.ui.view">
+        <field name="name">pingpong.session.form</field>
+        <field name="model">pingpong.session</field>
+        <field name="arch" type="xml">
+            <form string="Sala">
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="code" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group string="Estado">
+                            <field name="state"/>
+                            <field name="is_public_queue"/>
+                            <field name="player_count"/>
+                            <field name="last_activity"/>
+                            <field name="started_at"/>
+                            <field name="ended_at"/>
+                        </group>
+                        <group string="Partido">
+                            <field name="match_point"/>
+                            <field name="first_server"/>
+                            <field name="rng_seed"/>
+                            <field name="host_score"/>
+                            <field name="guest_score"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Jugadores" name="players">
+                            <field name="participant_ids" readonly="1">
+                                <list>
+                                    <field name="slot"/>
+                                    <field name="role"/>
+                                    <field name="name"/>
+                                    <field name="partner_id"/>
+                                    <field name="score"/>
+                                    <field name="last_seen"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Resultado" name="history">
+                            <field name="match_ids" readonly="1">
+                                <list>
+                                    <field name="create_date"/>
+                                    <field name="name"/>
+                                    <field name="player_score"/>
+                                    <field name="machine_score"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Técnico" name="technical" groups="base.group_no_one">
+                            <group>
+                                <!-- Knowing this token grants a bus subscription. -->
+                                <field name="access_token" readonly="1"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="pingpong_session_view_search" model="ir.ui.view">
+        <field name="name">pingpong.session.search</field>
+        <field name="model">pingpong.session</field>
+        <field name="arch" type="xml">
+            <search string="Salas">
+                <field name="code"/>
+                <field name="participant_ids" string="Jugador"/>
+                <filter name="filter_live" string="En curso"
+                        domain="[('state', 'in', ('waiting', 'ready', 'playing'))]"/>
+                <filter name="filter_queue" string="En cola pública"
+                        domain="[('is_public_queue', '=', True), ('state', '=', 'waiting')]"/>
+                <separator/>
+                <!-- datetime.datetime.now() is UTC in the domain evaluator, which
+                     is what last_activity is stored in. context_today() would be
+                     a date, and subtracting minutes from it does nothing. -->
+                <filter name="filter_stale" string="Sin señal (2 min)"
+                        domain="[('last_activity', '&lt;', (datetime.datetime.now() - datetime.timedelta(minutes=2)).strftime('%Y-%m-%d %H:%M:%S'))]"/>
+                <group>
+                    <filter name="group_state" string="Estado" context="{'group_by': 'state'}"/>
+                    <filter name="group_date" string="Creada" context="{'group_by': 'create_date:day'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="pingpong_session_action" model="ir.actions.act_window">
+        <field name="name">Salas online</field>
+        <field name="res_model">pingpong.session</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'search_default_filter_live': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No hay ninguna sala abierta</p>
+            <p>Las salas aparecen aquí cuando alguien crea o se une a un 1v1 online.</p>
+        </field>
+    </record>
+
+    <menuitem id="menu_pingpong_sessions"
+              name="Salas online"
+              parent="menu_pingpong_root"
+              action="pingpong_session_action"
+              sequence="30"
+              groups="base.group_system"/>
+</odoo>

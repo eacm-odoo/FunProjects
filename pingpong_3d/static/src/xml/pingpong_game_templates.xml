@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="pingpong_3d.Game">
+        <div class="o_pp_stage" t-ref="stage"/>
+
+        <div class="o_pp_ui">
+            <t t-if="state.screen === 'playing'">
+                <div class="o_pp_hud">
+                    <div class="side you">
+                        <div class="lbl">Tú</div>
+                        <div class="val" t-out="state.score[localSide]"/>
+                    </div>
+                    <div class="mid">
+                        <div class="diff">
+                            <t t-if="state.mode === 'online'">
+                                <t t-out="state.room ? state.room.code : 'Online'"/>
+                            </t>
+                            <t t-else="" t-out="difficultyName"/>
+                        </div>
+                        <div class="serve">Saca: <t t-out="serverName"/></div>
+                    </div>
+                    <div class="side cpu">
+                        <div class="lbl" t-out="opponentLabel"/>
+                        <div class="val" t-out="state.score[remoteSide]"/>
+                    </div>
+                </div>
+
+                <div class="o_pp_meters">
+                    <div class="o_pp_meter">
+                        <div class="t"><span>Potencia</span><b t-ref="powVal">0.0 m/s</b></div>
+                        <div class="o_pp_bar"><i t-ref="powBar"/></div>
+                    </div>
+                    <div class="o_pp_meter">
+                        <div class="t"><span>Efecto</span><b t-ref="spinVal">—</b></div>
+                        <div class="o_pp_bar spin"><i t-ref="spinBar"/></div>
+                    </div>
+                </div>
+
+                <div class="o_pp_hint">
+                    <b>Mueve el ratón</b> para colocar la pala: horizontal apunta, vertical sube o baja.<br/>
+                    <b>Golpea con movimiento</b>: barrer hacia arriba da liftado, hacia abajo cortado, y de lado efecto lateral.<br/>
+                    <kbd>Espacio</kbd> saque ·
+                    <t t-if="state.mode === 'solo'"><kbd>P</kbd> pausa · </t>
+                    <kbd>C</kbd> cámara
+                </div>
+
+                <div class="o_pp_net" t-if="state.mode === 'online'"
+                     t-att-title="'Total al rival: ' + state.rtt + ' ms · HTTP a Odoo: ' + state.httpRtt
+                                  + ' ms · en vuelo: ' + state.inFlight
+                                  + ' · mensajes descartados por obsoletos: ' + state.superseded">
+                    <span t-att-class="'dot ' + (state.rtt &lt; 120 ? 'good' : (state.rtt &lt; 250 ? 'fair' : 'poor'))"/>
+                    <t t-out="state.rtt"/> ms
+                    <small t-if="state.httpRtt">http <t t-out="state.httpRtt"/></small>
+                </div>
+            </t>
+
+            <div class="o_pp_toast" t-att-style="state.toast ? 'opacity:1' : 'opacity:0'">
+                <t t-if="state.toast">
+                    <t t-out="state.toast.main"/>
+                    <small t-if="state.toast.sub" t-out="state.toast.sub"/>
+                </t>
+            </div>
+
+            <!-- menu -->
+            <div class="o_pp_screen" t-if="state.screen === 'menu'">
+                <div class="o_pp_card">
+                    <div class="o_pp_brand"><span class="dot"/>Ping Pong 3D</div>
+                    <h1>Juega contra la máquina<br/>o contra alguien más</h1>
+                    <p>Física real: gravedad, resistencia del aire y efecto Magnus. El liftado hunde la bola,
+                        el cortado la frena y el lateral la curva. Primero en llegar a <t t-out="matchPoint"/> puntos gana.</p>
+
+                    <div class="o_pp_diffs">
+                        <button t-foreach="difficulties" t-as="diff" t-key="diff.key"
+                                t-att-class="diff.key === state.difficulty ? 'on' : ''"
+                                t-on-click="() => this.setDifficulty(diff.key)">
+                            <strong t-out="diff.name"/>
+                            <span t-out="diff.blurb"/>
+                        </button>
+                    </div>
+                    <div class="o_pp_row">
+                        <button class="o_pp_btn primary" t-on-click="startSolo">Jugar contra la máquina</button>
+                        <button class="o_pp_btn ghost" t-on-click="cycleCamera">
+                            Cámara: <t t-out="state.camLabel"/>
+                        </button>
+                    </div>
+
+                    <div class="o_pp_sep"><span>o juega online 1 contra 1</span></div>
+
+                    <div class="o_pp_online">
+                        <input type="text" class="o_pp_input" placeholder="Tu nombre"
+                               maxlength="24" t-model="state.nickname"/>
+                        <div class="o_pp_row">
+                            <button class="o_pp_btn primary" t-on-click="createRoom"
+                                    t-att-disabled="state.busy">Crear sala</button>
+                            <span class="o_pp_or">o</span>
+                            <input type="text" class="o_pp_input code" placeholder="PONG-XXXX"
+                                   maxlength="12" t-model="state.joinCode"/>
+                            <button class="o_pp_btn ghost" t-on-click="joinRoom"
+                                    t-att-disabled="state.busy">Unirse</button>
+                        </div>
+                        <p class="o_pp_error" t-if="state.error" t-out="state.error"/>
+                    </div>
+                </div>
+            </div>
+
+            <!-- lobby -->
+            <div class="o_pp_screen" t-if="state.screen === 'lobby' and state.room">
+                <div class="o_pp_card">
+                    <div class="o_pp_brand"><span class="dot"/>Sala</div>
+                    <h1 class="o_pp_code" t-on-click="copyCode" title="Copiar"
+                        t-out="state.room.code"/>
+                    <p>Comparte el código con la otra persona. Cuando esté dentro, el anfitrión empieza la partida.</p>
+
+                    <div class="o_pp_players">
+                        <div t-foreach="state.room.players" t-as="player" t-key="player.slot"
+                             t-att-class="'o_pp_player' + (player.slot === state.room.slot ? ' me' : '')">
+                            <span class="tag" t-out="player.role === 'host' ? 'Anfitrión' : 'Invitado'"/>
+                            <span class="who" t-out="player.name"/>
+                            <span class="you" t-if="player.slot === state.room.slot">tú</span>
+                        </div>
+                        <div class="o_pp_player waiting" t-if="state.room.players.length &lt; 2">
+                            <span class="tag">Invitado</span>
+                            <span class="who">Esperando…</span>
+                        </div>
+                    </div>
+
+                    <p class="o_pp_error" t-if="state.error" t-out="state.error"/>
+                    <p class="o_pp_error" t-if="state.opponentGone" t-out="state.opponentGone"/>
+
+                    <div class="o_pp_row" style="margin-top:22px">
+                        <button class="o_pp_btn primary" t-if="isHost"
+                                t-att-disabled="!canStart or state.busy"
+                                t-on-click="startOnlineMatch">Empezar partida</button>
+                        <span class="o_pp_or" t-if="!isHost">Esperando al anfitrión…</span>
+                        <button class="o_pp_btn ghost" t-on-click="leaveRoom">Salir de la sala</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- pause, solo only -->
+            <div class="o_pp_screen" t-if="state.paused">
+                <div class="o_pp_card">
+                    <div class="o_pp_brand"><span class="dot"/>Pausa</div>
+                    <h1><t t-out="state.score[localSide]"/> — <t t-out="state.score[remoteSide]"/></h1>
+                    <p>El partido está detenido. Puedes seguir o volver al menú para cambiar la dificultad.</p>
+                    <div class="o_pp_row" style="margin-top:24px">
+                        <button class="o_pp_btn primary" t-on-click="() => this.setPaused(false)">Continuar</button>
+                        <button class="o_pp_btn ghost" t-on-click="toMenu">Volver al menú</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- opponent walked away -->
+            <div class="o_pp_screen" t-if="state.opponentGone and state.screen === 'playing'">
+                <div class="o_pp_card">
+                    <div class="o_pp_brand"><span class="dot"/>Partida interrumpida</div>
+                    <h1>Te quedaste solo</h1>
+                    <p t-out="state.opponentGone"/>
+                    <div class="o_pp_row" style="margin-top:24px">
+                        <button class="o_pp_btn primary" t-on-click="toMenu">Volver al menú</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- end of match -->
+            <div class="o_pp_screen" t-if="state.screen === 'over' and state.result">
+                <div class="o_pp_card">
+                    <div class="o_pp_brand">
+                        <span class="dot"/><t t-out="state.result.won ? 'Victoria' : 'Derrota'"/>
+                    </div>
+                    <h1 t-out="state.result.won ? '¡Ganaste el partido!' : 'Gana ' + opponentName"/>
+                    <div class="o_pp_final">
+                        <b><t t-out="state.result.mine"/> — <t t-out="state.result.theirs"/></b>
+                        <span>
+                            <t t-if="state.mode === 'solo'">Dificultad <t t-out="difficultyName"/> · </t>
+                            <t t-out="state.result.hits"/> golpes ·
+                            <t t-out="state.result.rallies"/> puntos jugados
+                        </span>
+                    </div>
+                    <div class="o_pp_row" style="margin-top:26px">
+                        <button class="o_pp_btn primary" t-if="state.mode === 'solo'"
+                                t-on-click="startSolo">Revancha</button>
+                        <button class="o_pp_btn ghost" t-on-click="toMenu">Volver al menú</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <a href="/" class="o_pp_back">← Volver</a>
+    </t>
+
+</templates>

@@ -1,0 +1,7 @@
+// Loaded on every frontend page, so it holds exactly two declarations: the
+// backdrop of the game page, painted before the game bundle arrives so the
+// canvas does not flash white while it downloads.
+body.o_pingpong_page {
+    overflow: hidden;
+    background: #0e0b0d;
+}

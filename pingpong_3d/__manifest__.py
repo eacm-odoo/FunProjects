@@ -16,18 +16,36 @@ Juego de tenis de mesa en 3D (three.js) integrado en Odoo:
 
 Página pública: /pingpong
 """,
-    "author": "Odoo Community",
+    "author": "Odoo Development Services",
     "website": "https://github.com/odoo/odoo",
     "category": "Extra Tools",
-    "version": "19.0.1.0.0",
+    "version": "19.0.3.0.0",
     "license": "LGPL-3",
-    "depends": ["website"],
+    "depends": ["web", "bus", "website"],
     "data": [
         "security/ir.model.access.csv",
         "views/pingpong_templates.xml",
         "views/pingpong_match_views.xml",
+        "views/pingpong_session_views.xml",
         "views/website_menu.xml",
     ],
+    # web.assets_frontend only gets the loader stub, because it is downloaded on
+    # every page of the website. The game itself -- three.js above all -- lives
+    # in a dedicated bundle that the stub fetches at runtime, and only on the
+    # game page.
+    "assets": {
+        "web.assets_frontend": [
+            "pingpong_3d/static/src/boot/pingpong_boot.scss",
+            "pingpong_3d/static/src/boot/pingpong_boot.js",
+        ],
+        "pingpong_3d.assets_game": [
+            "pingpong_3d/static/lib/three/three.core.js",
+            "pingpong_3d/static/lib/three/three.module.js",
+            "pingpong_3d/static/src/scss/pingpong.scss",
+            "pingpong_3d/static/src/js/**/*.js",
+            "pingpong_3d/static/src/xml/**/*.xml",
+        ],
+    },
     "installable": True,
     "application": True,
     "auto_install": False,

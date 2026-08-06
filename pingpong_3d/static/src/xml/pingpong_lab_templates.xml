@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="pingpong_3d.LoopbackLab">
+        <div class="o_pp_lab">
+            <div class="o_pp_lab_pane">
+                <div class="o_pp_lab_tag">Anfitrión · autoridad · tu ratón</div>
+                <div class="o_pp_lab_stage" t-ref="hostStage"/>
+                <t t-call="pingpong_3d.LabStats">
+                    <t t-set="s" t-value="state.host"/>
+                </t>
+            </div>
+
+            <div class="o_pp_lab_pane">
+                <div class="o_pp_lab_tag">Invitado · predice y reconcilia</div>
+                <div class="o_pp_lab_stage" t-ref="guestStage"/>
+                <t t-call="pingpong_3d.LabStats">
+                    <t t-set="s" t-value="state.guest"/>
+                </t>
+            </div>
+
+            <div class="o_pp_lab_controls">
+                <label>
+                    Latencia <b><t t-out="state.latency"/> ms</b> (RTT <t t-out="state.latency * 2"/>)
+                    <input type="range" min="0" max="200" step="5"
+                           t-model.number="state.latency" t-on-input="onLink"/>
+                </label>
+                <label>
+                    Jitter <b><t t-out="state.jitter"/> ms</b>
+                    <input type="range" min="0" max="80" step="5"
+                           t-model.number="state.jitter" t-on-input="onLink"/>
+                </label>
+                <label>
+                    Pérdida <b><t t-out="state.loss"/> %</b>
+                    <input type="range" min="0" max="25" step="1"
+                           t-model.number="state.loss" t-on-input="onLink"/>
+                </label>
+                <span class="o_pp_lab_hint" t-if="!state.started">sincronizando reloj…</span>
+            </div>
+        </div>
+    </t>
+
+    <t t-name="pingpong_3d.LabStats">
+        <div class="o_pp_lab_stats">
+            <span>marcador <b t-out="s.score"/></span>
+            <span>tick <b t-out="s.tick"/></span>
+            <span>RTT <b><t t-out="s.rtt"/> ms</b></span>
+            <span>claims <b t-out="s.claims"/></span>
+            <span>rechazo <b t-out="s.rejectRate"/></span>
+            <span>correcciones <b t-out="s.corrections"/></span>
+            <span>saltos <b t-out="s.snaps"/></span>
+            <span>error <b><t t-out="s.lastError"/> mm</b> (máx <t t-out="s.worstError"/>)</span>
+        </div>
+    </t>
+
+</templates>

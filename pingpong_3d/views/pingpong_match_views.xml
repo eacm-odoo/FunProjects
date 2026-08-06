@@ -6,8 +6,11 @@
         <field name="arch" type="xml">
             <list string="Partidos" decoration-success="won == True" decoration-muted="won == False">
                 <field name="create_date" string="Fecha"/>
-                <field name="partner_id"/>
-                <field name="difficulty"/>
+                <field name="mode" optional="show"/>
+                <field name="player_name"/>
+                <field name="opponent_name" optional="show"/>
+                <field name="partner_id" optional="hide"/>
+                <field name="difficulty" optional="show"/>
                 <field name="player_score" sum="Puntos jugador"/>
                 <field name="machine_score" sum="Puntos máquina"/>
                 <field name="margin"/>
@@ -29,17 +32,25 @@
                     </div>
                     <group>
                         <group>
+                            <field name="mode" readonly="1"/>
                             <field name="partner_id"/>
-                            <field name="difficulty"/>
+                            <field name="player_nickname" invisible="mode != 'online'"/>
+                            <field name="difficulty"
+                                   invisible="mode != 'solo'"
+                                   required="mode == 'solo'"/>
                             <field name="create_date" string="Jugado el" readonly="1"/>
+                            <field name="duration" widget="float_time"/>
                         </group>
                         <group>
+                            <field name="opponent_partner_id" invisible="mode != 'online'"/>
+                            <field name="opponent_nickname" invisible="mode != 'online'"/>
                             <field name="player_score"/>
                             <field name="machine_score"/>
                             <field name="margin"/>
+                            <field name="winner_side"/>
                             <field name="hits"/>
                             <field name="rallies"/>
-                            <field name="won"/>
+                            <field name="session_id" invisible="mode != 'online'"/>
                         </group>
                     </group>
                 </sheet>
@@ -63,13 +74,19 @@
         <field name="model">pingpong.match</field>
         <field name="arch" type="xml">
             <search string="Partidos">
+                <field name="player_name"/>
+                <field name="opponent_name"/>
                 <field name="partner_id"/>
                 <field name="difficulty"/>
+                <filter name="filter_solo" string="Contra la máquina" domain="[('mode','=','solo')]"/>
+                <filter name="filter_online" string="Online 1v1" domain="[('mode','=','online')]"/>
+                <separator/>
                 <filter name="filter_won" string="Victorias" domain="[('won','=',True)]"/>
                 <filter name="filter_lost" string="Derrotas" domain="[('won','=',False)]"/>
                 <separator/>
                 <filter name="filter_registered" string="Jugadores registrados" domain="[('partner_id','!=',False)]"/>
                 <group>
+                    <filter name="group_mode" string="Modo" context="{'group_by': 'mode'}"/>
                     <filter name="group_difficulty" string="Dificultad" context="{'group_by': 'difficulty'}"/>
                     <filter name="group_partner" string="Jugador" context="{'group_by': 'partner_id'}"/>
                     <filter name="group_date" string="Fecha" context="{'group_by': 'create_date:day'}"/>
