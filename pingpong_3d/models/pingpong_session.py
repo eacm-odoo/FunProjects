@@ -302,7 +302,13 @@ class PingPongSession(models.Model):
         client.
         """
         self.ensure_one()
-        peer = self._guest() if participant.role == "host" else self._host()
+        # "slf" goes back to the sender. It is a diagnostic: it measures the
+        # HTTP leg plus the bus delivery with one clock and no peer involved, so
+        # a slow peer cannot be mistaken for slow plumbing.
+        if message_type == "slf":
+            peer = participant
+        else:
+            peer = self._guest() if participant.role == "host" else self._host()
         if not peer:
             return False
         builder = RELAY_TYPES.get(message_type)
@@ -570,6 +576,7 @@ def _floats(value, limit=1000.0):
 # Message types the relay accepts, and how each one is rebuilt.
 RELAY_TYPES = {
     "png": _ping,
+    "slf": _ping,
     "pog": _pong,
     "hlo": _hello,
     "st": _snapshot,

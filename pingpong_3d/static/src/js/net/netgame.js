@@ -108,6 +108,12 @@ export class NetGame {
         this.sync = new ClockSync((payload) => this.transport.send(MSG.PING, payload));
         this._pingTimer = null;
         this._statusTimer = null;
+        /* Diagnostic: the same message relayed back to us. It covers the HTTP
+           leg plus the bus delivery, measured on one clock, with the peer out of
+           the picture entirely. If the peer round trip is much more than twice
+           this, the delay is the peer's, not the plumbing's. */
+        this._selfSamples = [];
+        this._selfSentAt = new Map();
         this._tmp = new THREE.Vector3();
 
         engine.netHook = (event) => this.onSimEvent(event);
@@ -142,9 +148,38 @@ export class NetGame {
             this.sync.ping();
             await sleep(spacingMs);
         }
-        this._pingTimer = setInterval(() => this.sync.ping(), PING_EVERY_MS);
+        this._selfProbe();                  // one reading before the first serve
+        this._pingTimer = setInterval(() => {
+            this.sync.ping();
+            this._selfProbe();
+        }, PING_EVERY_MS);
         this._statusTimer = setInterval(() => this._pushStatus(), 1000);
         this._pushStatus();
+    }
+
+    /**
+     * Send a message to ourselves, through the server.
+     *
+     * The peer round trip cannot distinguish a slow link from a slow opponent:
+     * if the other tab is in the background the browser throttles it, and its
+     * late answer looks exactly like a late delivery. This probe takes the peer
+     * out of the measurement. Anything much above twice this value is the
+     * opponent's browser, not the plumbing.
+     */
+    _selfProbe() {
+        this._selfSeq = (this._selfSeq || 0) + 1;
+        const id = this._selfSeq;
+        this._selfSentAt.set(id, Date.now());
+        this.send(MSG.SELF, { id, t0: Date.now() });
+    }
+
+    /** Median of the recent self probes, in ms. */
+    get selfRtt() {
+        if (!this._selfSamples.length) {
+            return 0;
+        }
+        const sorted = [...this._selfSamples].sort((a, b) => a - b);
+        return Math.round(sorted[Math.floor(sorted.length / 2)]);
     }
 
     /**
@@ -287,6 +322,17 @@ export class NetGame {
             case MSG.PING:
                 this.send(MSG.PONG, { id: payload.id, t0: payload.t0, t1: Date.now() });
                 break;
+            case MSG.SELF: {
+                const sentAt = this._selfSentAt.get(payload.id);
+                if (sentAt !== undefined) {
+                    this._selfSentAt.delete(payload.id);
+                    this._selfSamples.push(Date.now() - sentAt);
+                    if (this._selfSamples.length > 12) {
+                        this._selfSamples.shift();
+                    }
+                }
+                break;
+            }
             case MSG.PONG:
                 this.sync.onPong(payload);
                 this.clock.offset = this.isHost ? 0 : this.sync.offset;
@@ -692,6 +738,7 @@ export class NetGame {
         this.onStatus({
             rtt: Math.round(this.sync.rtt),
             httpRtt: transport && transport.httpRtt ? transport.httpRtt : 0,
+            selfRtt: this.selfRtt,
             inFlight: transport ? transport.inFlight || 0 : 0,
             superseded: transport ? transport.superseded || 0 : 0,
             offset: Math.round(this.sync.offset),
