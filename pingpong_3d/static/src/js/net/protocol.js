@@ -15,6 +15,7 @@ export const SCHEMA = 1;
 
 export const MSG = {
     PING: "png",
+    SELF: "slf",
     PONG: "pog",
     HELLO: "hlo",
     START: "sta",

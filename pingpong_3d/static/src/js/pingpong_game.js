@@ -61,6 +61,7 @@ export class PingPongGame extends Component {
             room: null,                 // {code, role, slot, players, state}
             rtt: 0,
             httpRtt: 0,
+            selfRtt: 0,
             superseded: 0,
             inFlight: 0,
             opponentGone: "",
@@ -356,6 +357,7 @@ export class PingPongGame extends Component {
             onStatus: (status) => {
                 this.state.rtt = status.rtt;
                 this.state.httpRtt = status.httpRtt;
+                this.state.selfRtt = status.selfRtt;
                 this.state.superseded = status.superseded;
                 this.state.inFlight = status.inFlight;
             },
