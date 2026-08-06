@@ -62,6 +62,8 @@ export class PingPongGame extends Component {
             rtt: 0,
             httpRtt: 0,
             selfRtt: 0,
+            idleRtt: 0,
+            idleHttp: 0,
             superseded: 0,
             inFlight: 0,
             opponentGone: "",
@@ -98,6 +100,7 @@ export class PingPongGame extends Component {
 
         onWillUnmount(() => {
             clearTimeout(this.toastTimer);
+            this._stopIdleProbe();
             window.removeEventListener("pagehide", this._boundUnload);
             this._leaveChannels();
             this._destroyEngine();
@@ -215,6 +218,8 @@ export class PingPongGame extends Component {
             this.playerToken = result.player_token;
             this._applyRoom(result.session);
             this._joinChannels(result.session);
+            this.transport = new BusTransport({ rpc, playerToken: this.playerToken });
+            this._startIdleProbe();
             this.state.screen = "lobby";
         } catch (error) {
             this.state.error = String(error.message || error);
@@ -254,6 +259,7 @@ export class PingPongGame extends Component {
 
     async leaveRoom() {
         const token = this.playerToken;
+        this._stopIdleProbe();
         this._leaveChannels();
         this.state.room = null;
         this.state.screen = "menu";
@@ -264,6 +270,55 @@ export class PingPongGame extends Component {
             this.playerToken = null;
             clearStored(TOKEN_KEY);
             await rpc("/pingpong/online/leave", { player_token: token }).catch(() => {});
+        }
+    }
+
+    /**
+     * Time a message that goes out to the server and comes straight back, while
+     * the room is idle.
+     *
+     * This is the reading that separates "the bus is slow" from "we are
+     * flooding it". If the idle figure is small and it balloons once the match
+     * starts, the traffic is ours to fix; if it is already large with nothing
+     * happening, no amount of rate cutting will help.
+     */
+    _startIdleProbe() {
+        this._stopIdleProbe();
+        const samples = [];
+        const pending = new Map();
+        let seq = 0;
+        this._idleOff = this.transport.onMessage((type, payload) => {
+            if (type !== "slf") {
+                return;
+            }
+            const sentAt = pending.get(payload.id);
+            if (sentAt === undefined) {
+                return;
+            }
+            pending.delete(payload.id);
+            samples.push(Date.now() - sentAt);
+            if (samples.length > 8) {
+                samples.shift();
+            }
+            const sorted = [...samples].sort((a, b) => a - b);
+            this.state.idleRtt = Math.round(sorted[Math.floor(sorted.length / 2)]);
+            this.state.idleHttp = this.transport.httpRtt;
+        });
+        const probe = () => {
+            seq++;
+            pending.set(seq, Date.now());
+            this.transport.send("slf", { id: seq, t0: Date.now() });
+        };
+        probe();
+        this._idleTimer = setInterval(probe, 2000);
+    }
+
+    _stopIdleProbe() {
+        clearInterval(this._idleTimer);
+        this._idleTimer = null;
+        if (this._idleOff) {
+            this._idleOff();
+            this._idleOff = null;
         }
     }
 
@@ -351,7 +406,10 @@ export class PingPongGame extends Component {
         const localSide = role === "host" ? 0 : 1;
         this._buildEngine(role, localSide);
 
-        this.transport = new BusTransport({ rpc, playerToken: this.playerToken });
+        this._stopIdleProbe();
+        if (!this.transport) {
+            this.transport = new BusTransport({ rpc, playerToken: this.playerToken });
+        }
         this.engine.net = new NetGame(this.engine, this.transport, {
             role,
             onStatus: (status) => {

@@ -464,6 +464,16 @@ body.o_pingpong_page {
         margin-top: 2px;
     }
 
+    .o_pp_probe {
+        margin-top: 14px;
+        font-size: 12px;
+        color: var(--od-muted);
+        font-variant-numeric: tabular-nums;
+
+        b { color: var(--od-ink); }
+        span { opacity: .7; }
+    }
+
     .o_pp_code {
         cursor: pointer;
         letter-spacing: .06em;
