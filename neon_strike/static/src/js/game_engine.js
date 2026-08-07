@@ -13,9 +13,25 @@
  * coordenadas sean identicas en todas las maquinas; el render se escala al canvas.
  */
 
+import { drawSprite, pxFor } from "@neon_strike/js/sprites";
+
 const SHIP_COLORS = ["#5ee1ff", "#ff8fb3", "#7bffb0", "#ffd166"];
 const REVIVE_FRAMES = 120;
 const COMBO_MAX = 25;
+
+// Sprite por tipo de enemigo. Los tipos con dos entradas alternan chasis segun
+// `e.v` (variante fijada al crear el enemigo y viajada en el snapshot).
+const ENEMY_SPRITES = {
+    drone: ["drone0", "drone1"],
+    speedy: ["speedy0", "speedy1"],
+    tank: ["tank0", "tank1"],
+    sniper: ["sniper0"],
+    kami: ["kami0"],
+    boss: ["boss0"],
+};
+const ROCK_SPRITES = ["rock0", "rock1"];
+// Tamaño de pixel de las naves: 16 px de rejilla -> ~32 px logicos de ancho.
+const SHIP_PX = pxFor("ship0", 30);
 
 export class NeonStrikeEngine {
     /**
@@ -397,25 +413,48 @@ export class NeonStrikeEngine {
     /* ------------------------------------------------------------------ */
 
     _enemyR(type) {
-        return type === "boss" ? 44 : type === "tank" ? 20 : type === "speedy" ? 10 : 14;
+        const r = { boss: 44, tank: 20, speedy: 10, sniper: 16, kami: 12 };
+        return r[type] != null ? r[type] : 14;
     }
 
     _enemyColor(type) {
-        return type === "boss" ? "#ff4d4d" : type === "tank" ? "#9b5de5" : type === "speedy" ? "#ffd166" : "#ff5d8f";
+        const c = {
+            boss: "#ff4d4d", tank: "#9b5de5", speedy: "#ffd166",
+            sniper: "#4de3c1", kami: "#ff8f3d",
+        };
+        return c[type] || "#ff5d8f";
+    }
+
+    /** Variante de chasis (0/1) segun los sprites disponibles para el tipo. */
+    _enemyVariant(type) {
+        const names = ENEMY_SPRITES[type];
+        return names && names.length > 1 ? Math.floor(Math.random() * names.length) : 0;
     }
 
     mkEnemy(type, x, y) {
+        const base = { type, x, y, r: this._enemyR(type), c: this._enemyColor(type), v: this._enemyVariant(type), flash: 0 };
         if (type === "drone") {
-            return { type, x, y, r: 14, hp: 1, mhp: 1, c: "#ff5d8f", t: Math.random() * 6.28, val: 100, flash: 0 };
+            return Object.assign(base, { hp: 1, mhp: 1, t: Math.random() * 6.28, val: 100 });
         }
         if (type === "speedy") {
-            return { type, x, y, r: 10, hp: 1, mhp: 1, c: "#ffd166", t: 0, val: 150, flash: 0 };
+            return Object.assign(base, { hp: 1, mhp: 1, t: 0, val: 150 });
         }
         if (type === "tank") {
-            return { type, x, y, r: 20, hp: 4, mhp: 4, c: "#9b5de5", t: Math.random() * 200, val: 300, flash: 0 };
+            return Object.assign(base, { hp: 4, mhp: 4, t: Math.random() * 200, val: 300 });
+        }
+        if (type === "sniper") {
+            // Se para a media altura y castiga con disparos precisos telegrafiados.
+            return Object.assign(base, {
+                hp: 3, mhp: 3, t: 0, val: 400,
+                stopY: 90 + Math.random() * 110, aim: 0, aimX: 0, aimY: 0,
+            });
+        }
+        if (type === "kami") {
+            // Traza rumbo a una nave y acelera; muere al chocar (colision generica).
+            return Object.assign(base, { hp: 2, mhp: 2, t: 0, val: 350, vx: 0, vy: 1.2, rot: 0 });
         }
         const hp = 35 + this.wave * 9 + (this.players - 1) * 25;
-        return { type: "boss", x, y, r: 44, hp, mhp: hp, c: "#ff4d4d", t: 0, val: 5000, flash: 0 };
+        return Object.assign(base, { type: "boss", hp, mhp: hp, t: 0, val: 5000 });
     }
 
     spawnWave() {
@@ -440,6 +479,12 @@ export class NeonStrikeEngine {
             if (this.wave > 2 && r > 0.8) {
                 type = "tank";
             }
+            if (this.wave > 3 && r >= 0.3 && r < 0.4) {
+                type = "sniper";
+            }
+            if (this.wave > 4 && r >= 0.66 && r < 0.76) {
+                type = "kami";
+            }
             this.enemies.push(
                 this.mkEnemy(type, 40 + Math.random() * (this.W - 80), -30 - i * 48 - Math.random() * 40)
             );
@@ -462,12 +507,8 @@ export class NeonStrikeEngine {
             rot: Math.random() * 6.2832,
             vr: (Math.random() - 0.5) * 0.06,
             hp: Math.max(1, Math.round(rad / 9)),
-            spin: [],
+            v: Math.floor(Math.random() * ROCK_SPRITES.length),
         });
-        const rk = this.rocks[this.rocks.length - 1];
-        for (let k = 0; k < 8; k++) {
-            rk.spin.push(0.7 + Math.random() * 0.4);
-        }
     }
 
     dropPup(x, y) {
@@ -821,6 +862,52 @@ export class NeonStrikeEngine {
                         this.sTick();
                     }
                 }
+            } else if (e.type === "sniper") {
+                // Baja hasta su altura de tiro y luego se queda apuntando.
+                if (e.y < e.stopY) {
+                    e.y += 1.1 * ts;
+                } else {
+                    e.x += Math.sin(e.t * 0.02) * 0.5 * ts;
+                    e.aim += ts;
+                    if (e.aim >= 70) {
+                        e.aim = 0;
+                        const tgt = this._aimShip();
+                        if (tgt) {
+                            const dx = tgt.x - e.x;
+                            const dy = tgt.y - e.y;
+                            const d = Math.sqrt(dx * dx + dy * dy) || 1;
+                            this.ebullets.push({ x: e.x, y: e.y, vx: (dx / d) * 5.2, vy: (dy / d) * 5.2 });
+                            this.sTick();
+                        }
+                    } else if (e.aim > 40) {
+                        // Telegrafia el disparo: guarda a quien apunta para el render.
+                        const tgt = this._nearestShip(e.x, e.y);
+                        if (tgt) {
+                            e.aimX = tgt.x;
+                            e.aimY = tgt.y;
+                        }
+                    }
+                }
+            } else if (e.type === "kami") {
+                // Persigue a la nave mas cercana acelerando; el nucleo se vuelve loco.
+                const tgt = this._nearestShip(e.x, e.y);
+                if (tgt) {
+                    const dx = tgt.x - e.x;
+                    const dy = tgt.y - e.y;
+                    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+                    e.vx += (dx / d) * 0.09 * ts;
+                    e.vy += (dy / d) * 0.09 * ts;
+                }
+                const sp = Math.sqrt(e.vx * e.vx + e.vy * e.vy) || 1;
+                const max = 3.4 + this.wave * 0.06;
+                if (sp > max) {
+                    e.vx = (e.vx / sp) * max;
+                    e.vy = (e.vy / sp) * max;
+                }
+                e.x += e.vx * ts;
+                e.y += e.vy * ts;
+                // El sprite mira hacia abajo: rota respecto a +Y.
+                e.rot = Math.atan2(e.vy, e.vx) - Math.PI / 2;
             } else {
                 if (e.y < 95) {
                     e.y += 1.4 * ts;
@@ -1095,11 +1182,18 @@ export class NeonStrikeEngine {
             en: this.enemies.map((e) => ({
                 t: e.type, x: Math.round(e.x), y: Math.round(e.y),
                 h: e.hp, mh: e.mhp, f: e.flash > 0 ? 1 : 0, tt: Math.round(e.t),
+                // `v` = variante de chasis; `rt`/`am` solo para kamikaze/francotirador.
+                v: e.v || 0,
+                rt: e.rot != null ? Math.round(e.rot * 100) / 100 : undefined,
+                am: e.aim != null ? Math.round(e.aim) : undefined,
             })),
             bu: this.bullets.map((b) => [Math.round(b.x), Math.round(b.y)]),
             eb: this.ebullets.map((b) => [Math.round(b.x), Math.round(b.y)]),
             pu: this.pups.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y), t: p.t, ph: p.ph })),
-            rk: this.rocks.map((r) => ({ x: Math.round(r.x), y: Math.round(r.y), r: Math.round(r.r), a: r.rot, sp: r.spin })),
+            rk: this.rocks.map((r) => ({
+                x: Math.round(r.x), y: Math.round(r.y), r: Math.round(r.r),
+                a: Math.round(r.rot * 100) / 100, v: r.v || 0,
+            })),
             ev: this._events,
         };
         this._events = [];
@@ -1142,12 +1236,12 @@ export class NeonStrikeEngine {
         this.enemies = snap.en.map((e) => ({
             type: e.t, x: e.x, y: e.y, r: this._enemyR(e.t),
             hp: e.h, mhp: e.mh, c: this._enemyColor(e.t),
-            flash: e.f ? 4 : 0, t: e.tt,
+            flash: e.f ? 4 : 0, t: e.tt, v: e.v || 0, rot: e.rt, aim: e.am,
         }));
         this.bullets = snap.bu.map((b) => ({ x: b[0], y: b[1], vx: 0, vy: 0 }));
         this.ebullets = snap.eb.map((b) => ({ x: b[0], y: b[1], vx: 0, vy: 0 }));
         this.pups = snap.pu.map((p) => ({ x: p.x, y: p.y, t: p.t, ph: p.ph, r: 13 }));
-        this.rocks = snap.rk.map((r) => ({ x: r.x, y: r.y, r: r.r, rot: r.a, spin: r.sp || [] }));
+        this.rocks = snap.rk.map((r) => ({ x: r.x, y: r.y, r: r.r, rot: r.a, v: r.v || 0 }));
         for (const ev of snap.ev || []) {
             this._playEvent(ev);
         }
@@ -1180,21 +1274,8 @@ export class NeonStrikeEngine {
         g.closePath();
         g.fill();
         g.globalCompositeOperation = "source-over";
-        g.fillStyle = sp.color;
-        g.beginPath();
-        g.moveTo(0, -18);
-        g.lineTo(13, 14);
-        g.lineTo(0, 7);
-        g.lineTo(-13, 14);
-        g.closePath();
-        g.fill();
-        g.fillStyle = "#eafcff";
-        g.beginPath();
-        g.moveTo(0, -14);
-        g.lineTo(5, 6);
-        g.lineTo(-5, 6);
-        g.closePath();
-        g.fill();
+        // Cada slot tiene su propio chasis; el sprite se recolorea con sp.color.
+        drawSprite(g, "ship" + (sp.slot % 4), 0, 0, { tint: sp.color, px: SHIP_PX });
         if (sp.shield > 0) {
             g.strokeStyle = "rgba(123,255,176," + (0.5 + Math.sin(this.frame * 0.15) * 0.3) + ")";
             g.lineWidth = 2;
@@ -1235,77 +1316,55 @@ export class NeonStrikeEngine {
         g.restore();
     }
 
+    /** Nombre del sprite del enemigo segun tipo y variante de chasis. */
+    _enemySprite(e) {
+        const names = ENEMY_SPRITES[e.type] || ENEMY_SPRITES.drone;
+        return names[(e.v || 0) % names.length];
+    }
+
     drawEnemy(e) {
         const g = this.g;
-        g.save();
-        g.translate(e.x, e.y);
-        g.globalCompositeOperation = "lighter";
-        g.fillStyle = this.glow(e.c, 0.14);
-        g.beginPath();
-        g.arc(0, 0, e.r + 10, 0, 6.2832);
-        g.fill();
-        g.globalCompositeOperation = "source-over";
-        g.fillStyle = e.flash > 0 ? "#ffffff" : e.c;
+        const name = this._enemySprite(e);
+        const flash = e.flash > 0;
         if (e.flash > 0) {
             e.flash--;
         }
-        if (e.type === "drone") {
-            g.beginPath();
-            g.moveTo(0, -e.r);
-            g.lineTo(e.r, 0);
-            g.lineTo(0, e.r);
-            g.lineTo(-e.r, 0);
-            g.closePath();
-            g.fill();
-            g.fillStyle = "#3a0d1e";
-            g.beginPath();
-            g.arc(0, 0, 4, 0, 6.2832);
-            g.fill();
-        } else if (e.type === "speedy") {
-            g.beginPath();
-            g.moveTo(0, e.r);
-            g.lineTo(e.r * 0.9, -e.r);
-            g.lineTo(0, -e.r * 0.4);
-            g.lineTo(-e.r * 0.9, -e.r);
-            g.closePath();
-            g.fill();
-        } else if (e.type === "tank") {
-            g.beginPath();
-            for (let k = 0; k < 6; k++) {
-                const a = (k / 6) * 6.2832 + 0.5;
-                const px = Math.cos(a) * e.r;
-                const py = Math.sin(a) * e.r;
-                if (k) { g.lineTo(px, py); } else { g.moveTo(px, py); }
-            }
-            g.closePath();
-            g.fill();
-            g.fillStyle = "#2a1246";
-            g.beginPath();
-            g.arc(0, 0, 7, 0, 6.2832);
-            g.fill();
-        } else {
-            const p = 1 + Math.sin(e.t * 0.08) * 0.04;
-            g.scale(p, p);
-            g.beginPath();
-            for (let k = 0; k < 8; k++) {
-                const a = (k / 8) * 6.2832;
-                const rr = k % 2 ? e.r * 0.72 : e.r;
-                const px = Math.cos(a) * rr;
-                const py = Math.sin(a) * rr;
-                if (k) { g.lineTo(px, py); } else { g.moveTo(px, py); }
-            }
-            g.closePath();
-            g.fill();
-            g.fillStyle = "#ffd7d7";
-            g.beginPath();
-            g.arc(0, 0, 12, 0, 6.2832);
-            g.fill();
-            g.fillStyle = "#5c0f0f";
-            g.beginPath();
-            g.arc(0, 0, 6, 0, 6.2832);
-            g.fill();
-        }
+        // Halo de neon detras del sprite.
+        g.save();
+        g.globalCompositeOperation = "lighter";
+        g.fillStyle = this.glow(e.c, 0.14);
+        g.beginPath();
+        g.arc(e.x, e.y, e.r + 10, 0, 6.2832);
+        g.fill();
         g.restore();
+        // Linea de mira del francotirador mientras carga el disparo.
+        if (e.type === "sniper" && e.aim > 40 && e.aimX) {
+            g.save();
+            g.globalCompositeOperation = "lighter";
+            g.strokeStyle = "rgba(77,227,193," + (0.15 + ((e.aim - 40) / 30) * 0.35) + ")";
+            g.lineWidth = 1;
+            g.beginPath();
+            g.moveTo(e.x, e.y);
+            g.lineTo(e.aimX, e.aimY);
+            g.stroke();
+            g.restore();
+        }
+        if (e.type === "boss") {
+            // El acorazado respira: pulso suave alrededor del centro.
+            const p = 1 + Math.sin(e.t * 0.08) * 0.04;
+            g.save();
+            g.translate(e.x, e.y);
+            g.scale(p, p);
+            drawSprite(g, name, 0, 0, { tint: e.c, px: pxFor(name, e.r * 2), flash });
+            g.restore();
+        } else {
+            drawSprite(g, name, e.x, e.y, {
+                tint: e.c,
+                px: pxFor(name, e.r * 2),
+                flash,
+                rot: e.type === "kami" ? e.rot || 0 : 0,
+            });
+        }
         if (e.mhp > 1) {
             const w2 = e.r * 2;
             g.fillStyle = "rgba(255,255,255,0.18)";
@@ -1316,25 +1375,12 @@ export class NeonStrikeEngine {
     }
 
     drawRock(rk) {
-        const g = this.g;
-        g.save();
-        g.translate(rk.x, rk.y);
-        g.rotate(rk.rot);
-        g.fillStyle = "#3a3d52";
-        g.strokeStyle = "#7d8199";
-        g.lineWidth = 2;
-        g.beginPath();
-        const spin = rk.spin && rk.spin.length ? rk.spin : [1, 1, 1, 1, 1, 1, 1, 1];
-        for (let k = 0; k < spin.length; k++) {
-            const a = (k / spin.length) * 6.2832;
-            const px = Math.cos(a) * rk.r * spin[k];
-            const py = Math.sin(a) * rk.r * spin[k];
-            if (k) { g.lineTo(px, py); } else { g.moveTo(px, py); }
-        }
-        g.closePath();
-        g.fill();
-        g.stroke();
-        g.restore();
+        const name = ROCK_SPRITES[(rk.v || 0) % ROCK_SPRITES.length];
+        drawSprite(this.g, name, rk.x, rk.y, {
+            tint: "#8a8faf",
+            px: pxFor(name, rk.r * 2.2),
+            rot: rk.rot,
+        });
     }
 
     render() {
