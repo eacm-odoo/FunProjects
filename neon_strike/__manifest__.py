@@ -3,7 +3,7 @@
 # UI palette follows Odoo brand assets: https://www.odoo.com/page/brand-assets
 {
     "name": "Neon Strike",
-    "version": "19.0.3.0.1",
+    "version": "19.0.3.1.0",
     "category": "Productivity",
     "summary": "Shooter espacial neón cooperativo, jugable sin login en una página pública",
     "description": """
@@ -26,11 +26,14 @@ Creado con Odoo. Guía de marca: https://www.odoo.com/page/brand-assets
     "author": "Odoo",
     "website": "https://www.odoo.com",
     "license": "LGPL-3",
-    "depends": ["web", "bus"],
+    # `website` es necesario para publicar /neon en la navegación del sitio
+    # (record `website.menu`), igual que hace pingpong_3d.
+    "depends": ["web", "bus", "website"],
     "data": [
         "security/ir.model.access.csv",
         "views/neon_strike_page.xml",
         "views/neon_strike_views.xml",
+        "views/website_menu.xml",
     ],
     "assets": {
         "web.assets_frontend": [

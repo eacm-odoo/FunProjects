@@ -47,12 +47,12 @@ class NeonStrikeController(http.Controller):
     # ------------------------------------------------------------------ #
 
     # `website=True` marca la ruta como frontend: es lo que hace que
-    # `request.is_frontend` sea True y, cuando el módulo `website` está
-    # instalado, que el contexto de render reciba `website` (lo exige
-    # `website.layout`, que hereda la cadena de `web.frontend_layout`).
-    # Sin el flag, renderizar el layout frontend revienta con KeyError: 'website'.
-    # Si `website` no está instalado el flag es inocuo.
-    @http.route("/neon", type="http", auth="public", website=True, sitemap=False)
+    # `request.is_frontend` sea True y que el contexto de render reciba
+    # `website`, que exige `website.layout` (hereda la cadena de
+    # `web.frontend_layout`). Sin el flag, renderizar el layout frontend
+    # revienta con KeyError: 'website'.
+    # `sitemap=True` publica la página en el sitemap del sitio.
+    @http.route("/neon", type="http", auth="public", website=True, sitemap=True)
     def neon_page(self, **kw):
         # Asegura el token de sesión antes de servir el juego.
         self._token()
