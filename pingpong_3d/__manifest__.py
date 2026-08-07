@@ -21,7 +21,9 @@ Página pública: /pingpong
     "category": "Extra Tools",
     "version": "19.0.3.0.0",
     "license": "LGPL-3",
-    "depends": ["web", "bus", "website"],
+    # mail comes in through website anyway, but the online mode reads
+    # mail.ice.server for its STUN/TURN configuration, so it is declared.
+    "depends": ["web", "bus", "mail", "website"],
     "data": [
         "security/ir.model.access.csv",
         "views/pingpong_templates.xml",

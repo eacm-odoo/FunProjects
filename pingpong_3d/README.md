@@ -45,7 +45,8 @@ Luego abre **/pingpong** o el menú *Ping Pong 3D -> Jugar*.
              |- net/clock.js           MatchClock (tiempo -> tick) y ClockSync (NTP)
              |- net/transport.js       interfaz de transporte y enlace loopback
              |- net/netgame.js         snapshots, claims, rebobinado, reconciliacion
-             |- net/bus_transport.js   el transporte real, sobre el bus de Odoo
+             |- net/bus_transport.js   transporte sobre el bus (respaldo y señalizacion)
+             |- net/rtc_transport.js   transporte peer-to-peer y el hibrido que sube a el
              |- render/scene.js        construccion de la escena three.js y su dispose
              \- render/view.js         dibujo por frame, camara y efectos
 
@@ -178,6 +179,38 @@ casos, y el marcador siempre coincide entre los dos extremos):
 
 Por encima de ~250 ms de RTT la experiencia se degrada de forma apreciable; ahí
 conviene avisar al jugador y no emparejar automáticamente.
+
+### Por qué los datos no van por el bus
+
+Medido en un build de Odoo.sh con un worker, con el cliente a 59 fps:
+
+| | Bus en reposo | Bus en partida |
+|---|---|---|
+| Entrega | ~30 ms | ~380 ms |
+
+El HTTP se mantuvo en ~89 ms y estable, el cliente sano, y **recortar un 35% de
+los mensajes no cambió nada**. El coste no es el tamaño ni el ritmo: es que cada
+notificación entregada ejecuta una consulta ORM completa (`bus.bus._poll`) en el
+proceso gevent, que es cooperativo y lo comparte toda la instancia.
+
+Por eso el plano de datos sale del servidor. Funciona así:
+
+1. La partida **empieza sobre el bus** y es jugable desde el primer segundo.
+2. En paralelo se negocia un `RTCDataChannel` (`{ordered:false, maxRetransmits:0}`),
+   con la señalización por el mismo relay. Los servidores STUN/TURN salen de
+   `mail.ice.server`, que Discuss ya configura.
+3. Cuando el canal abre, `HybridTransport` cambia solo. `NetGame` no se entera:
+   sostiene un transporte y nunca sabe por dónde fueron sus mensajes.
+4. Si la negociación falla —NAT simétrico, red corporativa— se sigue en el bus.
+   No hay nada que hacer ni que avisar.
+
+El canal es **desordenado y sin retransmisión** a propósito: el netcode ya
+descarta snapshots viejos por número de secuencia, así que reenviar uno que ya
+quedó obsoleto solo retrasaría el que importa.
+
+Sin TURN configurado, un porcentaje de parejas no conseguirá conexión directa y
+se quedará en el bus. El indicador del HUD muestra `p2p` cuando el enlace directo
+está activo.
 
 ## Siguientes pasos sugeridos
 

@@ -557,6 +557,16 @@ body.o_pingpong_page {
             font-weight: 500;
             opacity: .7;
         }
+
+        .o_pp_link {
+            padding: 1px 6px;
+            border-radius: 4px;
+            background: var(--od-teal);
+            color: #fff;
+            font-size: 10px;
+            letter-spacing: .06em;
+            text-transform: uppercase;
+        }
     }
 
     // ------------------------------------------------------- back to site

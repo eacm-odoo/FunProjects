@@ -428,6 +428,37 @@ def _hello(_payload):
     return {}
 
 
+# ---------------------------------------------------------------------- #
+# WebRTC signalling                                                      #
+#                                                                        #
+# These two carry text rather than numbers, so the check is a type and a #
+# length rather than a range. They cross the bus a handful of times while #
+# the two browsers find each other, and then the bus goes quiet: the      #
+# match itself travels peer to peer.                                     #
+# ---------------------------------------------------------------------- #
+
+def _sdp(payload):
+    kind = payload.get("kind")
+    if kind not in ("offer", "answer"):
+        return None
+    description = payload.get("sdp")
+    if not isinstance(description, str) or not description or len(description) > 20000:
+        return None
+    return {"kind": kind, "sdp": description}
+
+
+def _ice(payload):
+    candidate = payload.get("candidate")
+    if not isinstance(candidate, str) or len(candidate) > 1000:
+        return None
+    mid = payload.get("sdpMid")
+    return {
+        "candidate": candidate,
+        "sdpMid": str(mid)[:64] if mid is not None else None,
+        "sdpMLineIndex": _as_int(payload.get("sdpMLineIndex"), 0, 32),
+    }
+
+
 # Loose bounds. These are not gameplay rules -- the host validates those -- just
 # a guarantee that whatever reaches the other client is a number of a plausible
 # size, so a payload cannot be used to wedge the receiver.
@@ -579,6 +610,8 @@ RELAY_TYPES = {
     "slf": _ping,
     "pog": _pong,
     "hlo": _hello,
+    "sdp": _sdp,
+    "ice": _ice,
     "st": _snapshot,
     "in": _input,
     "cl": _claim,

@@ -7,6 +7,7 @@ import { rpc } from "@web/core/network/rpc";
 import { DIFFS, REASON, WIN, other } from "./engine/constants.js";
 import { LoopbackLab } from "./loopback_lab.js";
 import { BusTransport } from "./net/bus_transport.js";
+import { HybridTransport, RtcTransport } from "./net/rtc_transport.js";
 import { NetGame } from "./net/netgame.js";
 import { PingPongEngine } from "./pingpong_engine.js";
 
@@ -66,6 +67,7 @@ export class PingPongGame extends Component {
             worstFrame: 0,
             idleRtt: 0,
             idleHttp: 0,
+            peerLink: "",
             superseded: 0,
             inFlight: 0,
             opponentGone: "",
@@ -163,8 +165,10 @@ export class PingPongGame extends Component {
             this.engine = null;
         }
         if (this.transport) {
-            this.transport.close();
+            this.transport.close();         // closes the peer connection too
             this.transport = null;
+            this.busTransport = null;
+            this.rtc = null;
         }
     }
 
@@ -220,7 +224,8 @@ export class PingPongGame extends Component {
             this.playerToken = result.player_token;
             this._applyRoom(result.session);
             this._joinChannels(result.session);
-            this.transport = new BusTransport({ rpc, playerToken: this.playerToken });
+            this.busTransport = new BusTransport({ rpc, playerToken: this.playerToken });
+            this.transport = new HybridTransport(this.busTransport);
             this._startIdleProbe();
             this.state.screen = "lobby";
         } catch (error) {
@@ -354,7 +359,18 @@ export class PingPongGame extends Component {
         this._onScore = (payload) => this._handleScore(payload);
         this._onStart = (payload) => this._handleStart(payload);
         this._onEnd = (payload) => this._handleEnd(payload);
-        this._onPeer = (payload) => this.transport && this.transport.receive(payload);
+        this._onPeer = (payload) => {
+            if (!this.transport) {
+                return;
+            }
+            if (payload && (payload.t === "sdp" || payload.t === "ice")) {
+                if (this.rtc) {
+                    this.rtc.handleSignal(payload.t, payload.p || {});
+                }
+                return;                     // signalling never reaches NetGame
+            }
+            this.busTransport.receive(payload);
+        };
         this.bus.subscribe("pp_lobby", this._onLobby);
         this.bus.subscribe("pp_score", this._onScore);
         this.bus.subscribe("pp_start", this._onStart);
@@ -410,7 +426,8 @@ export class PingPongGame extends Component {
 
         this._stopIdleProbe();
         if (!this.transport) {
-            this.transport = new BusTransport({ rpc, playerToken: this.playerToken });
+            this.busTransport = new BusTransport({ rpc, playerToken: this.playerToken });
+            this.transport = new HybridTransport(this.busTransport);
         }
         this.engine.net = new NetGame(this.engine, this.transport, {
             role,
@@ -425,6 +442,7 @@ export class PingPongGame extends Component {
             },
         });
 
+        this._startRtc();
         this.state.mode = "online";
         this.state.screen = "playing";
         this.state.result = null;
@@ -459,6 +477,42 @@ export class PingPongGame extends Component {
         sim.score[0] = payload.host;
         sim.score[1] = payload.guest;
         this.state.score = [payload.host, payload.guest];
+    }
+
+    /**
+     * Try to move the match off the server.
+     *
+     * Kicked off alongside the match rather than before it: the game is already
+     * playable over the bus, and a negotiation that fails -- which it will on
+     * some networks -- costs nothing but the attempt.
+     */
+    async _startRtc() {
+        if (this.rtc || !this.state.room) {
+            return;
+        }
+        let iceServers = [];
+        try {
+            const result = await rpc("/pingpong/online/ice", { player_token: this.playerToken });
+            iceServers = (result && result.ice_servers) || [];
+        } catch {
+            iceServers = [];
+        }
+        if (!window.RTCPeerConnection || !this.transport) {
+            return;
+        }
+        this.rtc = new RtcTransport({
+            signal: (type, payload) => this.busTransport.send(type, payload),
+            isInitiator: this.isHost,
+            iceServers,
+            onState: (state) => {
+                this.state.peerLink = state;
+                if (state === "open") {
+                    this.toast("Conexión directa", "el servidor ya no está en medio", 1600);
+                }
+            },
+        });
+        this.transport.attach(this.rtc);
+        await this.rtc.connect().catch(() => {});
     }
 
     _handleEnd(payload) {
