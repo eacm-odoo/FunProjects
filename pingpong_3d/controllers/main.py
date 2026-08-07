@@ -237,7 +237,42 @@ class PingPongOnlineController(http.Controller):
         except Exception:                    # noqa: BLE001 - never block the game
             _logger.warning("pingpong_3d: could not read ICE servers", exc_info=True)
             servers = []
-        return {"ok": True, "ice_servers": servers}
+
+        source = "configured"
+        if not servers:
+            # mail.ice.server starts empty, and an empty list is not a neutral
+            # default: with no STUN the browser only gathers host candidates, so
+            # two players on different networks can never find each other and
+            # the connection quietly times out. Fall back to public STUN.
+            source = "fallback"
+            servers = [
+                {"urls": url}
+                for url in self._fallback_stun()
+                if url
+            ]
+        return {
+            "ok": True,
+            "ice_servers": servers,
+            "source": source,
+            # STUN alone cannot cross a symmetric NAT. Only a TURN entry can, and
+            # nothing here can conjure one, so the client is told what it has.
+            "has_turn": any(
+                str(entry.get("urls", "")).startswith("turn") for entry in servers
+            ),
+        }
+
+    def _fallback_stun(self):
+        """Public STUN servers, overridable and disableable.
+
+        Set ``pingpong_3d.stun_servers`` to a comma-separated list, or to an
+        empty string to opt out entirely on an installation that must not reach
+        outside. Opting out means online matches stay on the bus.
+        """
+        default = "stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302"
+        raw = request.env["ir.config_parameter"].sudo().get_param(
+            "pingpong_3d.stun_servers", default
+        )
+        return [url.strip() for url in (raw or "").split(",") if url.strip()]
 
     @http.route("/pingpong/online/point", type="jsonrpc", auth="public")
     def point(self, player_token=None, winner=None, reason=None, **kwargs):
