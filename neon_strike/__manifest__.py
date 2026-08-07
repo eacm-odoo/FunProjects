@@ -3,7 +3,7 @@
 # UI palette follows Odoo brand assets: https://www.odoo.com/page/brand-assets
 {
     "name": "Neon Strike",
-    "version": "19.0.4.0.0",
+    "version": "19.0.4.1.0",
     "category": "Productivity",
     "summary": "Shooter espacial neón cooperativo, jugable sin login en una página pública",
     "description": """
@@ -18,7 +18,7 @@ jugable **sin cuenta**: entra con un apodo y a jugar.
 * 6 tipos de enemigos con IA distinta, un jefe cada 4 oleadas y asteroides
 * Arte pixel art propio: chasis por slot de jugador y variantes de chasis enemigo
 * Audio 100% sintetizado con Web Audio API (sin archivos de sonido)
-* Power-ups: triple disparo, escudo, bomba y vida extra
+* Power-ups en cápsula pixel art: triple disparo, escudo, bomba y vida extra
 * Sistema de combos hasta x25, partículas, screen shake y slow-motion
 * Marcador global único (individual y de equipo) en ``neon.strike.score``
 

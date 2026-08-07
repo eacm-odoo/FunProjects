@@ -30,8 +30,12 @@ const ENEMY_SPRITES = {
     boss: ["boss0"],
 };
 const ROCK_SPRITES = ["rock0", "rock1"];
+// Color por tipo de power-up (T triple, S escudo, B bomba, L vida extra). El
+// sprite `pup<T>` se recolorea con el, asi que ambos van siempre de la mano.
+const PUP_COLORS = { T: "#5ee1ff", S: "#7bffb0", B: "#ffb347", L: "#ff8fb3" };
 // Tamaño de pixel de las naves: 16 px de rejilla -> ~32 px logicos de ancho.
 const SHIP_PX = pxFor("ship0", 30);
+const PUP_PX = pxFor("pupT", 30);
 
 export class NeonStrikeEngine {
     /**
@@ -1441,21 +1445,17 @@ export class NeonStrikeEngine {
             this.drawRock(rk);
         }
         for (const p of this.pups) {
-            const col = p.t === "T" ? "#5ee1ff" : p.t === "S" ? "#7bffb0" : p.t === "B" ? "#ffb347" : "#ff8fb3";
+            const col = PUP_COLORS[p.t] || PUP_COLORS.L;
             const bob = Math.sin(p.ph) * 2;
-            g.fillStyle = "rgba(255,255,255,0.1)";
+            g.save();
+            g.globalCompositeOperation = "lighter";
+            g.fillStyle = this.glow(col, 0.16);
             g.beginPath();
-            g.arc(p.x, p.y + bob, p.r + 5, 0, 6.2832);
+            g.arc(p.x, p.y + bob, p.r + 6, 0, 6.2832);
             g.fill();
-            g.fillStyle = col;
-            g.beginPath();
-            g.arc(p.x, p.y + bob, p.r, 0, 6.2832);
-            g.fill();
-            g.fillStyle = "#0a0d18";
-            g.font = "500 13px system-ui,sans-serif";
-            g.textAlign = "center";
-            g.textBaseline = "middle";
-            g.fillText(p.t === "L" ? "+" : p.t, p.x, p.y + bob + 1);
+            g.restore();
+            // La capsula lleva el glifo dibujado en la propia rejilla de pixeles.
+            drawSprite(g, "pup" + p.t, p.x, p.y + bob, { tint: col, px: PUP_PX });
         }
         for (const e of this.enemies) {
             this.drawEnemy(e);
