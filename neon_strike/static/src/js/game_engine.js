@@ -446,7 +446,7 @@ export class NeonStrikeEngine {
             // Se para a media altura y castiga con disparos precisos telegrafiados.
             return Object.assign(base, {
                 hp: 3, mhp: 3, t: 0, val: 400,
-                stopY: 90 + Math.random() * 110, aim: 0, aimX: 0, aimY: 0,
+                stopY: 90 + Math.random() * 110, aim: 0,
             });
         }
         if (type === "kami") {
@@ -871,20 +871,14 @@ export class NeonStrikeEngine {
                     e.aim += ts;
                     if (e.aim >= 70) {
                         e.aim = 0;
-                        const tgt = this._aimShip();
+                        // Dispara a la nave que telegrafio (la mas cercana), no a una al azar.
+                        const tgt = this._nearestShip(e.x, e.y);
                         if (tgt) {
                             const dx = tgt.x - e.x;
                             const dy = tgt.y - e.y;
                             const d = Math.sqrt(dx * dx + dy * dy) || 1;
                             this.ebullets.push({ x: e.x, y: e.y, vx: (dx / d) * 5.2, vy: (dy / d) * 5.2 });
                             this.sTick();
-                        }
-                    } else if (e.aim > 40) {
-                        // Telegrafia el disparo: guarda a quien apunta para el render.
-                        const tgt = this._nearestShip(e.x, e.y);
-                        if (tgt) {
-                            e.aimX = tgt.x;
-                            e.aimY = tgt.y;
                         }
                     }
                 }
@@ -1337,17 +1331,22 @@ export class NeonStrikeEngine {
         g.arc(e.x, e.y, e.r + 10, 0, 6.2832);
         g.fill();
         g.restore();
-        // Linea de mira del francotirador mientras carga el disparo.
-        if (e.type === "sniper" && e.aim > 40 && e.aimX) {
-            g.save();
-            g.globalCompositeOperation = "lighter";
-            g.strokeStyle = "rgba(77,227,193," + (0.15 + ((e.aim - 40) / 30) * 0.35) + ")";
-            g.lineWidth = 1;
-            g.beginPath();
-            g.moveTo(e.x, e.y);
-            g.lineTo(e.aimX, e.aimY);
-            g.stroke();
-            g.restore();
+        // Linea de mira del francotirador mientras carga. El objetivo se recalcula
+        // aqui (no viaja en el snapshot): las naves ya estan sincronizadas, asi que
+        // host y guest dibujan la misma mira.
+        if (e.type === "sniper" && e.aim > 40) {
+            const tgt = this._nearestShip(e.x, e.y);
+            if (tgt) {
+                g.save();
+                g.globalCompositeOperation = "lighter";
+                g.strokeStyle = "rgba(77,227,193," + (0.15 + ((e.aim - 40) / 30) * 0.35) + ")";
+                g.lineWidth = 1;
+                g.beginPath();
+                g.moveTo(e.x, e.y);
+                g.lineTo(tgt.x, tgt.y);
+                g.stroke();
+                g.restore();
+            }
         }
         if (e.type === "boss") {
             // El acorazado respira: pulso suave alrededor del centro.
