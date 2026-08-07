@@ -4,7 +4,7 @@ Contexto para Claude Code. Lee esto antes de tocar el código.
 
 ## Qué es esto
 
-Módulo de Odoo 19.0 Community que corre un shooter espacial (canvas 2D, OWL 2) en una **página pública `/neon`**, jugable **sin login**: entras con un apodo y juegas. Soporta **cooperativo remoto de hasta 4 jugadores** sobre el bus de Odoo (sala por código, host-autoritativo) además del modo 1 jugador. La identidad de cada jugador es un **token de sesión + apodo** (no `res.users`). Marcador global único en `neon.strike.score`. Sin dependencias externas más allá de `web` y `bus`.
+Módulo de Odoo 19.0 Community que corre un shooter espacial (canvas 2D, OWL 2) en una **página pública `/neon`** publicada en el menú del website (igual que `pingpong_3d`), jugable **sin login**: entras con un apodo y juegas. Soporta **cooperativo remoto de hasta 4 jugadores** sobre el bus de Odoo (sala por código, host-autoritativo) además del modo 1 jugador. La identidad de cada jugador es un **token de sesión + apodo** (no `res.users`). Marcador global único en `neon.strike.score`. Sin dependencias externas más allá de `web`, `bus` y `website`.
 
 ## Arquitectura
 
@@ -23,6 +23,7 @@ Módulo de Odoo 19.0 Community que corre un shooter espacial (canvas 2D, OWL 2) 
 - `models/neon_strike_participant.py` — `neon.strike.participant`: `match_id`, `token`, `nickname`, `user_id` (opcional), `slot`, `name` (computed: apodo o usuario), `color` (computado por slot). Colores = SHIP_COLORS del motor.
 - `models/ir_websocket.py` — hereda `ir.websocket`, sobreescribe `_build_bus_channel_list` para autorizar `neon_strike_match_<access_token>` **por capacidad**: se permite si existe un match con ese token (no depende de `env.user`, todos son el usuario público).
 - `views/neon_strike_views.xml` — `ir.actions.act_url` a `/neon` (menú "Jugar" abre la página) + `ir.actions.act_window` de Marcadores + menús. Lista con `mode`/`player_count`. Odoo 19 usa `<list>`, NO `<tree>`.
+- `views/website_menu.xml` — record `website.menu` "Neon Strike" → `/neon` bajo `website.main_menu` (mismo patrón que `pingpong_3d/views/website_menu.xml`). Es lo que hace que el juego sea alcanzable desde la navegación pública del sitio.
 - `security/ir.model.access.csv` — score: `group_user` read; match/participant/score admin: `group_system`. El público NO accede por ORM directo (todo va por controladores con `sudo()`), así que no hay ACL de `group_user` para match/participant ni reglas de registro.
 
 ## Comandos
