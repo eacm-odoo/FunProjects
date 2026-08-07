@@ -219,6 +219,26 @@ class PingPongOnlineController(http.Controller):
             return {"ok": False}
         return {"ok": bool(session.relay(participant, t, p))}
 
+    @http.route("/pingpong/online/ice", type="jsonrpc", auth="public")
+    def ice_servers(self, player_token=None, **kwargs):
+        """STUN/TURN servers for the peer-to-peer connection.
+
+        Reuses ``mail.ice.server``, which Discuss already configures and which
+        returns them in the shape ``RTCConfiguration`` expects. Falling back to a
+        hardcoded public STUN server would work for most people and fail for the
+        ones behind a symmetric NAT, which is exactly the case a configured TURN
+        entry exists to cover.
+        """
+        _participant, session = self._resolve(player_token)
+        if not session:
+            return {"ok": False, "error": "unknown_token"}
+        try:
+            servers = request.env["mail.ice.server"].sudo()._get_ice_servers()
+        except Exception:                    # noqa: BLE001 - never block the game
+            _logger.warning("pingpong_3d: could not read ICE servers", exc_info=True)
+            servers = []
+        return {"ok": True, "ice_servers": servers}
+
     @http.route("/pingpong/online/point", type="jsonrpc", auth="public")
     def point(self, player_token=None, winner=None, reason=None, **kwargs):
         """The host reports who won a point, and why.
