@@ -68,6 +68,7 @@ export class RtcTransport {
             if (!event.candidate) {
                 return;                     // end-of-candidates, nothing to send
             }
+            this.candidates = (this.candidates || 0) + 1;
             this.signal("ice", {
                 candidate: event.candidate.candidate,
                 sdpMid: event.candidate.sdpMid,
@@ -76,8 +77,21 @@ export class RtcTransport {
         };
         this._pc.onconnectionstatechange = () => {
             const pcState = this._pc && this._pc.connectionState;
+            this.lastPcState = pcState;
+            console.info("pingpong_3d: conexión p2p ->", pcState);
             if (pcState === "failed" || pcState === "closed") {
                 this._setState("failed");
+            }
+        };
+        this._pc.onicegatheringstatechange = () => {
+            this.candidates = this.candidates || 0;
+            if (this._pc && this._pc.iceGatheringState === "complete" && !this.candidates) {
+                // No candidates at all means no STUN reached: only host
+                // addresses were available, and those do not cross a NAT.
+                console.warn(
+                    "pingpong_3d: no se obtuvo ningún candidato ICE. " +
+                    "Sin STUN accesible la conexión directa no es posible."
+                );
             }
         };
         this._pc.ondatachannel = (event) => this._adoptChannel(event.channel);

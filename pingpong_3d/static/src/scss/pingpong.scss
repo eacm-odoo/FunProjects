@@ -566,6 +566,8 @@ body.o_pingpong_page {
             font-size: 10px;
             letter-spacing: .06em;
             text-transform: uppercase;
+
+            &.off { background: var(--od-muted); }
         }
     }
 

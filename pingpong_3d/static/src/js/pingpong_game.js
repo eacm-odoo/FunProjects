@@ -491,11 +491,22 @@ export class PingPongGame extends Component {
             return;
         }
         let iceServers = [];
+        let hasTurn = false;
         try {
             const result = await rpc("/pingpong/online/ice", { player_token: this.playerToken });
             iceServers = (result && result.ice_servers) || [];
+            hasTurn = Boolean(result && result.has_turn);
+            console.info(
+                `pingpong_3d: ${iceServers.length} servidor(es) ICE (${result && result.source})`,
+                hasTurn ? "con TURN" : "solo STUN"
+            );
         } catch {
             iceServers = [];
+        }
+        if (!iceServers.length) {
+            console.warn("pingpong_3d: sin servidores ICE, la partida se queda en el bus");
+            this.state.peerLink = "unavailable";
+            return;
         }
         if (!window.RTCPeerConnection || !this.transport) {
             return;
@@ -508,6 +519,14 @@ export class PingPongGame extends Component {
                 this.state.peerLink = state;
                 if (state === "open") {
                     this.toast("Conexión directa", "el servidor ya no está en medio", 1600);
+                } else if (state === "failed") {
+                    // Worth saying. Silence here reads as "it worked", and the
+                    // difference is the whole point of the feature.
+                    this.toast(
+                        "Sin conexión directa",
+                        hasTurn ? "seguimos por el servidor" : "haría falta un TURN",
+                        2200
+                    );
                 }
             },
         });

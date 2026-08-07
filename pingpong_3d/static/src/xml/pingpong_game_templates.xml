@@ -54,7 +54,10 @@
                                   + ' · enlace: ' + (state.peerLink === 'open' ? 'directo (p2p)' : 'bus de Odoo')">
                     <span t-att-class="'dot ' + (state.rtt &lt; 120 ? 'good' : (state.rtt &lt; 250 ? 'fair' : 'poor'))"/>
                     <t t-out="state.rtt"/> ms
-                    <b class="o_pp_link" t-if="state.peerLink === 'open'" title="Conexión directa entre navegadores">p2p</b>
+                    <b class="o_pp_link" t-if="state.peerLink === 'open'"
+                       title="Conexión directa entre navegadores">p2p</b>
+                    <b class="o_pp_link off" t-elif="state.peerLink === 'failed' or state.peerLink === 'unavailable'"
+                       title="No se pudo abrir la conexión directa; la partida va por el servidor">bus</b>
                     <small t-if="state.httpRtt">
                         http <t t-out="state.httpRtt"/><t t-if="state.selfRtt"> · yo <t t-out="state.selfRtt"/></t><t t-if="state.fps"> · <t t-out="state.fps"/> fps</t>
                     </small>
