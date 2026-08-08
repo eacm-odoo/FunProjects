@@ -40,7 +40,8 @@ Python, view or security changes: `-u neon_strike`.
 
 Drag (or move the mouse) to fly your ship — fire is automatic. Press **Space**
 to dash: a short burst towards the cursor during which nothing can touch you.
-Keys **1** to **4** trigger the active perks you picked up, in that order.
+Keys **1** to **4** trigger the active perks you picked up, in that order, and
+**Esc** pauses (there is a Pause button in the toolbar too).
 
 Capsules dropped by downed enemies give **T** triple shot, **S** shield, **B**
 bomb, **+** an extra life, **R** rapid fire, **V** overcharge, **P** piercing,
@@ -53,8 +54,9 @@ Every **5 cleared waves** the run pauses and each player is offered **3 of the 5
 permanent perks** and keeps 1 — passives, situational bonuses and active powers
 on a cooldown. They stack for the rest of the run and are wiped when you start a
 new one. A boss shows up every 4 waves and a **colossal boss every 10**: those do
-not fit the arena, so the camera pulls back and your ship looks tiny next to the
-hull. The playable field **widens** for the fight (the purple frame shows how far
+not fit the arena, so the camera pulls back until the whole hull fits and your
+ship looks tiny next to it. The playable field **widens** for the fight and the
+zoom is picked so that field fills your screen (the purple frame shows how far
 you can fly), and supply capsules keep falling while a boss is up — on a timer
 and every time you chip a quarter off its health — so you are not stuck with the
 plain shot for the whole fight.

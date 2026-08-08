@@ -55,6 +55,7 @@ export class NeonStrikeGame extends Component {
             error: "",
             connecting: false,
             glossary: false, // ships and enemies panel over the menu
+            paused: false,
             match: null, // {id, code, is_host, slot, channel, participants, max_players, state}
         });
 
@@ -215,6 +216,9 @@ export class NeonStrikeGame extends Component {
             onGameOver: (res) => this.onGameOver(res),
             onLocalInput: (x, y) => this._queueInput(x, y),
             onAction: (action) => this._sendAction(action),
+            onPause: (paused) => {
+                this.state.paused = paused;
+            },
         });
         this.engine.setMuted(this.state.muted);
         this.engine.start();
@@ -236,6 +240,7 @@ export class NeonStrikeGame extends Component {
             this._inputHandle = null;
         }
         this._pendingInput = null;
+        this.state.paused = false;
         if (this.engine) {
             this.engine.destroy();
             this.engine = null;
@@ -501,6 +506,13 @@ export class NeonStrikeGame extends Component {
     restart() {
         if (this.engine && this.state.role !== "guest") {
             this.engine.restartToMenu();
+        }
+    }
+
+    /** Same path as the Esc key: on a guest it is a request to the host. */
+    togglePause() {
+        if (this.engine) {
+            this.engine.togglePause();
         }
     }
 

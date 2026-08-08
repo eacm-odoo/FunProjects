@@ -3,10 +3,11 @@
  * Neon Strike - colossal bosses.
  *
  * One shows up every 10 waves, cycling through the five. They are far too big
- * for the 680x540 arena: while one is alive the camera pulls back to `zoom`,
- * the arena shrinks into the middle of the screen and your ship looks tiny
- * next to the hull. The engine keeps simulating in the same logical space, so
- * host and guest stay in sync (see `game_engine.js`, camera section).
+ * for the 680x540 arena: while one is alive the playable field widens by
+ * `field` and the camera pulls back far enough to frame all of it plus the
+ * whole hull, so your ship looks tiny next to it. The zoom is computed by each
+ * client from its own canvas (`_fitZoom`): it is a render concern, and the
+ * simulation stays in the same logical space so host and guest agree.
  *
  * Data only: the AI of each one lives in `_updateColossus` keyed by index, and
  * the order of this array is the wire format (the snapshot sends the index).
@@ -20,8 +21,7 @@ export const COLOSSI = [
         sprite: "colossus0",
         tint: "#ff4d4d",
         w: 850,          // logical width; the arena is only 680 wide
-        zoom: 0.6,       // camera scale while it is alive
-        field: 1.3,     // the arena grows this much while it is alive
+        field: 1.34,   // how much wider the playable field gets (see _applyField)
         hp: 300,       // starting hull; `+ wave * 28` on top (see mkColossus)
         val: 20000,
         // Vertical band it patrols and how fast it slides sideways.
@@ -36,8 +36,7 @@ export const COLOSSI = [
         sprite: "colossus1",
         tint: "#9b5de5",
         w: 780,
-        zoom: 0.58,
-        field: 1.32,     // the arena grows this much while it is alive
+        field: 1.36,
         hp: 600,
         val: 24000,
         y: 165,
@@ -51,8 +50,7 @@ export const COLOSSI = [
         sprite: "colossus2",
         tint: "#ffb347",
         w: 800,
-        zoom: 0.56,
-        field: 1.35,     // the arena grows this much while it is alive
+        field: 1.4,
         hp: 800,
         val: 28000,
         y: 160,
@@ -66,8 +64,7 @@ export const COLOSSI = [
         sprite: "colossus3",
         tint: "#4de3c1",
         w: 820,
-        zoom: 0.54,
-        field: 1.38,     // the arena grows this much while it is alive
+        field: 1.44,
         hp: 1000,
         val: 32000,
         y: 180,
@@ -81,8 +78,7 @@ export const COLOSSI = [
         sprite: "colossus4",
         tint: "#ff2fd0",
         w: 1000,
-        zoom: 0.48,
-        field: 1.45,     // the arena grows this much while it is alive
+        field: 1.5,
         hp: 1300,
         val: 40000,
         y: 175,

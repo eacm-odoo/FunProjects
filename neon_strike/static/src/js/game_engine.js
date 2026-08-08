@@ -100,6 +100,7 @@ export class NeonStrikeEngine {
         this.hotseat = !!callbacks.hotseat;
 
         this.state = "start";
+        this.paused = false;
         this.muted = false;
         this.AC = null;
 
@@ -130,6 +131,12 @@ export class NeonStrikeEngine {
         // Supply drops while a boss is up (otherwise you fight it with the
         // plain shot: no small fry means no capsules).
         this.supplyT = 0;
+        // Wave pacing: enemies queue up here and are released in a steady
+        // stream instead of being parked far above the screen.
+        this.pending = [];
+        this.spawnT = 0;
+        this.waveAge = 0;
+        this.escortT = 0;
 
         this.frame = 0;
         this.slowMo = 0;
@@ -231,6 +238,24 @@ export class NeonStrikeEngine {
         }
     }
 
+    /** Esc / toolbar. On a guest it asks the host, who owns the simulation. */
+    togglePause() {
+        if (this.state !== "playing") {
+            return;
+        }
+        this._localAction("pause");
+    }
+
+    _setPaused(paused) {
+        if (this.paused === paused) {
+            return;
+        }
+        this.paused = paused;
+        if (this.cb.onPause) {
+            this.cb.onPause(paused);
+        }
+    }
+
     restartToMenu() {
         this.reset();
         this.state = "start";
@@ -239,6 +264,7 @@ export class NeonStrikeEngine {
     /** Start a game (host/solo). Guests get the state through snapshots. */
     beginPlay() {
         this.reset();
+        this._setPaused(false);
         this.state = "playing";
     }
 
@@ -256,6 +282,8 @@ export class NeonStrikeEngine {
         this.cssH = ch;
         this.scale = Math.min(cw / this.W, ch / this.H);
         this._applyCamera();
+        // The zoom is derived from the canvas: snap it to the new fit.
+        this._updateCamera(1000);
     }
 
     /**
@@ -277,14 +305,35 @@ export class NeonStrikeEngine {
     }
 
     /**
+     * Zoom that frames the whole playable field plus the boss hull inside this
+     * canvas. It is deliberately computed from the local canvas: the zoom is a
+     * render concern, so each client fills its own screen, while the field (the
+     * simulated part) stays canvas-independent and identical everywhere.
+     */
+    _fitZoom(boss) {
+        const cw = this.cssW || this.W;
+        const ch = this.cssH || this.H;
+        let needW = this.W * this.fieldTo;
+        let needH = this.H * this._fieldY(this.fieldTo);
+        if (boss) {
+            // A little air around the hull so it never touches the edges.
+            needW = Math.max(needW, boss.w * 1.06);
+            needH = Math.max(needH, boss.h * 1.15);
+        }
+        const z = Math.min(cw / (needW * this.scale), ch / (needH * this.scale));
+        // Never zoom in past 1: the arena is the reference frame.
+        return Math.min(1, Math.round(z * 1000) / 1000);
+    }
+
+    /**
      * Ease camera and field towards their target (called every frame, on the
-     * host and on the guest). Both are read off the live colossus, so nobody
-     * has to send a camera over the wire.
+     * host and on the guest). The field is read off the live colossus; the zoom
+     * follows from it, so nobody has to send a camera over the wire.
      */
     _updateCamera(ts) {
         const boss = this.enemies.find((e) => e.type === "colossus");
-        this.zoomTo = boss ? boss.zoom : 1;
         this.fieldTo = boss ? boss.field || 1 : 1;
+        this.zoomTo = this._fitZoom(boss);
         // The easing is exponential, so it never quite lands: snap once it is
         // close enough, otherwise the walls keep a fractional offset forever.
         if (this.zoom !== this.zoomTo) {
@@ -301,10 +350,19 @@ export class NeonStrikeEngine {
         }
     }
 
+    /**
+     * Vertical growth of the field. It is deliberately smaller than the
+     * horizontal one: screens are wide, so a wider-than-tall field is what
+     * ends up actually filling them once the camera pulls back.
+     */
+    _fieldY(f) {
+        return 1 + (f - 1) * 0.6;
+    }
+
     /** Recompute the playable bounds for the current `field` factor. */
     _applyField() {
         const mx = (this.W * (this.field - 1)) / 2;
-        const my = (this.H * (this.field - 1)) / 2;
+        const my = (this.H * (this._fieldY(this.field) - 1)) / 2;
         this.fx0 = -mx;
         this.fx1 = this.W + mx;
         this.fy0 = -my;
@@ -316,6 +374,12 @@ export class NeonStrikeEngine {
         const ts = this.slowMo > 0 ? 0.35 : 1;
         if (this.slowMo > 0) {
             this.slowMo--;
+        }
+        if (this.paused) {
+            // Frozen: no simulation, no interpolation. Only the overlay moves.
+            this.render();
+            this._raf = requestAnimationFrame(this._loop);
+            return;
         }
         if (this.role === "guest") {
             this._guestUpdate(ts);
@@ -804,7 +868,7 @@ export class NeonStrikeEngine {
             // Hitbox slightly inside the art, so the silhouette stays fair.
             hw: d.w * 0.42, hh: h * 0.32,
             r: Math.min(d.w, h) * 0.28, // circle used by splashes and trails
-            c: d.tint, zoom: d.zoom, field: d.field || 1, v: 0, flash: 0, stun: 0,
+            c: d.tint, field: d.field || 1, v: 0, flash: 0, stun: 0,
             hp, mhp: hp, t: 0, val: d.val, dropAt: 0.75,
             vx: d.speed, rot: 0, gap: 120,
             a1: 60, a2: 180, a3: 300,
@@ -839,6 +903,10 @@ export class NeonStrikeEngine {
         }
         this.pop(this.W / 2, this.H / 2 - 50, "Wave " + this.wave, "#8be9ff", 30, 80);
         const n = 5 + this.wave * 2 + p * 2;
+        // The whole wave is queued and released by `_updateSpawns`, which keeps
+        // a minimum number of hulls on screen. Parking them all above the top
+        // (the old way) made big waves crawl: the tail took ~12 s just to fly
+        // in, and the wave could not end until it did.
         for (let i = 0; i < n; i++) {
             const r = Math.random();
             let type = "drone";
@@ -854,14 +922,76 @@ export class NeonStrikeEngine {
             if (this.wave > 4 && r >= 0.66 && r < 0.76) {
                 type = "kami";
             }
-            this.enemies.push(
-                this.mkEnemy(type, 40 + Math.random() * (this.W - 80), -30 - i * 48 - Math.random() * 40)
-            );
+            this.pending.push(type);
+        }
+        this.spawnT = 0;
+        this.waveAge = 0;
+        // Open with a handful already on screen so no wave starts empty.
+        for (let i = 0; i < Math.min(this.pending.length, 3 + p); i++) {
+            this._releaseEnemy(-30 - i * 26);
         }
         // A couple of asteroids at the start of a wave, more from wave 3 on.
         const rocks = 1 + Math.floor(this.wave / 3);
         for (let i = 0; i < rocks; i++) {
             this.spawnRock();
+        }
+    }
+
+    /** Pop one queued enemy onto the field. */
+    _releaseEnemy(y) {
+        const type = this.pending.shift();
+        if (!type) {
+            return;
+        }
+        this.enemies.push(
+            this.mkEnemy(type, 40 + Math.random() * (this.W - 80), y != null ? y : -30 - Math.random() * 20)
+        );
+    }
+
+    /**
+     * Wave pacing. Two rules keep a round from going quiet:
+     *  - release on a timer, but bring the next one forward whenever the field
+     *    drops below `minAlive`, so the pressure never dies down;
+     *  - once the queue is empty, chase down the last stragglers (`rush`) so a
+     *    wave is not decided by one tank drifting across the screen.
+     */
+    _updateSpawns(ts) {
+        this.waveAge += ts;
+        const alive = this.enemies.filter((e) => !this._isBoss(e)).length;
+        if (this.pending.length) {
+            // Later waves keep more hulls on screen at once: that is what makes
+            // a round feel frantic instead of a queue of single targets.
+            const minAlive = Math.min(11, 3 + this.players + Math.floor(this.wave / 5));
+            this.spawnT -= ts;
+            if (this.spawnT <= 0 || alive < minAlive) {
+                this._releaseEnemy();
+                // Faster drip on later waves, and faster still if the field is
+                // emptying out.
+                this.spawnT = Math.max(10, 34 - this.wave) * (alive < minAlive ? 0.45 : 1);
+            }
+            return;
+        }
+        if (alive && alive <= 2 && this.waveAge > 600) {
+            for (const e of this.enemies) {
+                if (!this._isBoss(e)) {
+                    e.rush = 1;
+                }
+            }
+            return;
+        }
+        // Boss waves used to be one hull alone on an empty screen for half a
+        // minute. A thin escort stream keeps things moving (and keeps capsules
+        // and score flowing) without competing with the boss pattern.
+        const boss = this.enemies.find((e) => this._isBoss(e));
+        if (boss && alive < 3 + this.players) {
+            this.escortT -= ts;
+            if (this.escortT <= 0) {
+                this.escortT = boss.type === "colossus" ? 240 : 180;
+                const type = Math.random() < 0.55 ? "drone" : "speedy";
+                this.enemies.push(
+                    this.mkEnemy(type, this.fx0 + 40 + Math.random() * (this.fx1 - this.fx0 - 80), -30)
+                );
+            }
         }
     }
 
@@ -1117,12 +1247,16 @@ export class NeonStrikeEngine {
         this.field = 1;
         this.fieldTo = 1;
         this.supplyT = 0;
+        this.pending = [];
+        this.spawnT = 0;
+        this.waveAge = 0;
+        this.escortT = 0;
         this._applyField();
         this._initShips();
         for (const sp of this.ships) {
             sp.inv = 90;
         }
-        this.waveDelay = 30;
+        this.waveDelay = 24;
     }
 
     /* ------------------------------------------------------------------ */
@@ -1270,6 +1404,7 @@ export class NeonStrikeEngine {
         this._updateEnemies(ts);
         this._updateRocks(ts);
         this._updatePups(ts);
+        this._updateSpawns(ts);
         this._updateSupply(ts);
         this._updateBeams(ts);
         this._updateTrails(ts);
@@ -1278,7 +1413,7 @@ export class NeonStrikeEngine {
         this._updateDecoys(ts);
         this._updateFx(ts);
 
-        if (this.enemies.length === 0) {
+        if (this.enemies.length === 0 && this.pending.length === 0) {
             this.waveDelay -= ts;
             if (this.waveDelay <= 0) {
                 if (this.wave >= this.nextPerkWave) {
@@ -1287,7 +1422,7 @@ export class NeonStrikeEngine {
                     this._openPerkPhase();
                 } else {
                     this.spawnWave();
-                    this.waveDelay = 45;
+                    this.waveDelay = 26;
                 }
             }
         }
@@ -2063,12 +2198,26 @@ export class NeonStrikeEngine {
                 this.sBoom();
             }
             if (e.a3 <= 0) {
-                e.a3 = 430;
-                for (const off of [-e.w * 0.4, e.w * 0.4]) {
+                e.a3 = rage ? 250 : 330;
+                // Two forge beams, alternating pattern so the fight keeps
+                // asking a different question:
+                //  - scissors: they start crossed and sweep through each other;
+                //  - sweep: both rake the arena the same way, like a wiper.
+                e.pat = (e.pat || 0) ^ 1;
+                const spin = (rage ? 0.0075 : 0.0055);
+                for (const side of [-1, 1]) {
                     this.beams.push(this.mkBeam({
-                        src: e.id, ox: off, oy: e.h * 0.25,
-                        a: Math.PI / 2 - 0.25 * Math.sign(off),
-                        warn: 70, life: 150, w: 30, spin: 0.0016 * Math.sign(off) || 0.0016,
+                        src: e.id,
+                        ox: side * e.w * 0.4,
+                        oy: e.h * 0.25,
+                        // Scissors: each claw aims across to the far side.
+                        a: e.pat
+                            ? Math.PI / 2 + side * 0.95
+                            : Math.PI / 2 - 0.85,
+                        warn: 60,
+                        life: 210,
+                        w: 30,
+                        spin: e.pat ? -side * spin : spin,
                         c: "#ffb347",
                     }));
                 }
@@ -2137,7 +2286,10 @@ export class NeonStrikeEngine {
             if (e.stun > 0) {
                 e.stun -= ts;
             }
-            const mv = e.stun > 0 ? 0 : (this.warpT > 0 ? ts * 0.4 : ts);
+            let mv = e.stun > 0 ? 0 : (this.warpT > 0 ? ts * 0.4 : ts);
+            if (e.rush) {
+                mv *= 1.9;
+            }
             e.t += mv;
             if (e.type === "colossus") {
                 this._updateColossus(e, mv);
@@ -2590,7 +2742,9 @@ export class NeonStrikeEngine {
         if (this.role === "guest" || !action) {
             return;
         }
-        if (action === "dash") {
+        if (action === "pause") {
+            this._setPaused(!this.paused);
+        } else if (action === "dash") {
             this.dashShip(slot);
         } else if (action.startsWith("act")) {
             this.useActive(slot, parseInt(action.slice(3), 10) || 0);
@@ -2609,6 +2763,7 @@ export class NeonStrikeEngine {
             ct: this.comboT,
             sk: Math.round(this.shake),
             fl: Math.round(this.flashT),
+            pz: this.paused ? 1 : 0,
             fz: this.freezeT > 0 ? 1 : 0,
             wp2: this.warpT > 0 ? 1 : 0,
             ships: this.ships.map((s) => ({
@@ -2671,6 +2826,7 @@ export class NeonStrikeEngine {
         this.comboT = snap.ct;
         this.shake = snap.sk;
         this.flashT = snap.fl;
+        this._setPaused(!!snap.pz);
         this.freezeT = snap.fz ? 60 : 0;
         this.warpT = snap.wp2 ? 60 : 0;
         this.perkPhase = snap.pf
@@ -2739,7 +2895,7 @@ export class NeonStrikeEngine {
                     k: e.ck || 0, w: d.w, h,
                     hw: d.w * 0.42, hh: h * 0.32,
                     r: Math.min(d.w, h) * 0.28,
-                    c: d.tint, zoom: d.zoom, field: d.field || 1,
+                    c: d.tint, field: d.field || 1,
                 });
             }
             return en;
@@ -3468,6 +3624,17 @@ export class NeonStrikeEngine {
             this._renderPerkHud();
             this._renderColossusBar();
         }
+        if (this.paused) {
+            g.fillStyle = "rgba(4,5,12,0.7)";
+            g.fillRect(-W, -H, W * 3, H * 3);
+            g.textAlign = "center";
+            g.fillStyle = "#eaf6ff";
+            g.font = "500 34px system-ui,sans-serif";
+            g.fillText("PAUSED", W / 2, H / 2 - 10);
+            g.fillStyle = "rgba(180,210,255," + (0.5 + Math.sin(this.frame * 0.07) * 0.3) + ")";
+            g.font = "400 15px system-ui,sans-serif";
+            g.fillText("Esc to resume", W / 2, H / 2 + 26);
+        }
         if (this.state === "start") {
             g.textAlign = "center";
             const pul = 0.7 + Math.sin(this.frame * 0.06) * 0.3;
@@ -3585,6 +3752,14 @@ export class NeonStrikeEngine {
         const k = (e.key || "").toLowerCase();
         this.keys[k] = true;
         const digit = parseInt(k, 10);
+        if (k === "escape") {
+            this.togglePause();
+            e.preventDefault();
+            return;
+        }
+        if (this.paused) {
+            return;
+        }
         if (this.state === "perk") {
             const cards = this._perkCards();
             if (digit >= 1 && digit <= cards.length) {

@@ -276,6 +276,19 @@ $ns-magenta: #ff2fd0;
         margin: 0;
     }
 
+    // Key hint inside a toolbar button (the Esc chip on Pause).
+    .ns_kbd {
+        display: inline-block;
+        font: 600 9px ui-monospace, SFMono-Regular, Menlo, monospace;
+        line-height: 1.5;
+        color: rgba(234, 246, 255, 0.75);
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 3px;
+        padding: 0 4px;
+        vertical-align: 1px;
+    }
+
     // Controls strip at the top of the glossary.
     .ns_controls {
         font-size: 12px;
