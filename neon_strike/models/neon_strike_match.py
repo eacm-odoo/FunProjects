@@ -186,21 +186,28 @@ class NeonStrikeMatch(models.Model):
         self.env["bus.bus"]._sendone(self._channel(), "ns_start", {"id": self.id})
         return True
 
-    def player_input(self, token, x, y):
+    def player_input(self, token, x, y, action=None):
         """A guest forwards its pointer to the channel (consumed by the host).
 
         The ``slot`` is derived from the participant authenticated by token (the
         client is not trusted) so that nobody can move someone else's ship.
+
+        ``action`` carries the one-shot inputs that are not a pointer: ``dash``,
+        ``act<n>`` (active perk) and ``perk<n>`` (upgrade picked between waves).
+        Everything the host validates again on its side.
         """
         self.ensure_one()
         participant = self._participant_of(token)
         if not participant:
             return False
-        self.env["bus.bus"]._sendone(self._channel(), "ns_input", {
+        payload = {
             "slot": participant.slot,
             "x": x,
             "y": y,
-        })
+        }
+        if action:
+            payload["a"] = str(action)[:16]
+        self.env["bus.bus"]._sendone(self._channel(), "ns_input", payload)
         return True
 
     def broadcast_state(self, token, snapshot):

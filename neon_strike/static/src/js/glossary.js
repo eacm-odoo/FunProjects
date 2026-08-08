@@ -9,7 +9,12 @@
  *
  * `px` is the pixel size the card is rasterized at (~120-130 px wide for all of
  * them, whatever the sprite grid is).
+ *
+ * The colossal boss group is generated from `colossi.js` so their names and
+ * behaviour lines never drift from the ones the engine uses.
  */
+
+import { COLOSSI } from "./colossi";
 
 export const GLOSSARY = [
     {
@@ -102,6 +107,18 @@ export const GLOSSARY = [
                 desc: "Same hazard as A, different silhouette.",
             },
         ],
+    },
+    {
+        title: "COLOSSAL BOSSES",
+        note: "One every 10 waves. They are wider than the arena itself: while one is alive the camera pulls back, the arena shrinks into the middle of the screen and your ship looks tiny. The purple frame marks how far you can still fly.",
+        items: COLOSSI.map((c) => ({
+            sprite: c.sprite,
+            tint: c.tint,
+            px: 1.5,
+            label: c.name,
+            sub: c.title.toLowerCase() + " · wave " + (COLOSSI.indexOf(c) + 1) * 10,
+            desc: c.desc,
+        })),
     },
     {
         title: "POWER-UPS",

@@ -15,11 +15,30 @@
 
 // Relative import (not `@neon_strike/...`): Odoo resolves it the same way and
 // the engine keeps loading as native ESM outside Odoo (the design sprite gallery).
-import { drawSprite, pxFor } from "./sprites";
+import { drawSprite, pxFor, spriteSize } from "./sprites";
+import { MAX_ACTIVES, PERKS, PERK_INDEX, rollOffers } from "./perks";
+import { COLOSSI, colossusForWave } from "./colossi";
 
 const SHIP_COLORS = ["#5ee1ff", "#ff8fb3", "#7bffb0", "#ffd166"];
 const REVIVE_FRAMES = 120;
 const COMBO_MAX = 25;
+
+// Perk phase: every PERK_WAVES cleared waves each ship keeps 1 of 3 perks.
+const PERK_WAVES = 5;
+const PERK_OPTIONS = 3;
+// Co-op safety net: if somebody does not choose, the first option is taken.
+const PERK_TIMEOUT = 1200;
+// Dash (Space): frames of travel, cooldown and speed of the burst.
+const DASH_FRAMES = 11;
+const DASH_CD = 105;
+const DASH_SPEED = 15;
+// Neutral modifiers of a ship with no perks. `_recalcPerks` rebuilds this
+// object by summing the `mods` of every perk owned.
+const BASE_MODS = {
+    fireRate: 0, dmg: 0, bulletSpeed: 0, side: 0, pierce: 0,
+    crit: 0, critMul: 0, moveSpeed: 0, hitbox: 0, lives: 0, maxLives: 0,
+    inv: 0, magnet: 0, luck: 0, scoreMul: 0, dashCd: 0, dashCharges: 0,
+};
 
 // Sprite per enemy type. Types with two entries alternate chassis based on
 // `e.v` (variant fixed when the enemy is created and carried in the snapshot).
@@ -76,6 +95,26 @@ export class NeonStrikeEngine {
         this.scale = 1;
         this.ox = 0;
         this.oy = 0;
+        // Camera: 1 = the arena fills the canvas. A colossal boss pulls it back
+        // (zoom < 1) so its whole hull fits and the room around it is shown.
+        this.zoom = 1;
+        this.zoomTo = 1;
+        // Visible margin in logical px outside the arena, recomputed on render.
+        this.viewMX = 0;
+        this.viewMY = 0;
+        // Playable field: 1 = the plain W x H arena. A colossus stretches it
+        // (the camera is already pulled back, so that room becomes playable and
+        // you get somewhere to dodge to). `fx0/fx1/fy0/fy1` are the live bounds
+        // and may go negative; everything that leaves the field uses them.
+        this.field = 1;
+        this.fieldTo = 1;
+        this.fx0 = 0;
+        this.fx1 = this.W;
+        this.fy0 = 0;
+        this.fy1 = this.H;
+        // Supply drops while a boss is up (otherwise you fight it with the
+        // plain shot: no small fry means no capsules).
+        this.supplyT = 0;
 
         this.frame = 0;
         this.slowMo = 0;
@@ -90,6 +129,24 @@ export class NeonStrikeEngine {
         this.pups = [];
         this.stars = [];
         this._events = [];
+        // Entities created by perks (dash trails, turrets, singularities, decoys).
+        this.trails = [];
+        this.turrets = [];
+        this.holes = [];
+        this.decoys = [];
+        // Arc Capacitor bolts: cosmetic, they live one blink (also on guests).
+        this.zaps = [];
+        // Colossus beams (telegraphed, then lethal).
+        this.beams = [];
+        // Global timers driven by actives: frozen bullets and slowed enemies.
+        this.freezeT = 0;
+        this.warpT = 0;
+        // Perk phase: {offers: {slot: [idx]}, picks: {slot: idx}, t}. Null while
+        // playing. The state machine goes playing -> perk -> playing.
+        this.perkPhase = null;
+        this.nextPerkWave = PERK_WAVES;
+        // Incremental id per enemy: a piercing bullet must not hit twice.
+        this._eid = 0;
 
         this.score = 0;
         this.best = 0;
@@ -107,14 +164,14 @@ export class NeonStrikeEngine {
         this._loop = this._loopFn.bind(this);
         this._pd = (e) => this._pointerDown(e);
         this._pm = (e) => this._pointerMove(e);
-        this._kd = (e) => { this.keys[(e.key || "").toLowerCase()] = true; };
+        // Space (dash) and 1..4 (actives) are always bound, not only in hotseat:
+        // WASD is the only thing gated by `hotseat`.
+        this._kd = (e) => this._keyDown(e);
         this._ku = (e) => { this.keys[(e.key || "").toLowerCase()] = false; };
         this.cv.addEventListener("pointerdown", this._pd);
         this.cv.addEventListener("pointermove", this._pm);
-        if (this.hotseat) {
-            window.addEventListener("keydown", this._kd);
-            window.addEventListener("keyup", this._ku);
-        }
+        window.addEventListener("keydown", this._kd);
+        window.addEventListener("keyup", this._ku);
         this._ro = new ResizeObserver(() => this.resize());
         this._ro.observe(this.cv.parentElement);
 
@@ -141,10 +198,8 @@ export class NeonStrikeEngine {
         this._ro.disconnect();
         this.cv.removeEventListener("pointerdown", this._pd);
         this.cv.removeEventListener("pointermove", this._pm);
-        if (this.hotseat) {
-            window.removeEventListener("keydown", this._kd);
-            window.removeEventListener("keyup", this._ku);
-        }
+        window.removeEventListener("keydown", this._kd);
+        window.removeEventListener("keyup", this._ku);
         if (this.AC) {
             try {
                 this.AC.close();
@@ -182,9 +237,63 @@ export class NeonStrikeEngine {
         this.dpr = window.devicePixelRatio || 1;
         this.cv.width = cw * this.dpr;
         this.cv.height = ch * this.dpr;
+        this.cssW = cw;
+        this.cssH = ch;
         this.scale = Math.min(cw / this.W, ch / this.H);
-        this.ox = (cw - this.W * this.scale) / 2;
-        this.oy = (ch - this.H * this.scale) / 2;
+        this._applyCamera();
+    }
+
+    /**
+     * Recompute the placement of the arena inside the canvas for the current
+     * zoom. `viewMX/viewMY` is how much world is visible outside the arena:
+     * that is where a colossus overflows.
+     */
+    _applyCamera() {
+        const cw = this.cssW || this.W;
+        const ch = this.cssH || this.H;
+        const eff = this.scale * this.zoom;
+        this.ox = (cw - this.W * eff) / 2;
+        this.oy = (ch - this.H * eff) / 2;
+        // The HUD ignores the zoom: it always sits on the unscaled arena box.
+        this.hudOx = (cw - this.W * this.scale) / 2;
+        this.hudOy = (ch - this.H * this.scale) / 2;
+        this.viewMX = Math.max(0, (cw / eff - this.W) / 2);
+        this.viewMY = Math.max(0, (ch / eff - this.H) / 2);
+    }
+
+    /**
+     * Ease camera and field towards their target (called every frame, on the
+     * host and on the guest). Both are read off the live colossus, so nobody
+     * has to send a camera over the wire.
+     */
+    _updateCamera(ts) {
+        const boss = this.enemies.find((e) => e.type === "colossus");
+        this.zoomTo = boss ? boss.zoom : 1;
+        this.fieldTo = boss ? boss.field || 1 : 1;
+        // The easing is exponential, so it never quite lands: snap once it is
+        // close enough, otherwise the walls keep a fractional offset forever.
+        if (this.zoom !== this.zoomTo) {
+            this.zoom = Math.abs(this.zoom - this.zoomTo) < 0.002
+                ? this.zoomTo
+                : this.zoom + (this.zoomTo - this.zoom) * Math.min(1, 0.045 * ts);
+            this._applyCamera();
+        }
+        if (this.field !== this.fieldTo) {
+            this.field = Math.abs(this.field - this.fieldTo) < 0.002
+                ? this.fieldTo
+                : this.field + (this.fieldTo - this.field) * Math.min(1, 0.04 * ts);
+            this._applyField();
+        }
+    }
+
+    /** Recompute the playable bounds for the current `field` factor. */
+    _applyField() {
+        const mx = (this.W * (this.field - 1)) / 2;
+        const my = (this.H * (this.field - 1)) / 2;
+        this.fx0 = -mx;
+        this.fx1 = this.W + mx;
+        this.fy0 = -my;
+        this.fy1 = this.H + my;
     }
 
     _loopFn() {
@@ -198,6 +307,7 @@ export class NeonStrikeEngine {
         } else {
             this.update(ts);
         }
+        this._updateCamera(ts);
         this.render();
         this._raf = requestAnimationFrame(this._loop);
     }
@@ -293,10 +403,14 @@ export class NeonStrikeEngine {
 
     initStars() {
         this.stars = [];
-        for (let i = 0; i < 110; i++) {
+        // The field covers more than the arena: when the camera pulls back for
+        // a colossus, the space around the arena must not be empty.
+        const mx = this.W * 0.55;
+        const my = this.H * 0.55;
+        for (let i = 0; i < 190; i++) {
             this.stars.push({
-                x: Math.random() * this.W,
-                y: Math.random() * this.H,
+                x: -mx + Math.random() * (this.W + mx * 2),
+                y: -my + Math.random() * (this.H + my * 2),
                 z: Math.random() * 2 + 0.5,
                 s: Math.random() * 1.4 + 0.4,
             });
@@ -351,11 +465,13 @@ export class NeonStrikeEngine {
             this.sWave();
         } else if (ev.k === "bomb") {
             this.sBigBoom();
+        } else if (ev.k === "zap") {
+            this.zaps.push({ x1: ev.x, y1: ev.y, x2: ev.x2, y2: ev.y2, life: 8 });
         }
     }
 
     /* ------------------------------------------------------------------ */
-    /* Naves                                                               */
+    /* Ships                                                               */
     /* ------------------------------------------------------------------ */
 
     mkShip(slot) {
@@ -367,7 +483,146 @@ export class NeonStrikeEngine {
             inv: 0, shield: 0,
             weapon: "single", weaponT: 0, fireT: 0,
             lives: 3, down: false, reviveProgress: 0,
+            // --- Perks kept for the whole run (wiped by `reset()`) ---------
+            perks: [],                    // perk ids in pick order
+            mods: Object.assign({}, BASE_MODS),
+            flags: {},                    // flag name -> true
+            actives: [],                  // [{id, cd, cdMax}] bound to keys 1..4
+            // --- Dash (Space), available with no perks --------------------
+            dash: 0,                      // frames of dash left
+            dashCd: 0,
+            dashCharges: 1,
+            dashMax: 1,
+            dashVx: 0,
+            dashVy: -1,
+            dashKills: 0,
+            // --- Per-perk timers/counters --------------------------------
+            droneA: Math.random() * 6.2832, // Drone Wing orbit
+            droneT: 0,
+            regenT: 0,                    // Nano Weave
+            hurtT: 0,                      // Adrenaline
+            odT: 0,                        // Overdrive
+            standT: 0,                     // Last Stand used this wave
+            phoenixUsed: false,
+            volley: 0,                     // Broadside alternation
         };
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Perks                                                               */
+    /* ------------------------------------------------------------------ */
+
+    /** Rebuild `mods`/`flags`/`actives` of a ship from the perks it owns. */
+    _recalcPerks(sp) {
+        const mods = Object.assign({}, BASE_MODS);
+        const flags = {};
+        const actives = [];
+        for (const id of sp.perks) {
+            const perk = PERKS[PERK_INDEX[id]];
+            if (!perk) {
+                continue;
+            }
+            for (const [k, v] of Object.entries(perk.mods || {})) {
+                mods[k] = (mods[k] || 0) + v;
+            }
+            for (const f of perk.flags || []) {
+                flags[f] = true;
+            }
+            if (perk.kind === "active") {
+                // Keep the cooldown already ticking if the perk is not new.
+                const prev = sp.actives.find((a) => a.id === id);
+                actives.push({ id, cd: prev ? prev.cd : 0, cdMax: perk.cd || 600 });
+            }
+        }
+        sp.mods = mods;
+        sp.flags = flags;
+        sp.actives = actives.slice(0, MAX_ACTIVES);
+        sp.dashMax = 1 + mods.dashCharges;
+        sp.dashCharges = Math.min(sp.dashMax, Math.max(sp.dashCharges, 1));
+    }
+
+    _maxLives(sp) {
+        return 5 + sp.mods.maxLives;
+    }
+
+    /** Give a perk to a ship and apply its immediate effects. */
+    _grantPerk(sp, index) {
+        const perk = PERKS[index];
+        if (!perk || sp.perks.includes(perk.id)) {
+            return;
+        }
+        sp.perks.push(perk.id);
+        this._recalcPerks(sp);
+        if (perk.mods && perk.mods.lives) {
+            sp.lives = Math.min(this._maxLives(sp), sp.lives + perk.mods.lives);
+        }
+        sp.dashCharges = sp.dashMax;
+        this.pop(sp.x, sp.y - 34, perk.name, perk.tint, 15, 80);
+        this.burst(sp.x, sp.y, perk.tint, 22, 4);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Perk phase (between waves)                                          */
+    /* ------------------------------------------------------------------ */
+
+    /** Open the choice screen: 3 offers per ship, everything else paused. */
+    _openPerkPhase() {
+        const offers = {};
+        for (const sp of this.ships) {
+            offers[sp.slot] = rollOffers(sp, { players: this.players }, PERK_OPTIONS);
+        }
+        this.perkPhase = { offers, picks: {}, t: PERK_TIMEOUT };
+        this.state = "perk";
+        this.ebullets = [];
+        this.beams = [];
+        this.sPup();
+        this._ev({ k: "wave" });
+    }
+
+    /** Register the choice of a slot (local or remote). Idempotent. */
+    pickPerk(slot, index) {
+        const ph = this.perkPhase;
+        if (!ph || ph.picks[slot] != null) {
+            return;
+        }
+        const offer = ph.offers[slot] || [];
+        if (!offer.includes(index)) {
+            return;
+        }
+        ph.picks[slot] = index;
+        const sp = this.ships.find((s) => s.slot === slot);
+        if (sp) {
+            this._grantPerk(sp, index);
+        }
+        this.sPup();
+        this._ev({ k: "pup", x: sp ? sp.x : this.W / 2, y: sp ? sp.y : this.H / 2 });
+    }
+
+    /** Countdown + resume once everybody has chosen (or the timer runs out). */
+    _updatePerkPhase(ts) {
+        const ph = this.perkPhase;
+        if (!ph) {
+            return;
+        }
+        ph.t -= ts;
+        const pending = this.ships.filter((sp) => ph.picks[sp.slot] == null);
+        if (ph.t <= 0) {
+            // Nobody is left without an upgrade: take the first option.
+            for (const sp of pending) {
+                const offer = ph.offers[sp.slot] || [];
+                if (offer.length) {
+                    this.pickPerk(sp.slot, offer[0]);
+                }
+            }
+        } else if (pending.length) {
+            return;
+        }
+        this.perkPhase = null;
+        this.state = "playing";
+        this.waveDelay = 40;
+        for (const sp of this.ships) {
+            sp.inv = Math.max(sp.inv, 60);
+        }
     }
 
     _initShips() {
@@ -414,12 +669,33 @@ export class NeonStrikeEngine {
         return alive[Math.floor(Math.random() * alive.length)];
     }
 
+    /**
+     * What the enemies aim at: a Decoy Beacon steals every lock-on while it
+     * lasts. Decoys travel in the snapshot, so the guest resolves the same
+     * target and draws the sniper sight in the same place.
+     */
+    _target(x, y) {
+        if (this.decoys.length) {
+            let best = null;
+            let bd = Infinity;
+            for (const d of this.decoys) {
+                const dd = (d.x - x) ** 2 + (d.y - y) ** 2;
+                if (dd < bd) {
+                    bd = dd;
+                    best = d;
+                }
+            }
+            return best;
+        }
+        return this._nearestShip(x, y);
+    }
+
     /* ------------------------------------------------------------------ */
-    /* Entidades                                                           */
+    /* Entities                                                            */
     /* ------------------------------------------------------------------ */
 
     _enemyR(type) {
-        const r = { boss: 44, tank: 20, speedy: 10, sniper: 16, kami: 12 };
+        const r = { boss: 44, colossus: 140, tank: 20, speedy: 10, sniper: 16, kami: 12 };
         return r[type] != null ? r[type] : 14;
     }
 
@@ -431,6 +707,23 @@ export class NeonStrikeEngine {
         return c[type] || "#ff5d8f";
     }
 
+    /** Both boss families share the "big kill" treatment. */
+    _isBoss(e) {
+        return e.type === "boss" || e.type === "colossus";
+    }
+
+    /**
+     * Hit test against an enemy. A colossus uses a box (its hull is a wide
+     * slab); everything else keeps the circle.
+     */
+    _enemyHit(e, x, y, pad) {
+        if (e.type === "colossus") {
+            return Math.abs(x - e.x) < e.hw + pad && Math.abs(y - e.y) < e.hh + pad;
+        }
+        const rr = e.r + pad;
+        return (x - e.x) ** 2 + (y - e.y) ** 2 < rr * rr;
+    }
+
     /** Chassis variant (0/1) based on the sprites available for the type. */
     _enemyVariant(type) {
         const names = ENEMY_SPRITES[type];
@@ -438,7 +731,17 @@ export class NeonStrikeEngine {
     }
 
     mkEnemy(type, x, y) {
-        const base = { type, x, y, r: this._enemyR(type), c: this._enemyColor(type), v: this._enemyVariant(type), flash: 0 };
+        const base = {
+            type, x, y,
+            r: this._enemyR(type),
+            c: this._enemyColor(type),
+            v: this._enemyVariant(type),
+            flash: 0,
+            // `id` keeps a piercing bullet from hitting the same hull twice;
+            // `stun` is the EMP lock.
+            id: ++this._eid,
+            stun: 0,
+        };
         if (type === "drone") {
             return Object.assign(base, { hp: 1, mhp: 1, t: Math.random() * 6.28, val: 100 });
         }
@@ -460,21 +763,60 @@ export class NeonStrikeEngine {
             return Object.assign(base, { hp: 2, mhp: 2, t: 0, val: 350, vx: 0, vy: 1.2, rot: 0 });
         }
         const hp = 35 + this.wave * 9 + (this.players - 1) * 25;
-        return Object.assign(base, { type: "boss", hp, mhp: hp, t: 0, val: 5000 });
+        return Object.assign(base, { type: "boss", hp, mhp: hp, t: 0, val: 5000, dropAt: 0.75 });
+    }
+
+    /**
+     * A colossal boss: several hundred logical px wide, so it does not fit the
+     * arena. While it lives the camera pulls back to `zoom` (see _updateCamera)
+     * and the ships look tiny next to it.
+     */
+    mkColossus(k) {
+        const d = COLOSSI[k];
+        const size = spriteSize(d.sprite);
+        const h = (d.w * size.h) / size.w;
+        const hp = Math.round(d.hp + this.wave * 20 + (this.players - 1) * d.hp * 0.5);
+        return {
+            type: "colossus", k, id: ++this._eid,
+            x: this.W / 2, y: -h * 0.55, ty: d.y,
+            w: d.w, h,
+            // Hitbox slightly inside the art, so the silhouette stays fair.
+            hw: d.w * 0.42, hh: h * 0.32,
+            r: Math.min(d.w, h) * 0.28, // circle used by splashes and trails
+            c: d.tint, zoom: d.zoom, field: d.field || 1, v: 0, flash: 0, stun: 0,
+            hp, mhp: hp, t: 0, val: d.val, dropAt: 0.75,
+            vx: d.speed, rot: 0, gap: 120,
+            a1: 60, a2: 180, a3: 300,
+        };
     }
 
     spawnWave() {
         this.wave++;
         this.sWave();
         this._ev({ k: "wave" });
+        // Last Stand recharges once per wave.
+        for (const sp of this.ships) {
+            sp.standT = 0;
+        }
         const p = this.players;
+        const ck = colossusForWave(this.wave);
+        if (ck >= 0) {
+            const d = COLOSSI[ck];
+            this.enemies.push(this.mkColossus(ck));
+            this.bossAlive = true;
+            this.pop(this.W / 2, this.H / 2 - 60, d.name, d.tint, 40, 130);
+            this.pop(this.W / 2, this.H / 2 - 18, '"' + d.title + '"', "#eaf6ff", 20, 130);
+            this.shake = 22;
+            this.sBigBoom();
+            return;
+        }
         if (this.wave % 4 === 0) {
             this.enemies.push(this.mkEnemy("boss", this.W / 2, -90));
             this.bossAlive = true;
             this.pop(this.W / 2, this.H / 2 - 50, "BOSS!", "#ff6b6b", 36, 90);
             return;
         }
-        this.pop(this.W / 2, this.H / 2 - 50, "Oleada " + this.wave, "#8be9ff", 30, 80);
+        this.pop(this.W / 2, this.H / 2 - 50, "Wave " + this.wave, "#8be9ff", 30, 80);
         const n = 5 + this.wave * 2 + p * 2;
         for (let i = 0; i < n; i++) {
             const r = Math.random();
@@ -517,22 +859,88 @@ export class NeonStrikeEngine {
         });
     }
 
-    dropPup(x, y) {
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @param {boolean} [supply] boss drop: weighted towards firepower and
+     *        shields, which is what you actually need in a long fight
+     */
+    dropPup(x, y, supply) {
         const r = Math.random();
         let t = "T";
-        if (r > 0.35) { t = "S"; }
-        if (r > 0.62) { t = "B"; }
-        if (r > 0.85) { t = "L"; }
+        if (supply) {
+            if (r > 0.42) { t = "S"; }
+            if (r > 0.74) { t = "B"; }
+            if (r > 0.92) { t = "L"; }
+        } else {
+            if (r > 0.35) { t = "S"; }
+            if (r > 0.62) { t = "B"; }
+            if (r > 0.85) { t = "L"; }
+        }
         this.pups.push({ x, y, t, vy: 1.1, r: 13, ph: 0 });
     }
 
-    killEnemy(e, i) {
+    /** Is a boss (regular or colossal) on the field right now? */
+    _bossPresent() {
+        return this.enemies.some((e) => this._isBoss(e));
+    }
+
+    /**
+     * Boss fights kill the capsule flow: no small fry means no drops, so you
+     * end up facing the hull with the plain shot. A supply capsule falls on a
+     * timer while a boss is up (and every 25% of its health, see _updateEnemies).
+     */
+    _updateSupply(ts) {
+        if (!this._bossPresent()) {
+            // Slight head start so the first one lands early in the fight.
+            this.supplyT = 150;
+            return;
+        }
+        this.supplyT -= ts;
+        if (this.supplyT > 0) {
+            return;
+        }
+        this.supplyT = Math.round(430 / (1 + (this.players - 1) * 0.5));
+        const x = this.fx0 + 60 + Math.random() * (this.fx1 - this.fx0 - 120);
+        this.dropPup(x, this.fy0 + 30, true);
+        this.pop(x, this.fy0 + 54, "Supply drop", "#7bffb0", 13);
+        this.sTick();
+    }
+
+    /**
+     * @param {Object} e - enemy
+     * @param {Object} [killer] - ship that gets the credit (score/luck perks)
+     */
+    killEnemy(e, killer) {
+        // The index is resolved here: splashes and chains can shuffle the array
+        // while another loop is iterating it.
+        const i = this.enemies.indexOf(e);
+        if (i < 0) {
+            return;
+        }
         this.enemies.splice(i, 1);
-        const big = e.type === "boss";
+        const big = this._isBoss(e);
+        const colossal = e.type === "colossus";
+        if (colossal) {
+            // Its beams die with it, and the wreck blows up across the arena.
+            this.beams = this.beams.filter((b) => b.src !== e.id);
+            for (let k = 0; k < 22; k++) {
+                this.burst(
+                    e.x + (Math.random() - 0.5) * e.w,
+                    e.y + (Math.random() - 0.5) * e.h,
+                    e.c, 14, 7
+                );
+            }
+            this.flashT = 14;
+        }
         this.burst(e.x, e.y, e.c, big ? 90 : 24, big ? 8 : 4.5);
         this.burst(e.x, e.y, "#ffffff", big ? 30 : 8, 3);
         this._ev({ k: "boom", x: e.x, y: e.y, c: e.c, b: big ? 1 : 0 });
-        const pts = e.val * this.combo;
+        if (killer && killer.dash > 0 && killer.flags.dash_refund) {
+            // Kinetic Recharge: kills during the dash give the charge back.
+            killer.dashCharges = Math.min(killer.dashMax, killer.dashCharges + 1);
+        }
+        const pts = Math.round(e.val * this.combo * (1 + (killer ? killer.mods.scoreMul : 0)));
         this.score += pts;
         this.pop(e.x, e.y, "+" + pts.toLocaleString(), "#fff", big ? 24 : 13);
         this.combo = Math.min(this.combo + 1, COMBO_MAX);
@@ -542,38 +950,44 @@ export class NeonStrikeEngine {
             this.sBigBoom();
             this.bossAlive = false;
             if (this.players === 1) {
-                this.slowMo = 40;
+                this.slowMo = colossal ? 70 : 40;
             }
-            this.dropPup(e.x - 40, e.y);
-            this.dropPup(e.x, e.y);
-            this.dropPup(e.x + 40, e.y);
+            this.shake = 26;
+            const drops = colossal ? 6 : 3;
+            for (let k = 0; k < drops; k++) {
+                this.dropPup(
+                    Math.max(30, Math.min(this.W - 30, e.x + (k - (drops - 1) / 2) * 46)),
+                    Math.max(60, e.y)
+                );
+            }
             for (const sp of this._livingShips()) {
-                sp.lives = Math.min(5, sp.lives + 1);
+                sp.lives = Math.min(this._maxLives(sp), sp.lives + 1);
             }
             this.pop(e.x, e.y - 40, "Extra life for everyone!", "#7bffb0", 16);
         } else {
             this.sBoom();
-            if (Math.random() < 0.22) {
+            // Lucky Charm raises the drop rate of whoever landed the kill.
+            if (Math.random() < 0.22 + (killer ? killer.mods.luck : 0)) {
                 this.dropPup(e.x, e.y);
             }
         }
     }
 
-    bomb() {
+    bomb(killer) {
         this.flashT = 12;
         this.sBigBoom();
         this._ev({ k: "bomb" });
         this.shake = 20;
         for (let i = this.enemies.length - 1; i >= 0; i--) {
             const e = this.enemies[i];
-            if (e.type === "boss") {
+            if (this._isBoss(e)) {
                 e.hp -= 14;
                 this.burst(e.x, e.y, "#ffb347", 30, 6);
                 if (e.hp <= 0) {
-                    this.killEnemy(e, i);
+                    this.killEnemy(e, killer);
                 }
             } else {
-                this.killEnemy(e, i);
+                this.killEnemy(e, killer);
             }
         }
         this.rocks = [];
@@ -581,15 +995,28 @@ export class NeonStrikeEngine {
     }
 
     hurtShip(sp) {
-        if (sp.down || sp.inv > 0) {
+        // Dashing is intangible: that is what makes the Space bar a real dodge.
+        if (sp.down || sp.inv > 0 || sp.dash > 0) {
             return;
         }
+        sp.hurtT = 240; // Adrenaline window (also feeds the HUD)
+        sp.regenT = 0;
+        const invMul = 1 + sp.mods.inv;
         if (sp.shield > 0) {
             sp.shield = 0;
             this.burst(sp.x, sp.y, "#7bffb0", 26, 5);
             this.noise(0.25, 0.2, 2000);
-            sp.inv = 50;
+            sp.inv = 50 * invMul;
             this.pop(sp.x, sp.y - 30, "Shield down!", "#7bffb0", 14);
+            return;
+        }
+        // Last Stand: cancels one lethal hit per wave.
+        if (sp.lives <= 1 && sp.flags.last_stand && !sp.standT) {
+            sp.standT = 1;
+            sp.inv = 160 * invMul;
+            this.burst(sp.x, sp.y, "#ff8fb3", 40, 6);
+            this.pop(sp.x, sp.y - 32, "LAST STAND!", "#ff8fb3", 17);
+            this.sPup();
             return;
         }
         sp.lives--;
@@ -601,7 +1028,20 @@ export class NeonStrikeEngine {
         }
         this.burst(sp.x, sp.y, sp.color, 46, 7);
         this.burst(sp.x, sp.y, "#ff8f5d", 26, 5);
-        this.combo = 1;
+        if (!sp.flags.combo_keep) {
+            this.combo = 1;
+        }
+        if (sp.lives <= 0 && sp.flags.phoenix && !sp.phoenixUsed) {
+            // Phoenix Core: one resurrection per run, with a shield on top.
+            sp.phoenixUsed = true;
+            sp.lives = 1;
+            sp.shield = 1;
+            sp.inv = 190 * invMul;
+            this.burst(sp.x, sp.y, "#ffb347", 60, 7);
+            this.pop(sp.x, sp.y - 32, "PHOENIX CORE!", "#ffb347", 18);
+            this.sPup();
+            return;
+        }
         if (sp.lives <= 0) {
             sp.down = true;
             sp.reviveProgress = 0;
@@ -617,7 +1057,7 @@ export class NeonStrikeEngine {
                 }
             }
         } else {
-            sp.inv = 110;
+            sp.inv = 110 * (1 + sp.mods.inv);
         }
     }
 
@@ -633,12 +1073,27 @@ export class NeonStrikeEngine {
         this.parts = [];
         this.pops = [];
         this.pups = [];
+        this.trails = [];
+        this.turrets = [];
+        this.holes = [];
+        this.decoys = [];
+        this.zaps = [];
+        this.beams = [];
+        this.freezeT = 0;
+        this.warpT = 0;
         this.shake = 0;
         this.slowMo = 0;
         this.flashT = 0;
         this.rockT = 180;
         this.bossAlive = false;
         this._events = [];
+        // Perks are per run: a new game starts from a bare hull again.
+        this.perkPhase = null;
+        this.nextPerkWave = PERK_WAVES;
+        this.field = 1;
+        this.fieldTo = 1;
+        this.supplyT = 0;
+        this._applyField();
         this._initShips();
         for (const sp of this.ships) {
             sp.inv = 90;
@@ -656,9 +1111,21 @@ export class NeonStrikeEngine {
 
         this._updateStars(ts);
 
+        // Perk phase: the field is frozen, only the choice UI is alive.
+        if (this.state === "perk") {
+            this._updatePerkPhase(ts);
+            this._updateFx(ts);
+            return;
+        }
         if (this.state !== "playing") {
             this._updateFx(ts);
             return;
+        }
+        if (this.freezeT > 0) {
+            this.freezeT -= ts;
+        }
+        if (this.warpT > 0) {
+            this.warpT -= ts;
         }
 
         // Hotseat control: the slot 1 ship moves with WASD.
@@ -669,56 +1136,23 @@ export class NeonStrikeEngine {
             if (this.keys.s) { sp.ty += spd; }
             if (this.keys.a) { sp.tx -= spd; }
             if (this.keys.d) { sp.tx += spd; }
-            sp.tx = Math.max(20, Math.min(W - 20, sp.tx));
-            sp.ty = Math.max(70, Math.min(H - 24, sp.ty));
+            sp.tx = Math.max(this.fx0 + 20, Math.min(this.fx1 - 20, sp.tx));
+            sp.ty = Math.max(this.fy0 + 70, Math.min(this.fy1 - 24, sp.ty));
         }
 
-        // Living ships: movement, trail, fire, timers.
+        // Living ships: movement, dash, trail, fire, perk timers.
         for (const sp of this.ships) {
             if (sp.down) {
                 continue;
             }
-            sp.x += (sp.tx - sp.x) * 0.2 * ts;
-            sp.y += (sp.ty - sp.y) * 0.2 * ts;
-            sp.x = Math.max(20, Math.min(W - 20, sp.x));
-            sp.y = Math.max(70, Math.min(H - 24, sp.y));
-            if (sp.inv > 0) {
-                sp.inv -= ts;
-            }
-            if (this.frame % 2 === 0) {
-                this.parts.push({
-                    x: sp.x + (Math.random() - 0.5) * 6,
-                    y: sp.y + 16,
-                    vx: (Math.random() - 0.5) * 0.6,
-                    vy: 2.2,
-                    r: Math.random() * 2 + 1,
-                    c: "#3fa9ff",
-                    life: 16,
-                    ml: 16,
-                });
-            }
-            sp.fireT -= ts;
-            if (sp.fireT <= 0) {
-                sp.fireT = sp.weapon === "triple" ? 8 : 9;
-                if (sp.slot === this.localSlot) {
-                    this.sShoot();
-                }
-                this.burst(sp.x, sp.y - 20, "#aef1ff", 3, 1.5);
-                if (sp.weapon === "triple") {
-                    this.bullets.push(
-                        { x: sp.x, y: sp.y - 16, vx: 0, vy: -11 },
-                        { x: sp.x - 8, y: sp.y - 10, vx: -1.8, vy: -10.5 },
-                        { x: sp.x + 8, y: sp.y - 10, vx: 1.8, vy: -10.5 }
-                    );
-                } else {
-                    this.bullets.push({ x: sp.x, y: sp.y - 16, vx: 0, vy: -11 });
-                }
-            }
+            this._updateShipTimers(sp, ts);
+            this._moveShip(sp, ts);
+            this._shipFire(sp, ts);
             if (sp.weaponT > 0) {
                 sp.weaponT -= ts;
                 if (sp.weaponT <= 0) {
                     sp.weapon = "single";
-                    this.pop(sp.x, sp.y - 30, "Disparo normal", "#8be9ff", 12);
+                    this.pop(sp.x, sp.y - 30, "Normal shot", "#8be9ff", 12);
                 }
             }
         }
@@ -732,38 +1166,79 @@ export class NeonStrikeEngine {
             }
         }
 
-        // Balas propias.
+        // Own bullets (Homing Chips steer, Ricochet Rounds bounce).
         for (let i = this.bullets.length - 1; i >= 0; i--) {
             const b = this.bullets[i];
+            if (b.cd > 0) {
+                b.cd -= ts;
+            }
+            if (b.ho) {
+                this._steerBullet(b, ts);
+            }
             b.x += b.vx * ts;
             b.y += b.vy * ts;
-            if (b.y < -20 || b.x < -20 || b.x > W + 20) {
+            if (b.ri) {
+                if (b.x < this.fx0 + 4) {
+                    b.x = this.fx0 + 4;
+                    b.vx = Math.abs(b.vx);
+                } else if (b.x > this.fx1 - 4) {
+                    b.x = this.fx1 - 4;
+                    b.vx = -Math.abs(b.vx);
+                }
+                // The ceiling only bounces once, otherwise they never die.
+                if (b.y < this.fy0 + 4 && !b.bt) {
+                    b.y = this.fy0 + 4;
+                    b.vy = Math.abs(b.vy);
+                    b.bt = 1;
+                }
+            }
+            if (b.y < this.fy0 - 20 || b.y > this.fy1 + 20 || b.x < this.fx0 - 20 || b.x > this.fx1 + 20) {
                 this.bullets.splice(i, 1);
             }
         }
-        // Balas enemigas.
+        // Enemy bullets: Stasis Field pins them, Time Warp slows them down.
+        const ets = this.warpT > 0 ? ts * 0.4 : ts;
         for (let i = this.ebullets.length - 1; i >= 0; i--) {
             const b = this.ebullets[i];
-            b.x += b.vx * ts;
-            b.y += b.vy * ts;
-            if (b.y > H + 20 || b.y < -20 || b.x < -20 || b.x > W + 20) {
+            if (this.freezeT <= 0) {
+                b.x += b.vx * ets;
+                b.y += b.vy * ets;
+            }
+            if (b.y > this.fy1 + 20 || b.y < this.fy0 - 20 || b.x < this.fx0 - 20 || b.x > this.fx1 + 20) {
                 this.ebullets.splice(i, 1);
                 continue;
             }
-            let hit = false;
+            // Deflector Dash: what you cross mid-dash is turned around.
+            let done = false;
             for (const sp of this.ships) {
-                if (sp.down || sp.inv > 0) {
+                if (sp.down || sp.dash <= 0 || !sp.flags.dash_reflect) {
                     continue;
                 }
                 const dx = b.x - sp.x;
                 const dy = b.y - sp.y;
-                if (dx * dx + dy * dy < 270) {
-                    hit = true;
-                    this.hurtShip(sp);
+                if (dx * dx + dy * dy < 46 * 46) {
+                    this.bullets.push(this._mkBullet(sp, b.x, b.y, b.vx * -1.6, -Math.abs(b.vy || 3) * 1.6, this._bulletDmg(sp)));
+                    this.burst(b.x, b.y, "#c9a4ff", 6, 2.5);
+                    done = true;
                     break;
                 }
             }
-            if (hit) {
+            if (!done) {
+                for (const sp of this.ships) {
+                    if (sp.down || sp.inv > 0 || sp.dash > 0) {
+                        continue;
+                    }
+                    const dx = b.x - sp.x;
+                    const dy = b.y - sp.y;
+                    const rr = 16.5 * (1 + sp.mods.hitbox);
+                    if (dx * dx + dy * dy < rr * rr) {
+                        done = true;
+                        this.hurtShip(sp);
+                        break;
+                    }
+                }
+            }
+            if (done) {
                 this.ebullets.splice(i, 1);
             }
         }
@@ -771,13 +1246,25 @@ export class NeonStrikeEngine {
         this._updateEnemies(ts);
         this._updateRocks(ts);
         this._updatePups(ts);
+        this._updateSupply(ts);
+        this._updateBeams(ts);
+        this._updateTrails(ts);
+        this._updateTurrets(ts);
+        this._updateHoles(ts);
+        this._updateDecoys(ts);
         this._updateFx(ts);
 
         if (this.enemies.length === 0) {
             this.waveDelay -= ts;
             if (this.waveDelay <= 0) {
-                this.spawnWave();
-                this.waveDelay = 45;
+                if (this.wave >= this.nextPerkWave) {
+                    // Every PERK_WAVES cleared waves, everyone upgrades.
+                    this.nextPerkWave += PERK_WAVES;
+                    this._openPerkPhase();
+                } else {
+                    this.spawnWave();
+                    this.waveDelay = 45;
+                }
             }
         }
         this.rockT -= ts;
@@ -793,12 +1280,548 @@ export class NeonStrikeEngine {
         }
     }
 
+    /* ------------------------------------------------------------------ */
+    /* Ships: timers, movement, dash and fire                              */
+    /* ------------------------------------------------------------------ */
+
+    _shipBySlot(slot) {
+        return this.ships.find((s) => s.slot === slot) || null;
+    }
+
+    _nearestEnemy(x, y) {
+        let best = null;
+        let bd = Infinity;
+        for (const e of this.enemies) {
+            const d = (e.x - x) ** 2 + (e.y - y) ** 2;
+            if (d < bd) {
+                bd = d;
+                best = e;
+            }
+        }
+        return best;
+    }
+
+    _anyAllyDown() {
+        return this.ships.some((s) => s.down);
+    }
+
+    /** Dash cooldown of a ship (Phase Dash shortens it). */
+    _dashCd(sp) {
+        return Math.max(25, DASH_CD * (1 + sp.mods.dashCd));
+    }
+
+    /** Orbit position of the Drone Wing companion. */
+    _dronePos(sp) {
+        return { x: sp.x + Math.cos(sp.droneA) * 34, y: sp.y + Math.sin(sp.droneA) * 24 };
+    }
+
+    /** Homing Chips: bend the trajectory without changing the speed. */
+    _steerBullet(b, ts) {
+        const e = this._nearestEnemy(b.x, b.y);
+        if (!e) {
+            return;
+        }
+        const s = Math.hypot(b.vx, b.vy) || 1;
+        const dx = e.x - b.x;
+        const dy = e.y - b.y;
+        const d = Math.hypot(dx, dy) || 1;
+        b.vx += (dx / d) * 0.6 * ts;
+        b.vy += (dy / d) * 0.6 * ts;
+        const ns = Math.hypot(b.vx, b.vy) || 1;
+        b.vx = (b.vx / ns) * s;
+        b.vy = (b.vy / ns) * s;
+    }
+
+    _updateShipTimers(sp, ts) {
+        if (sp.inv > 0) {
+            sp.inv -= ts;
+        }
+        if (sp.hurtT > 0) {
+            sp.hurtT -= ts;
+        }
+        if (sp.odT > 0) {
+            sp.odT -= ts;
+        }
+        if (sp.dash > 0) {
+            sp.dash -= ts;
+        }
+        if (sp.dashCharges < sp.dashMax) {
+            sp.dashCd -= ts;
+            if (sp.dashCd <= 0) {
+                sp.dashCharges++;
+                sp.dashCd = sp.dashCharges < sp.dashMax ? this._dashCd(sp) : 0;
+            }
+        }
+        for (const a of sp.actives) {
+            if (a.cd > 0) {
+                a.cd -= ts;
+            }
+        }
+        // Nano Weave: rebuilds the shield 12 s after losing it.
+        if (sp.flags.shield_regen && sp.shield <= 0) {
+            sp.regenT += ts;
+            if (sp.regenT >= 720) {
+                sp.regenT = 0;
+                sp.shield = 1;
+                this.burst(sp.x, sp.y, "#7bffb0", 16, 3);
+                this.pop(sp.x, sp.y - 30, "Shield rebuilt", "#7bffb0", 13);
+            }
+        }
+        // Drone Wing: orbits and fires on its own.
+        if (sp.flags.drone) {
+            sp.droneA += 0.045 * ts;
+            sp.droneT -= ts;
+            if (sp.droneT <= 0) {
+                sp.droneT = 26;
+                const p = this._dronePos(sp);
+                this.bullets.push(this._mkBullet(sp, p.x, p.y - 6, 0, -10, this._bulletDmg(sp) * 0.8));
+            }
+        }
+    }
+
+    _moveShip(sp, ts) {
+        if (sp.dash > 0) {
+            sp.x += sp.dashVx * DASH_SPEED * ts;
+            sp.y += sp.dashVy * DASH_SPEED * ts;
+            if (sp.flags.dash_trail && this.frame % 2 === 0) {
+                this.trails.push({ x: sp.x, y: sp.y, life: 42, ml: 42, sl: sp.slot });
+            }
+            this.parts.push({
+                x: sp.x, y: sp.y,
+                vx: (Math.random() - 0.5) * 2,
+                vy: (Math.random() - 0.5) * 2,
+                r: Math.random() * 3 + 1.5,
+                c: "#c9a4ff", life: 18, ml: 18,
+            });
+        } else {
+            let k = 0.2 * (1 + sp.mods.moveSpeed);
+            if (sp.flags.adrenaline && sp.hurtT > 0) {
+                k *= 1.4;
+            }
+            sp.x += (sp.tx - sp.x) * Math.min(0.55, k) * ts;
+            sp.y += (sp.ty - sp.y) * Math.min(0.55, k) * ts;
+        }
+        // The field grows during a colossus fight: this is the only clamp.
+        sp.x = Math.max(this.fx0 + 20, Math.min(this.fx1 - 20, sp.x));
+        sp.y = Math.max(this.fy0 + 70, Math.min(this.fy1 - 24, sp.y));
+        if (this.frame % 2 === 0) {
+            this.parts.push({
+                x: sp.x + (Math.random() - 0.5) * 6,
+                y: sp.y + 16,
+                vx: (Math.random() - 0.5) * 0.6,
+                vy: 2.2,
+                r: Math.random() * 2 + 1,
+                c: "#3fa9ff",
+                life: 16,
+                ml: 16,
+            });
+        }
+    }
+
+    /** Space: burst towards the cursor, intangible while it lasts. */
+    dashShip(slot) {
+        const sp = this._shipBySlot(slot);
+        if (!sp || sp.down || sp.dash > 0 || sp.dashCharges <= 0 || this.state !== "playing") {
+            return;
+        }
+        let dx = sp.tx - sp.x;
+        let dy = sp.ty - sp.y;
+        const d = Math.hypot(dx, dy);
+        if (d < 6) {
+            // Standing still: the dash goes forward, like a boost.
+            dx = 0;
+            dy = -1;
+        } else {
+            dx /= d;
+            dy /= d;
+        }
+        sp.dashVx = dx;
+        sp.dashVy = dy;
+        sp.dash = DASH_FRAMES;
+        sp.dashCharges--;
+        if (sp.dashCd <= 0) {
+            sp.dashCd = this._dashCd(sp);
+        }
+        this.burst(sp.x, sp.y, "#c9a4ff", 18, 4);
+        if (sp.slot === this.localSlot) {
+            this.tone(380, 0.12, "square", 0.05, 940);
+        }
+    }
+
+    _shipFire(sp, ts) {
+        sp.fireT -= ts;
+        if (sp.fireT > 0) {
+            return;
+        }
+        sp.fireT = this._fireDelay(sp);
+        this._shoot(sp);
+    }
+
+    /**
+     * One volley: the centre bullet plus one pair per `side` level (the triple
+     * shot capsule counts as one pair) and, with Broadside, a flank salvo.
+     */
+    _shoot(sp) {
+        if (sp.slot === this.localSlot) {
+            this.sShoot();
+        }
+        this.burst(sp.x, sp.y - 20, "#aef1ff", 3, 1.5);
+        const spd = 11 * (1 + sp.mods.bulletSpeed);
+        const dmg = this._bulletDmg(sp);
+        this.bullets.push(this._mkBullet(sp, sp.x, sp.y - 16, 0, -spd, dmg));
+        const pairs = (sp.weapon === "triple" ? 1 : 0) + Math.max(0, sp.mods.side);
+        for (let k = 1; k <= pairs; k++) {
+            const a = 0.15 * k;
+            this.bullets.push(
+                this._mkBullet(sp, sp.x - 7 * k, sp.y - 10, -Math.sin(a) * spd, -Math.cos(a) * spd, dmg),
+                this._mkBullet(sp, sp.x + 7 * k, sp.y - 10, Math.sin(a) * spd, -Math.cos(a) * spd, dmg)
+            );
+        }
+        if (sp.flags.broadside && sp.volley++ % 2 === 0) {
+            this.bullets.push(
+                this._mkBullet(sp, sp.x - 14, sp.y, -spd * 0.85, 0, dmg),
+                this._mkBullet(sp, sp.x + 14, sp.y, spd * 0.85, 0, dmg),
+                this._mkBullet(sp, sp.x, sp.y + 16, 0, spd * 0.85, dmg)
+            );
+        }
+    }
+
+    /**
+     * Frames between volleys. Conditional perks are resolved here, so their
+     * bonus turns on and off with the situation instead of being baked in.
+     */
+    _fireDelay(sp) {
+        const base = sp.weapon === "triple" ? 8 : 9;
+        let m = 1 + sp.mods.fireRate;
+        if (sp.odT > 0) {
+            m -= 0.66;
+        }
+        if (sp.flags.berserker && sp.lives <= 1) {
+            m -= 0.5;
+        }
+        if (sp.flags.adrenaline && sp.hurtT > 0) {
+            m -= 0.4;
+        }
+        if (sp.flags.combo_surge && this.combo >= 10) {
+            m -= 0.25;
+        }
+        if (sp.flags.guardian_link && this._anyAllyDown()) {
+            m -= 0.35;
+        }
+        return Math.max(2, base * Math.max(0.18, m));
+    }
+
+    /** Damage of a bullet at the moment it leaves the cannon. */
+    _bulletDmg(sp) {
+        let d = 1 + sp.mods.dmg;
+        if (sp.flags.berserker && sp.lives <= 1) {
+            d += 1;
+        }
+        if (sp.flags.desperation && sp.shield <= 0) {
+            d += 0.75;
+        }
+        if (sp.flags.combo_surge && this.combo >= 20) {
+            d += 1;
+        }
+        if (sp.flags.guardian_link && this._anyAllyDown()) {
+            d += 1;
+        }
+        return Math.max(0.34, d);
+    }
+
+    _mkBullet(sp, x, y, vx, vy, dmg) {
+        const crit = sp.mods.crit > 0 && Math.random() < sp.mods.crit;
+        return {
+            x, y, vx, vy,
+            d: dmg * (crit ? 2 + sp.mods.critMul : 1),
+            sl: sp.slot,
+            cr: crit ? 1 : 0,
+            pi: sp.mods.pierce,
+            ho: sp.flags.homing ? 1 : 0,
+            ri: sp.flags.ricochet ? 1 : 0,
+            ex: sp.flags.explosive ? 1 : 0,
+            ch: sp.flags.chain ? 1 : 0,
+            cd: 0,   // frames without collisions (after piercing a hull)
+            hid: 0,  // last enemy id hit, so a pierce does not double dip
+        };
+    }
+
+    /** Damage actually applied, with the conditionals that depend on the target. */
+    _impactDmg(b, e, sp) {
+        let d = b.d;
+        if (!sp) {
+            return d;
+        }
+        if (sp.flags.boss_hunter && this._isBoss(e)) {
+            d *= 2;
+        }
+        if (sp.flags.swarm_cleaver && (e.type === "drone" || e.type === "speedy")) {
+            d += 1.5;
+        }
+        if (sp.flags.long_shot && e.y < this.H * 0.32) {
+            d += 1.5;
+        }
+        if (sp.flags.point_blank && (e.x - sp.x) ** 2 + (e.y - sp.y) ** 2 < 90 * 90) {
+            d += 2;
+        }
+        return d;
+    }
+
+    /** Explosive Tips / Orbital Strike splash. */
+    _splash(x, y, r, dmg, sp, skip) {
+        this.burst(x, y, "#ffb347", 12, 3.5);
+        for (let i = this.enemies.length - 1; i >= 0; i--) {
+            const e = this.enemies[i];
+            if (e === skip || (e.x - x) ** 2 + (e.y - y) ** 2 > r * r) {
+                continue;
+            }
+            e.hp -= dmg;
+            e.flash = 5;
+            if (e.hp <= 0) {
+                this.killEnemy(e, sp);
+            }
+        }
+    }
+
+    /** Arc Capacitor: bolt from the hull just hit to the next one. */
+    _chain(from, dmg, sp) {
+        let best = null;
+        let bd = 150 * 150;
+        for (const e of this.enemies) {
+            if (e === from) {
+                continue;
+            }
+            const d = (e.x - from.x) ** 2 + (e.y - from.y) ** 2;
+            if (d < bd) {
+                bd = d;
+                best = e;
+            }
+        }
+        if (!best) {
+            return;
+        }
+        best.hp -= dmg;
+        best.flash = 5;
+        this.zaps.push({ x1: from.x, y1: from.y, x2: best.x, y2: best.y, life: 8 });
+        this._ev({ k: "zap", x: from.x, y: from.y, x2: best.x, y2: best.y });
+        if (best.hp <= 0) {
+            this.killEnemy(best, sp);
+        }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Active perks (keys 1..4)                                            */
+    /* ------------------------------------------------------------------ */
+
+    /** Trigger the n-th active of a slot, if it is off cooldown. */
+    useActive(slot, index) {
+        const sp = this._shipBySlot(slot);
+        if (!sp || sp.down || this.state !== "playing") {
+            return;
+        }
+        const act = sp.actives[index];
+        if (!act || act.cd > 0) {
+            return;
+        }
+        act.cd = act.cdMax;
+        this._fireActive(sp, act.id);
+    }
+
+    _fireActive(sp, id) {
+        const dmg = this._bulletDmg(sp);
+        if (id === "nova_burst") {
+            for (let k = 0; k < 24; k++) {
+                const a = (k / 24) * 6.2832;
+                this.bullets.push(this._mkBullet(sp, sp.x, sp.y, Math.cos(a) * 8, Math.sin(a) * 8, dmg));
+            }
+            this.burst(sp.x, sp.y, "#ffb347", 30, 5);
+            this.sBoom();
+        } else if (id === "stasis_field") {
+            this.freezeT = 180;
+            this.flashT = 8;
+            this.pop(sp.x, sp.y - 34, "STASIS", "#5ee1ff", 17);
+            this.tone(180, 0.4, "sine", 0.12, 60);
+        } else if (id === "emp_pulse") {
+            for (let i = this.ebullets.length - 1; i >= 0; i--) {
+                const b = this.ebullets[i];
+                if ((b.x - sp.x) ** 2 + (b.y - sp.y) ** 2 < 240 * 240) {
+                    this.ebullets.splice(i, 1);
+                }
+            }
+            for (const e of this.enemies) {
+                // A colossus is too big to stun: the EMP only chips at it.
+                if ((e.x - sp.x) ** 2 + (e.y - sp.y) ** 2 < 240 * 240) {
+                    if (e.type === "colossus") {
+                        e.hp -= 6;
+                        e.flash = 6;
+                    } else {
+                        e.stun = 150;
+                    }
+                }
+            }
+            this.burst(sp.x, sp.y, "#5ee1ff", 40, 7);
+            this.shake = Math.min(this.shake + 12, 24);
+            this.noise(0.4, 0.25, 3000);
+        } else if (id === "overdrive") {
+            sp.odT = 300;
+            this.pop(sp.x, sp.y - 34, "OVERDRIVE", "#ffb347", 17);
+            this.sPup();
+        } else if (id === "bulwark") {
+            sp.shield = 1;
+            sp.inv = Math.max(sp.inv, 240);
+            this.burst(sp.x, sp.y, "#7bffb0", 30, 5);
+            this.pop(sp.x, sp.y - 34, "BULWARK", "#7bffb0", 17);
+        } else if (id === "orbital_strike") {
+            for (let k = 0; k < 6; k++) {
+                const b = this._mkBullet(sp, 60 + Math.random() * (this.W - 120), -20 - k * 30, 0, 7, dmg + 2);
+                b.ho = 1;
+                b.ex = 1;
+                this.bullets.push(b);
+            }
+            this.pop(sp.x, sp.y - 34, "ORBITAL STRIKE", "#ffb347", 16);
+            this.sBigBoom();
+        } else if (id === "black_hole") {
+            this.holes.push({
+                x: Math.max(90, Math.min(this.W - 90, sp.x)),
+                y: Math.max(110, sp.y - 140),
+                life: 240, ml: 240, r: 150, sl: sp.slot,
+            });
+            this.tone(90, 0.6, "sawtooth", 0.16, 30);
+        } else if (id === "time_warp") {
+            this.warpT = 240;
+            this.pop(sp.x, sp.y - 34, "TIME WARP", "#c9a4ff", 17);
+            this.tone(600, 0.5, "sine", 0.1, 120);
+        } else if (id === "turret_drop") {
+            this.turrets.push({ x: sp.x, y: sp.y, life: 600, t: 0, sl: sp.slot });
+            this.burst(sp.x, sp.y, "#ffd166", 16, 3);
+            this.sTick();
+        } else if (id === "decoy_beacon") {
+            this.decoys.push({ x: sp.x, y: sp.y, life: 360, ml: 360, sl: sp.slot });
+            this.burst(sp.x, sp.y, "#8be9ff", 18, 3);
+            this.pop(sp.x, sp.y - 34, "DECOY", "#8be9ff", 15);
+        }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Entities created by perks                                           */
+    /* ------------------------------------------------------------------ */
+
+    /** Plasma Wake: the dash trail burns whatever flies over it. */
+    _updateTrails(ts) {
+        for (let i = this.trails.length - 1; i >= 0; i--) {
+            const tr = this.trails[i];
+            tr.life -= ts;
+            if (tr.life <= 0) {
+                this.trails.splice(i, 1);
+                continue;
+            }
+            const sp = this._shipBySlot(tr.sl);
+            for (let k = this.enemies.length - 1; k >= 0; k--) {
+                const e = this.enemies[k];
+                if ((e.x - tr.x) ** 2 + (e.y - tr.y) ** 2 < (e.r + 16) ** 2) {
+                    e.hp -= 0.14 * ts;
+                    e.flash = 3;
+                    if (e.hp <= 0) {
+                        this.killEnemy(e, sp);
+                    }
+                }
+            }
+        }
+    }
+
+    _updateTurrets(ts) {
+        for (let i = this.turrets.length - 1; i >= 0; i--) {
+            const tu = this.turrets[i];
+            tu.life -= ts;
+            if (tu.life <= 0) {
+                this.burst(tu.x, tu.y, "#ffd166", 14, 3);
+                this.turrets.splice(i, 1);
+                continue;
+            }
+            tu.t -= ts;
+            if (tu.t <= 0) {
+                tu.t = 16;
+                const sp = this._shipBySlot(tu.sl);
+                if (sp) {
+                    const e = this._nearestEnemy(tu.x, tu.y);
+                    let vx = 0;
+                    let vy = -10;
+                    if (e) {
+                        const dx = e.x - tu.x;
+                        const dy = e.y - tu.y;
+                        const d = Math.hypot(dx, dy) || 1;
+                        vx = (dx / d) * 10;
+                        vy = (dy / d) * 10;
+                    }
+                    this.bullets.push(this._mkBullet(sp, tu.x, tu.y - 10, vx, vy, this._bulletDmg(sp) * 0.7));
+                }
+            }
+        }
+    }
+
+    /** Black Hole: drags in enemies, rocks and capsules while it grinds. */
+    _updateHoles(ts) {
+        for (let i = this.holes.length - 1; i >= 0; i--) {
+            const h = this.holes[i];
+            h.life -= ts;
+            if (h.life <= 0) {
+                this.burst(h.x, h.y, "#c9a4ff", 40, 6);
+                this.holes.splice(i, 1);
+                continue;
+            }
+            const sp = this._shipBySlot(h.sl);
+            const pull = (obj, k) => {
+                const dx = h.x - obj.x;
+                const dy = h.y - obj.y;
+                const d = Math.hypot(dx, dy) || 1;
+                if (d > h.r) {
+                    return d;
+                }
+                obj.x += (dx / d) * k * ts;
+                obj.y += (dy / d) * k * ts;
+                return d;
+            };
+            for (let k = this.enemies.length - 1; k >= 0; k--) {
+                const e = this.enemies[k];
+                if (this._isBoss(e)) {
+                    continue; // a dreadnought does not get dragged around
+                }
+                const d = pull(e, 1.8);
+                if (d <= h.r) {
+                    e.hp -= 0.08 * ts;
+                    if (e.hp <= 0) {
+                        this.killEnemy(e, sp);
+                    }
+                }
+            }
+            for (const rk of this.rocks) {
+                pull(rk, 1.4);
+            }
+            for (const p of this.pups) {
+                pull(p, 1.2);
+            }
+        }
+    }
+
+    _updateDecoys(ts) {
+        for (let i = this.decoys.length - 1; i >= 0; i--) {
+            const d = this.decoys[i];
+            d.life -= ts;
+            if (d.life <= 0) {
+                this.burst(d.x, d.y, "#8be9ff", 14, 3);
+                this.decoys.splice(i, 1);
+            }
+        }
+    }
+
     _updateStars(ts) {
+        const mx = this.W * 0.55;
+        const my = this.H * 0.55;
         for (const s of this.stars) {
             s.y += s.z * (1.2 + this.wave * 0.06) * ts;
-            if (s.y > this.H) {
-                s.y = -4;
-                s.x = Math.random() * this.W;
+            if (s.y > this.H + my) {
+                s.y = -my;
+                s.x = -mx + Math.random() * (this.W + mx * 2);
             }
         }
     }
@@ -808,7 +1831,8 @@ export class NeonStrikeEngine {
             if (!dn.down) {
                 continue;
             }
-            let reviver = false;
+            // Rate 1 by default, x3 if the reviver carries Field Medic.
+            let rate = 0;
             for (const sp of this.ships) {
                 if (sp.down || sp === dn) {
                     continue;
@@ -816,12 +1840,11 @@ export class NeonStrikeEngine {
                 const dx = sp.x - dn.x;
                 const dy = sp.y - dn.y;
                 if (dx * dx + dy * dy < 42 * 42) {
-                    reviver = true;
-                    break;
+                    rate = Math.max(rate, sp.flags.medic ? 3 : 1);
                 }
             }
-            if (reviver) {
-                dn.reviveProgress += ts;
+            if (rate) {
+                dn.reviveProgress += ts * rate;
                 if (this.frame % 18 === 0) {
                     this.sTick();
                 }
@@ -841,25 +1864,260 @@ export class NeonStrikeEngine {
         }
     }
 
+    /* ------------------------------------------------------------------ */
+    /* Colossal bosses                                                     */
+    /* ------------------------------------------------------------------ */
+
+    /** Enemy bullet fired by a boss (slightly faster than the small fry). */
+    _eb(x, y, vx, vy) {
+        this.ebullets.push({ x, y, vx, vy });
+    }
+
+    /** Aimed shot from an arbitrary point of the hull. */
+    _ebAimed(x, y, speed, spread) {
+        const tgt = this.decoys.length ? this._target(x, y) : this._aimShip();
+        if (!tgt) {
+            return;
+        }
+        const dx = tgt.x - x;
+        const dy = tgt.y - y;
+        const d = Math.sqrt(dx * dx + dy * dy) || 1;
+        const a = Math.atan2(dy, dx) + (spread || 0);
+        this._eb(x, y, Math.cos(a) * speed, Math.sin(a) * speed);
+    }
+
+    /**
+     * Beams: telegraphed first (`warn` frames of a thin sight line), then live.
+     * `src` anchors them to a hull so they follow it, `spin` sweeps them.
+     */
+    mkBeam(o) {
+        return Object.assign(
+            { x: 0, y: 0, ox: 0, oy: 0, a: Math.PI / 2, len: 1200, w: 26, warn: 60, life: 120, spin: 0, src: 0, c: "#ff4d4d" },
+            o
+        );
+    }
+
+    _updateBeams(ts) {
+        for (let i = this.beams.length - 1; i >= 0; i--) {
+            const b = this.beams[i];
+            if (b.src) {
+                const owner = this.enemies.find((e) => e.id === b.src);
+                if (!owner) {
+                    this.beams.splice(i, 1);
+                    continue;
+                }
+                b.x = owner.x + b.ox;
+                b.y = owner.y + b.oy;
+            }
+            b.a += b.spin * ts;
+            if (b.warn > 0) {
+                b.warn -= ts;
+                if (b.warn <= 0) {
+                    this.noise(0.3, 0.16, 1800);
+                }
+                continue;
+            }
+            b.life -= ts;
+            if (b.life <= 0) {
+                this.beams.splice(i, 1);
+                continue;
+            }
+            // Damage: distance from the ship to the beam segment.
+            const ex = b.x + Math.cos(b.a) * b.len;
+            const ey = b.y + Math.sin(b.a) * b.len;
+            for (const sp of this.ships) {
+                if (sp.down || sp.inv > 0 || sp.dash > 0) {
+                    continue;
+                }
+                if (this._distToSeg(sp.x, sp.y, b.x, b.y, ex, ey) < b.w * 0.5 + 8 * (1 + sp.mods.hitbox)) {
+                    this.hurtShip(sp);
+                }
+            }
+            if (this.frame % 3 === 0) {
+                const t = Math.random();
+                this.burst(b.x + Math.cos(b.a) * b.len * t, b.y + Math.sin(b.a) * b.len * t, b.c, 2, 2);
+            }
+        }
+    }
+
+    _distToSeg(px, py, x1, y1, x2, y2) {
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const l2 = dx * dx + dy * dy;
+        let t = l2 ? ((px - x1) * dx + (py - y1) * dy) / l2 : 0;
+        t = Math.max(0, Math.min(1, t));
+        return Math.hypot(px - (x1 + dx * t), py - (y1 + dy * t));
+    }
+
+    /** AI of the five colossi (keyed by `e.k`, same order as COLOSSI). */
+    _updateColossus(e, mv) {
+        const W = this.W;
+        // Entrance: it slides in from above without shooting.
+        if (e.y < e.ty) {
+            e.y += 1.3 * mv;
+            return;
+        }
+        e.x += e.vx * mv * 0.55;
+        if (e.x > W / 2 + 105) {
+            e.vx = -Math.abs(e.vx);
+        } else if (e.x < W / 2 - 105) {
+            e.vx = Math.abs(e.vx);
+        }
+        const rage = e.hp < e.mhp * 0.45;
+        e.a1 -= mv;
+        e.a2 -= mv;
+        e.a3 -= mv;
+        const bottom = e.y + e.hh;
+        if (e.k === 0) {
+            // AEGIS-01: curtain of fire with one gap + twin siege salvos.
+            if (e.a1 <= 0) {
+                e.a1 = rage ? 62 : 95;
+                e.gap = this.fx0 + 60 + ((e.gap + 137) % (this.fx1 - this.fx0 - 120));
+                for (let x = this.fx0 + 10; x < this.fx1; x += 34) {
+                    if (Math.abs(x - e.gap) < 62) {
+                        continue;
+                    }
+                    this._eb(x, bottom, 0, 2.4);
+                }
+                this.sTick();
+            }
+            if (e.a2 <= 0) {
+                e.a2 = 190;
+                for (const off of [-e.w * 0.22, e.w * 0.22]) {
+                    for (let s = -1; s <= 1; s++) {
+                        this._ebAimed(e.x + off, bottom, 5, s * 0.12);
+                    }
+                }
+                this.sTick();
+            }
+        } else if (e.k === 1) {
+            // HYDRA-07: crown spiral + aimed fans from the side heads.
+            if (e.a1 <= 0) {
+                e.a1 = rage ? 5 : 9;
+                const arms = rage ? 3 : 2;
+                for (let k = 0; k < arms; k++) {
+                    const a = e.t * 0.11 + (k / arms) * 6.2832;
+                    this._eb(e.x, e.y - e.h * 0.1, Math.cos(a) * 2.7, Math.sin(a) * 2.7);
+                }
+            }
+            if (e.a2 <= 0) {
+                e.a2 = rage ? 110 : 165;
+                for (const off of [-e.w * 0.38, e.w * 0.38]) {
+                    for (let s = -2; s <= 2; s++) {
+                        this._ebAimed(e.x + off, e.y + e.h * 0.28, 3.6, s * 0.16);
+                    }
+                }
+                this.sTick();
+            }
+        } else if (e.k === 2) {
+            // VULCAN: asteroid barrage, molten rings and two forge beams.
+            if (e.a1 <= 0) {
+                e.a1 = rage ? 46 : 74;
+                this.spawnRock(
+                    this.fx0 + 60 + Math.random() * (this.fx1 - this.fx0 - 120),
+                    e.y + e.hh, 18 + Math.random() * 16
+                );
+            }
+            if (e.a2 <= 0) {
+                e.a2 = 230;
+                for (let k = 0; k < 18; k++) {
+                    const a = (k / 18) * 6.2832 + e.t * 0.01;
+                    this._eb(e.x, e.y, Math.cos(a) * 2.5, Math.sin(a) * 2.5);
+                }
+                this.sBoom();
+            }
+            if (e.a3 <= 0) {
+                e.a3 = 430;
+                for (const off of [-e.w * 0.4, e.w * 0.4]) {
+                    this.beams.push(this.mkBeam({
+                        src: e.id, ox: off, oy: e.h * 0.25,
+                        a: Math.PI / 2 - 0.25 * Math.sign(off),
+                        warn: 70, life: 150, w: 30, spin: 0.0016 * Math.sign(off) || 0.0016,
+                        c: "#ffb347",
+                    }));
+                }
+            }
+        } else if (e.k === 3) {
+            // NYX: four beams turning like clock hands + interceptors.
+            if (!this.beams.some((b) => b.src === e.id)) {
+                for (let k = 0; k < 4; k++) {
+                    this.beams.push(this.mkBeam({
+                        src: e.id, a: (k / 4) * 6.2832, warn: 90,
+                        life: 100000, w: 22, spin: 0.0075, c: "#4de3c1", len: 1400,
+                    }));
+                }
+            }
+            if (e.a2 <= 0) {
+                e.a2 = rage ? 170 : 260;
+                for (const off of [-e.w * 0.42, e.w * 0.42]) {
+                    const spawn = this.mkEnemy(Math.random() < 0.5 ? "speedy" : "drone", e.x + off, e.y + e.hh);
+                    this.enemies.push(spawn);
+                }
+                this.sTick();
+            }
+        } else {
+            // OMEGA: sweeping eye beam, kamikaze seeding, ring bursts and it
+            // closes in once it is hurt.
+            if (e.a1 <= 0) {
+                e.a1 = 340;
+                const dir = Math.random() < 0.5 ? 1 : -1;
+                this.beams.push(this.mkBeam({
+                    src: e.id, oy: e.h * 0.05,
+                    a: Math.PI / 2 - 0.55 * dir, warn: 75, life: 190,
+                    w: 44, spin: 0.0058 * dir, c: "#ff2fd0", len: 1500,
+                }));
+            }
+            if (e.a2 <= 0) {
+                e.a2 = rage ? 150 : 215;
+                for (const off of [-e.w * 0.4, e.w * 0.4]) {
+                    this.enemies.push(this.mkEnemy("kami", e.x + off, e.y + e.hh * 0.8));
+                }
+            }
+            if (e.a3 <= 0) {
+                e.a3 = rage ? 90 : 130;
+                for (let k = 0; k < 12; k++) {
+                    const a = (k / 12) * 6.2832 + e.t * 0.02;
+                    this._eb(e.x, e.y, Math.cos(a) * 3, Math.sin(a) * 3);
+                }
+            }
+            if (rage && e.ty < 235) {
+                e.ty += 0.05 * mv;
+                e.y += 0.05 * mv;
+            }
+        }
+    }
+
     _updateEnemies(ts) {
         const W = this.W;
         const H = this.H;
-        for (let i = this.enemies.length - 1; i >= 0; i--) {
-            const e = this.enemies[i];
-            e.t += ts;
-            if (e.type === "drone") {
-                e.y += (1.2 + this.wave * 0.05) * ts;
-                e.x += Math.sin(e.t * 0.05) * 1.1 * ts;
+        // Iterate over a copy: a splash or a chain can remove other enemies
+        // while this loop runs, so membership is re-checked instead of relying
+        // on the index.
+        for (const e of this.enemies.slice()) {
+            if (!this.enemies.includes(e)) {
+                continue;
+            }
+            // EMP Pulse freezes the hull completely; Time Warp only slows it.
+            if (e.stun > 0) {
+                e.stun -= ts;
+            }
+            const mv = e.stun > 0 ? 0 : (this.warpT > 0 ? ts * 0.4 : ts);
+            e.t += mv;
+            if (e.type === "colossus") {
+                this._updateColossus(e, mv);
+            } else if (e.type === "drone") {
+                e.y += (1.2 + this.wave * 0.05) * mv;
+                e.x += Math.sin(e.t * 0.05) * 1.1 * mv;
             } else if (e.type === "speedy") {
-                e.y += (3 + this.wave * 0.08) * ts;
-                const tgt = this._nearestShip(e.x, e.y);
+                e.y += (3 + this.wave * 0.08) * mv;
+                const tgt = this._target(e.x, e.y);
                 if (tgt) {
-                    e.x += (tgt.x - e.x) * 0.006 * ts;
+                    e.x += (tgt.x - e.x) * 0.006 * mv;
                 }
             } else if (e.type === "tank") {
-                e.y += 0.65 * ts;
-                if (e.y > 0 && Math.floor(e.t) % 150 === 0) {
-                    const tgt = this._aimShip();
+                e.y += 0.65 * mv;
+                if (e.y > 0 && mv > 0 && Math.floor(e.t) % 150 === 0) {
+                    const tgt = this.decoys.length ? this._target(e.x, e.y) : this._aimShip();
                     if (tgt) {
                         const dx = tgt.x - e.x;
                         const dy = tgt.y - e.y;
@@ -871,14 +2129,14 @@ export class NeonStrikeEngine {
             } else if (e.type === "sniper") {
                 // Descends to its firing height and then holds, aiming.
                 if (e.y < e.stopY) {
-                    e.y += 1.1 * ts;
+                    e.y += 1.1 * mv;
                 } else {
-                    e.x += Math.sin(e.t * 0.02) * 0.5 * ts;
-                    e.aim += ts;
+                    e.x += Math.sin(e.t * 0.02) * 0.5 * mv;
+                    e.aim += mv;
                     if (e.aim >= 70) {
                         e.aim = 0;
-                        // Shoots the ship it telegraphed (the nearest one), not a random one.
-                        const tgt = this._nearestShip(e.x, e.y);
+                        // Shoots what it telegraphed (nearest ship or decoy).
+                        const tgt = this._target(e.x, e.y);
                         if (tgt) {
                             const dx = tgt.x - e.x;
                             const dy = tgt.y - e.y;
@@ -889,14 +2147,14 @@ export class NeonStrikeEngine {
                     }
                 }
             } else if (e.type === "kami") {
-                // Chases the nearest ship, accelerating; the core goes wild.
-                const tgt = this._nearestShip(e.x, e.y);
+                // Chases its target, accelerating; the core goes wild.
+                const tgt = this._target(e.x, e.y);
                 if (tgt) {
                     const dx = tgt.x - e.x;
                     const dy = tgt.y - e.y;
                     const d = Math.sqrt(dx * dx + dy * dy) || 1;
-                    e.vx += (dx / d) * 0.09 * ts;
-                    e.vy += (dy / d) * 0.09 * ts;
+                    e.vx += (dx / d) * 0.09 * mv;
+                    e.vy += (dy / d) * 0.09 * mv;
                 }
                 const sp = Math.sqrt(e.vx * e.vx + e.vy * e.vy) || 1;
                 const max = 3.4 + this.wave * 0.06;
@@ -904,17 +2162,17 @@ export class NeonStrikeEngine {
                     e.vx = (e.vx / sp) * max;
                     e.vy = (e.vy / sp) * max;
                 }
-                e.x += e.vx * ts;
-                e.y += e.vy * ts;
-                // El sprite mira hacia abajo: rota respecto a +Y.
+                e.x += e.vx * mv;
+                e.y += e.vy * mv;
+                // The sprite looks downwards: rotate relative to +Y.
                 e.rot = Math.atan2(e.vy, e.vx) - Math.PI / 2;
             } else {
                 if (e.y < 95) {
-                    e.y += 1.4 * ts;
+                    e.y += 1.4 * mv;
                 } else {
                     e.x = W / 2 + Math.sin(e.t * 0.016) * (W * 0.32);
                 }
-                if (e.y >= 90) {
+                if (e.y >= 90 && mv > 0) {
                     if (Math.floor(e.t) % 85 === 0) {
                         for (let k = 0; k < 9; k++) {
                             const a = (k / 9) * 6.2832 + e.t * 0.01;
@@ -923,7 +2181,7 @@ export class NeonStrikeEngine {
                         this.sTick();
                     }
                     if (Math.floor(e.t) % 55 === 27) {
-                        const tgt = this._aimShip();
+                        const tgt = this.decoys.length ? this._target(e.x, e.y) : this._aimShip();
                         if (tgt) {
                             const dx = tgt.x - e.x;
                             const dy = tgt.y - e.y;
@@ -936,8 +2194,21 @@ export class NeonStrikeEngine {
                     }
                 }
             }
-            if (e.y > H + 50) {
-                this.enemies.splice(i, 1);
+            // Every quarter of health a boss loses, it sheds a capsule.
+            if (this._isBoss(e) && e.dropAt > 0 && e.hp <= e.mhp * e.dropAt) {
+                e.dropAt -= 0.25;
+                const dy = e.type === "colossus" ? e.hh : e.r;
+                this.dropPup(
+                    Math.max(this.fx0 + 30, Math.min(this.fx1 - 30, e.x + (Math.random() - 0.5) * 160)),
+                    e.y + dy, true
+                );
+                this.sPup();
+            }
+            if (e.y > this.fy1 + 50) {
+                const idx = this.enemies.indexOf(e);
+                if (idx >= 0) {
+                    this.enemies.splice(idx, 1);
+                }
                 continue;
             }
             // Collision with ships.
@@ -946,14 +2217,23 @@ export class NeonStrikeEngine {
                 if (sp.down) {
                     continue;
                 }
-                const dx = e.x - sp.x;
-                const dy = e.y - sp.y;
-                const rr = e.r + 13;
-                if (dx * dx + dy * dy < rr * rr) {
-                    this.hurtShip(sp);
-                    if (e.type !== "boss") {
-                        this.killEnemy(e, i);
+                if (this._enemyHit(e, sp.x, sp.y, 13 * (1 + sp.mods.hitbox))) {
+                    const ram = sp.dash > 0 && sp.flags.dash_ram;
+                    if (!ram) {
+                        this.hurtShip(sp);
+                    }
+                    if (!this._isBoss(e)) {
+                        this.killEnemy(e, sp);
                         killedByShip = true;
+                    } else if (ram) {
+                        // Ram Prow also bites into a boss, without killing it.
+                        e.hp -= 3;
+                        e.flash = 6;
+                        this.burst(sp.x, sp.y, "#c9a4ff", 20, 5);
+                        if (e.hp <= 0) {
+                            this.killEnemy(e, sp);
+                            killedByShip = true;
+                        }
                     }
                     break;
                 }
@@ -961,23 +2241,43 @@ export class NeonStrikeEngine {
             if (killedByShip) {
                 continue;
             }
-            // Balas propias.
+            // Own bullets.
             for (let j = this.bullets.length - 1; j >= 0; j--) {
                 const b = this.bullets[j];
-                const bx = b.x - e.x;
-                const by = b.y - e.y;
-                if (bx * bx + by * by < (e.r + 4) * (e.r + 4)) {
-                    this.bullets.splice(j, 1);
-                    e.hp--;
-                    this.burst(b.x, b.y, "#fff", 4, 2);
-                    if (e.hp <= 0) {
-                        this.killEnemy(e, i);
-                        break;
-                    } else {
-                        e.flash = 6;
-                        this.noise(0.05, 0.06, 3000);
-                    }
+                if (b.cd > 0 || b.hid === e.id) {
+                    continue;
                 }
+                if (!this._enemyHit(e, b.x, b.y, 4)) {
+                    continue;
+                }
+                const owner = this._shipBySlot(b.sl);
+                const dmg = this._impactDmg(b, e, owner);
+                e.hp -= dmg;
+                this.burst(b.x, b.y, b.cr ? "#ffd166" : "#fff", b.cr ? 10 : 4, b.cr ? 3.5 : 2);
+                if (b.cr) {
+                    this.pop(b.x, b.y - 8, "CRIT", "#ffd166", 11, 30);
+                }
+                if (b.ex) {
+                    this._splash(b.x, b.y, 62, dmg * 0.6, owner, e);
+                }
+                if (b.ch) {
+                    this._chain(e, dmg * 0.5, owner);
+                }
+                // Piercing Rounds: the bullet survives, but not against the
+                // same hull (`hid`) and not on the very next frames (`cd`).
+                if (b.pi > 0) {
+                    b.pi--;
+                    b.hid = e.id;
+                    b.cd = 3;
+                } else {
+                    this.bullets.splice(j, 1);
+                }
+                if (e.hp <= 0) {
+                    this.killEnemy(e, owner);
+                    break;
+                }
+                e.flash = 6;
+                this.noise(0.05, 0.06, 3000);
             }
         }
     }
@@ -990,9 +2290,9 @@ export class NeonStrikeEngine {
             rk.x += rk.vx * ts;
             rk.y += rk.vy * ts;
             rk.rot += rk.vr * ts;
-            if (rk.x < rk.r) { rk.vx = Math.abs(rk.vx); }
-            if (rk.x > W - rk.r) { rk.vx = -Math.abs(rk.vx); }
-            if (rk.y > H + rk.r + 20) {
+            if (rk.x < this.fx0 + rk.r) { rk.vx = Math.abs(rk.vx); }
+            if (rk.x > this.fx1 - rk.r) { rk.vx = -Math.abs(rk.vx); }
+            if (rk.y > this.fy1 + rk.r + 20) {
                 this.rocks.splice(i, 1);
                 continue;
             }
@@ -1004,10 +2304,13 @@ export class NeonStrikeEngine {
                 }
                 const dx = rk.x - sp.x;
                 const dy = rk.y - sp.y;
-                const rr = rk.r + 12;
+                const rr = rk.r + 12 * (1 + sp.mods.hitbox);
                 if (dx * dx + dy * dy < rr * rr) {
-                    this.hurtShip(sp);
-                    this._breakRock(rk, i);
+                    // Asteroid Eater (and any dash) shatters the rock for free.
+                    if (!sp.flags.rock_eater) {
+                        this.hurtShip(sp);
+                    }
+                    this._breakRock(rk, i, sp);
                     broke = true;
                     break;
                 }
@@ -1015,17 +2318,25 @@ export class NeonStrikeEngine {
             if (broke) {
                 continue;
             }
-            // Balas propias.
+            // Own bullets.
             for (let j = this.bullets.length - 1; j >= 0; j--) {
                 const b = this.bullets[j];
+                if (b.cd > 0) {
+                    continue;
+                }
                 const bx = b.x - rk.x;
                 const by = b.y - rk.y;
                 if (bx * bx + by * by < (rk.r + 3) * (rk.r + 3)) {
-                    this.bullets.splice(j, 1);
-                    rk.hp--;
+                    rk.hp -= b.d;
                     this.burst(b.x, b.y, "#c9c9d6", 4, 2);
+                    if (b.pi > 0) {
+                        b.pi--;
+                        b.cd = 3;
+                    } else {
+                        this.bullets.splice(j, 1);
+                    }
                     if (rk.hp <= 0) {
-                        this._breakRock(rk, i);
+                        this._breakRock(rk, i, this._shipBySlot(b.sl));
                         break;
                     }
                 }
@@ -1033,14 +2344,15 @@ export class NeonStrikeEngine {
         }
     }
 
-    _breakRock(rk, i) {
+    _breakRock(rk, i, killer) {
         this.rocks.splice(i, 1);
         this.burst(rk.x, rk.y, "#b9bcd0", 20, 4.5);
         this._ev({ k: "boom", x: rk.x, y: rk.y, c: "#b9bcd0", b: 0 });
         this.sBoom();
         this.shake = Math.min(this.shake + 4, 24);
-        this.score += 50 * this.combo;
-        this.pop(rk.x, rk.y, "+" + (50 * this.combo).toLocaleString(), "#c9c9d6", 12);
+        const pts = Math.round(50 * this.combo * (1 + (killer ? killer.mods.scoreMul : 0)));
+        this.score += pts;
+        this.pop(rk.x, rk.y, "+" + pts.toLocaleString(), "#c9c9d6", 12);
         if (rk.r > 24) {
             for (let k = 0; k < 2; k++) {
                 this.spawnRock(rk.x + (k ? 12 : -12), rk.y, rk.r * 0.55);
@@ -1054,7 +2366,20 @@ export class NeonStrikeEngine {
             const p = this.pups[i];
             p.y += p.vy * ts;
             p.ph += 0.1 * ts;
-            if (p.y > H + 20) {
+            // Tractor Beam: the capsule flies to the nearest ship carrying it.
+            for (const sp of this.ships) {
+                if (sp.down || sp.mods.magnet <= 0) {
+                    continue;
+                }
+                const dx = sp.x - p.x;
+                const dy = sp.y - p.y;
+                const d = Math.hypot(dx, dy) || 1;
+                if (d < sp.mods.magnet) {
+                    p.x += (dx / d) * 4.5 * ts;
+                    p.y += (dy / d) * 4.5 * ts;
+                }
+            }
+            if (p.y > this.fy1 + 20) {
                 this.pups.splice(i, 1);
                 continue;
             }
@@ -1083,10 +2408,10 @@ export class NeonStrikeEngine {
                     picker.shield = 1;
                     this.pop(picker.x, picker.y - 30, "Shield!", "#7bffb0", 15);
                 } else if (p.t === "B") {
-                    this.bomb();
+                    this.bomb(picker);
                     this.pop(picker.x, picker.y - 30, "BOMB!", "#ffb347", 18);
                 } else {
-                    picker.lives = Math.min(5, picker.lives + 1);
+                    picker.lives = Math.min(this._maxLives(picker), picker.lives + 1);
                     this.pop(picker.x, picker.y - 30, "Extra life!", "#ff8fb3", 15);
                 }
             }
@@ -1111,6 +2436,12 @@ export class NeonStrikeEngine {
             p.life -= ts;
             if (p.life <= 0) {
                 this.pops.splice(i, 1);
+            }
+        }
+        for (let i = this.zaps.length - 1; i >= 0; i--) {
+            this.zaps[i].life -= ts;
+            if (this.zaps[i].life <= 0) {
+                this.zaps.splice(i, 1);
             }
         }
     }
@@ -1150,7 +2481,7 @@ export class NeonStrikeEngine {
     }
 
     /* ------------------------------------------------------------------ */
-    /* Red: entrada remota y snapshot                                      */
+    /* Network: remote input and snapshot                                  */
     /* ------------------------------------------------------------------ */
 
     /** Host: apply a guest pointer. */
@@ -1159,6 +2490,23 @@ export class NeonStrikeEngine {
         if (sp && !sp.down) {
             sp.tx = tx;
             sp.ty = ty;
+        }
+    }
+
+    /**
+     * Host: apply a remote action (dash, active perk or perk choice).
+     * They travel through the same `/neon/input` route as the pointer.
+     */
+    setRemoteAction(slot, action) {
+        if (this.role === "guest" || !action) {
+            return;
+        }
+        if (action === "dash") {
+            this.dashShip(slot);
+        } else if (action.startsWith("act")) {
+            this.useActive(slot, parseInt(action.slice(3), 10) || 0);
+        } else if (action.startsWith("perk")) {
+            this.pickPerk(slot, parseInt(action.slice(4), 10));
         }
     }
 
@@ -1172,12 +2520,19 @@ export class NeonStrikeEngine {
             ct: this.comboT,
             sk: Math.round(this.shake),
             fl: Math.round(this.flashT),
+            fz: this.freezeT > 0 ? 1 : 0,
+            wp2: this.warpT > 0 ? 1 : 0,
             ships: this.ships.map((s) => ({
                 s: s.slot, n: s.name, c: s.color,
                 x: Math.round(s.x), y: Math.round(s.y),
                 iv: s.inv > 0 ? 1 : 0, sd: s.shield,
                 dn: s.down ? 1 : 0, rp: Math.round(s.reviveProgress),
                 wp: s.weapon === "triple" ? 1 : 0, lv: s.lives,
+                // Perks (indexes), dash and active cooldowns for the HUD.
+                pk: s.perks.map((id) => PERK_INDEX[id]),
+                ds: s.dashCharges, dm: s.dashMax, dt: s.dash > 0 ? 1 : 0,
+                ac: s.actives.map((a) => [Math.round(Math.max(0, a.cd)), a.cdMax]),
+                da: s.flags.drone ? Math.round(s.droneA * 100) / 100 : undefined,
             })),
             en: this.enemies.map((e) => ({
                 t: e.type, x: Math.round(e.x), y: Math.round(e.y),
@@ -1186,14 +2541,31 @@ export class NeonStrikeEngine {
                 v: e.v || 0,
                 rt: e.rot != null ? Math.round(e.rot * 100) / 100 : undefined,
                 am: e.aim != null ? Math.round(e.aim) : undefined,
+                sn: e.stun > 0 ? 1 : 0,
+                // Colossus index: the guest rebuilds size/zoom from COLOSSI.
+                ck: e.k,
             })),
-            bu: this.bullets.map((b) => [Math.round(b.x), Math.round(b.y)]),
+            // 3rd slot = style bits: 1 critical, 2 explosive.
+            bu: this.bullets.map((b) => [Math.round(b.x), Math.round(b.y), (b.cr ? 1 : 0) | (b.ex ? 2 : 0)]),
             eb: this.ebullets.map((b) => [Math.round(b.x), Math.round(b.y)]),
             pu: this.pups.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y), t: p.t, ph: p.ph })),
             rk: this.rocks.map((r) => ({
                 x: Math.round(r.x), y: Math.round(r.y), r: Math.round(r.r),
                 a: Math.round(r.rot * 100) / 100, v: r.v || 0,
             })),
+            // Entities created by perks.
+            tr: this.trails.map((t) => [Math.round(t.x), Math.round(t.y), Math.round(t.life)]),
+            tu: this.turrets.map((t) => [Math.round(t.x), Math.round(t.y), t.sl]),
+            bh: this.holes.map((h) => [Math.round(h.x), Math.round(h.y), Math.round(h.r), Math.round(h.life)]),
+            dc: this.decoys.map((d) => [Math.round(d.x), Math.round(d.y), d.sl]),
+            bm: this.beams.map((b) => [
+                Math.round(b.x), Math.round(b.y), Math.round(b.a * 1000) / 1000,
+                Math.round(b.len), Math.round(b.w), Math.round(Math.max(0, b.warn)), b.c,
+            ]),
+            // Perk phase (offers per slot, picks already made, countdown).
+            pf: this.perkPhase
+                ? { o: this.perkPhase.offers, p: this.perkPhase.picks, t: Math.round(this.perkPhase.t) }
+                : null,
             ev: this._events,
         };
         this._events = [];
@@ -1209,6 +2581,11 @@ export class NeonStrikeEngine {
         this.comboT = snap.ct;
         this.shake = snap.sk;
         this.flashT = snap.fl;
+        this.freezeT = snap.fz ? 60 : 0;
+        this.warpT = snap.wp2 ? 60 : 0;
+        this.perkPhase = snap.pf
+            ? { offers: snap.pf.o || {}, picks: snap.pf.p || {}, t: snap.pf.t || 0 }
+            : null;
         // Ships per slot (position interpolation).
         const slots = [];
         for (const s of snap.ships) {
@@ -1230,18 +2607,61 @@ export class NeonStrikeEngine {
             sp.reviveProgress = s.rp;
             sp.weapon = s.wp ? "triple" : "single";
             sp.lives = s.lv;
+            // Perks: rebuild the derived state only when the list changes, and
+            // then overwrite the cooldowns with the host's authoritative ones.
+            const ids = (s.pk || []).map((i) => (PERKS[i] ? PERKS[i].id : null)).filter(Boolean);
+            if (ids.join(",") !== sp.perks.join(",")) {
+                sp.perks = ids;
+                this._recalcPerks(sp);
+            }
+            (s.ac || []).forEach((a, i) => {
+                if (sp.actives[i]) {
+                    sp.actives[i].cd = a[0];
+                    sp.actives[i].cdMax = a[1];
+                }
+            });
+            sp.dashCharges = s.ds != null ? s.ds : sp.dashCharges;
+            sp.dashMax = s.dm != null ? s.dm : sp.dashMax;
+            sp.dash = s.dt ? 1 : 0;
+            if (s.da != null) {
+                sp.droneA = s.da;
+            }
         }
         this.ships = this.ships.filter((sp) => slots.includes(sp.slot));
         // Entities taken as-is (no interpolation in this version).
-        this.enemies = snap.en.map((e) => ({
-            type: e.t, x: e.x, y: e.y, r: this._enemyR(e.t),
-            hp: e.h, mhp: e.mh, c: this._enemyColor(e.t),
-            flash: e.f ? 4 : 0, t: e.tt, v: e.v || 0, rot: e.rt, aim: e.am,
-        }));
-        this.bullets = snap.bu.map((b) => ({ x: b[0], y: b[1], vx: 0, vy: 0 }));
+        this.enemies = snap.en.map((e) => {
+            const en = {
+                type: e.t, x: e.x, y: e.y, r: this._enemyR(e.t),
+                hp: e.h, mhp: e.mh, c: this._enemyColor(e.t),
+                flash: e.f ? 4 : 0, t: e.tt, v: e.v || 0, rot: e.rt, aim: e.am,
+                stun: e.sn ? 1 : 0,
+            };
+            if (e.t === "colossus") {
+                // Size, colour and zoom come from the shared catalogue, so only
+                // the index travels.
+                const d = COLOSSI[e.ck || 0];
+                const size = spriteSize(d.sprite);
+                const h = (d.w * size.h) / size.w;
+                Object.assign(en, {
+                    k: e.ck || 0, w: d.w, h,
+                    hw: d.w * 0.42, hh: h * 0.32,
+                    r: Math.min(d.w, h) * 0.28,
+                    c: d.tint, zoom: d.zoom, field: d.field || 1,
+                });
+            }
+            return en;
+        });
+        this.bullets = snap.bu.map((b) => ({ x: b[0], y: b[1], vx: 0, vy: 0, cr: (b[2] || 0) & 1, ex: (b[2] || 0) & 2 }));
         this.ebullets = snap.eb.map((b) => ({ x: b[0], y: b[1], vx: 0, vy: 0 }));
         this.pups = snap.pu.map((p) => ({ x: p.x, y: p.y, t: p.t, ph: p.ph, r: 13 }));
         this.rocks = snap.rk.map((r) => ({ x: r.x, y: r.y, r: r.r, rot: r.a, v: r.v || 0 }));
+        this.trails = (snap.tr || []).map((t) => ({ x: t[0], y: t[1], life: t[2], ml: 42 }));
+        this.turrets = (snap.tu || []).map((t) => ({ x: t[0], y: t[1], sl: t[2], life: 1, t: 0 }));
+        this.holes = (snap.bh || []).map((h) => ({ x: h[0], y: h[1], r: h[2], life: h[3], ml: 240 }));
+        this.decoys = (snap.dc || []).map((d) => ({ x: d[0], y: d[1], sl: d[2], life: 1, ml: 360 }));
+        this.beams = (snap.bm || []).map((b) => ({
+            x: b[0], y: b[1], a: b[2], len: b[3], w: b[4], warn: b[5], c: b[6], life: 1, spin: 0, src: 0,
+        }));
         for (const ev of snap.ev || []) {
             this._playEvent(ev);
         }
@@ -1251,13 +2671,102 @@ export class NeonStrikeEngine {
     /* Render                                                              */
     /* ------------------------------------------------------------------ */
 
+    /** Colossus beams: thin sight line while charging, wall of light after. */
+    _drawBeams() {
+        const g = this.g;
+        for (const b of this.beams) {
+            const ex = b.x + Math.cos(b.a) * b.len;
+            const ey = b.y + Math.sin(b.a) * b.len;
+            g.save();
+            g.globalCompositeOperation = "lighter";
+            if (b.warn > 0) {
+                g.strokeStyle = b.c;
+                g.globalAlpha = 0.25 + Math.abs(Math.sin(this.frame * 0.25)) * 0.4;
+                g.lineWidth = 2;
+                g.setLineDash([12, 10]);
+            } else {
+                g.strokeStyle = b.c;
+                g.globalAlpha = 0.22;
+                g.lineWidth = b.w * (1 + Math.sin(this.frame * 0.5) * 0.06);
+            }
+            g.beginPath();
+            g.moveTo(b.x, b.y);
+            g.lineTo(ex, ey);
+            g.stroke();
+            if (b.warn <= 0) {
+                g.setLineDash([]);
+                g.globalAlpha = 0.95;
+                g.strokeStyle = "#ffffff";
+                g.lineWidth = b.w * 0.28;
+                g.beginPath();
+                g.moveTo(b.x, b.y);
+                g.lineTo(ex, ey);
+                g.stroke();
+            }
+            g.restore();
+        }
+    }
+
+    /** Turrets and decoys: drawn over the field, under the ships. */
+    _drawPerkEntities() {
+        const g = this.g;
+        for (const tu of this.turrets) {
+            const sp = this._shipBySlot(tu.sl);
+            const col = sp ? sp.color : "#ffd166";
+            g.save();
+            g.translate(tu.x, tu.y);
+            g.globalCompositeOperation = "lighter";
+            g.fillStyle = this.glow(col, 0.14);
+            g.beginPath();
+            g.arc(0, 0, 20, 0, 6.2832);
+            g.fill();
+            g.globalCompositeOperation = "source-over";
+            g.strokeStyle = col;
+            g.lineWidth = 2;
+            g.beginPath();
+            g.moveTo(-10, 8);
+            g.lineTo(10, 8);
+            g.lineTo(6, -4);
+            g.lineTo(-6, -4);
+            g.closePath();
+            g.stroke();
+            g.fillStyle = col;
+            g.fillRect(-2, -14, 4, 10);
+            g.restore();
+        }
+        for (const d of this.decoys) {
+            const sp = this._shipBySlot(d.sl);
+            g.save();
+            g.globalAlpha = 0.35 + Math.sin(this.frame * 0.2) * 0.15;
+            drawSprite(g, "ship" + ((sp ? sp.slot : 0) % 4), d.x, d.y, {
+                tint: "#8be9ff",
+                px: SHIP_PX,
+            });
+            g.restore();
+        }
+    }
+
     drawShip(sp) {
         const g = this.g;
+        // Drone Wing: the companion is drawn even while the hull blinks.
+        if (sp.flags && sp.flags.drone) {
+            const p = this._dronePos(sp);
+            drawSprite(g, "drone0", p.x, p.y, { tint: sp.color, px: pxFor("drone0", 18) });
+        }
         if (sp.inv > 0 && (this.frame >> 2) % 2 === 0) {
             return;
         }
         g.save();
         g.translate(sp.x, sp.y);
+        if (sp.dash > 0) {
+            // Dash: violet halo that reads as "you cannot be touched now".
+            g.globalCompositeOperation = "lighter";
+            g.fillStyle = "rgba(201,164,255,0.35)";
+            g.beginPath();
+            g.arc(0, 0, 30, 0, 6.2832);
+            g.fill();
+            g.globalCompositeOperation = "source-over";
+        }
         const tilt = Math.max(-0.35, Math.min(0.35, (sp.tx - sp.x) * 0.02));
         g.rotate(tilt);
         g.globalCompositeOperation = "lighter";
@@ -1341,7 +2850,7 @@ export class NeonStrikeEngine {
         // does not travel in the snapshot): ships are already synchronised, so
         // host and guest draw the same sight.
         if (e.type === "sniper" && e.aim > 40) {
-            const tgt = this._nearestShip(e.x, e.y);
+            const tgt = this._target(e.x, e.y);
             if (tgt) {
                 g.save();
                 g.globalCompositeOperation = "lighter";
@@ -1353,6 +2862,29 @@ export class NeonStrikeEngine {
                 g.stroke();
                 g.restore();
             }
+        }
+        if (e.type === "colossus") {
+            // Colossal hull: drawn at its full logical width, chunky pixels and
+            // a heavy halo. Its health goes to the top bar, not a floating one.
+            const d = COLOSSI[e.k] || COLOSSI[0];
+            const p = 1 + Math.sin(e.t * 0.05) * 0.012;
+            g.save();
+            g.globalCompositeOperation = "lighter";
+            g.fillStyle = this.glow(e.c, 0.1);
+            g.beginPath();
+            g.ellipse(e.x, e.y, e.w * 0.55, e.h * 0.6, 0, 0, 6.2832);
+            g.fill();
+            g.restore();
+            g.save();
+            g.translate(e.x, e.y);
+            g.scale(p, p);
+            // NEVER the white flash silhouette here: a colossus is under fire
+            // every frame, so it would sit permanently washed out (and it would
+            // double the sprite cache for a canvas this big). The hit feedback
+            // is the white burst at the point of impact plus the top bar.
+            drawSprite(g, d.sprite, 0, 0, { tint: e.c, px: pxFor(d.sprite, e.w) });
+            g.restore();
+            return;
         }
         if (e.type === "boss") {
             // The dreadnought breathes: gentle pulse around its centre.
@@ -1369,6 +2901,14 @@ export class NeonStrikeEngine {
                 flash,
                 rot: e.type === "kami" ? e.rot || 0 : 0,
             });
+        }
+        if (e.stun > 0) {
+            // EMP: crackling ring around a stunned hull.
+            g.strokeStyle = "rgba(94,225,255," + (0.4 + Math.sin(this.frame * 0.4) * 0.25) + ")";
+            g.lineWidth = 1.5;
+            g.beginPath();
+            g.arc(e.x, e.y, e.r + 6, 0, 6.2832);
+            g.stroke();
         }
         if (e.mhp > 1) {
             const w2 = e.r * 2;
@@ -1399,23 +2939,45 @@ export class NeonStrikeEngine {
         g.fillStyle = "#05060e";
         g.fillRect(0, 0, this.cv.width, this.cv.height);
 
-        // Logical world transform (scale + centring).
+        // Logical world transform (scale * zoom + centring).
         g.setTransform(dpr, 0, 0, dpr, 0, 0);
         g.translate(this.ox, this.oy);
-        g.scale(this.scale, this.scale);
+        g.scale(this.scale * this.zoom, this.scale * this.zoom);
 
+        // Visible rectangle: the arena plus whatever the camera shows around it.
+        const mx = this.viewMX;
+        const my = this.viewMY;
         g.save();
         g.beginPath();
-        g.rect(0, 0, W, H);
+        g.rect(-mx, -my, W + mx * 2, H + my * 2);
         g.clip();
         g.fillStyle = "#05060e";
-        g.fillRect(0, 0, W, H);
+        g.fillRect(-mx, -my, W + mx * 2, H + my * 2);
         if (this.shake > 0.5) {
             g.translate((Math.random() - 0.5) * this.shake, (Math.random() - 0.5) * this.shake);
         }
         for (const s of this.stars) {
             g.fillStyle = "rgba(200,220,255," + (0.25 + s.z * 0.25) + ")";
             g.fillRect(s.x, s.y, s.s, s.s + s.z * 2);
+        }
+        // Zoomed out: mark where the (now wider) playable field ends. Outside
+        // it there is only the colossus and open space.
+        if (this.zoom < 0.985) {
+            const a = Math.min(1, (1 - this.zoom) * 4);
+            const fx = this.fx0;
+            const fy = this.fy0;
+            const fw = this.fx1 - this.fx0;
+            const fh = this.fy1 - this.fy0;
+            g.save();
+            g.fillStyle = "rgba(4,5,12,0.45)";
+            g.fillRect(-mx, -my, W + mx * 2, my + fy);
+            g.fillRect(-mx, this.fy1, W + mx * 2, my + (H - this.fy1));
+            g.fillRect(-mx, fy, mx + fx, fh);
+            g.fillRect(this.fx1, fy, mx + (W - this.fx1), fh);
+            g.strokeStyle = "rgba(113,75,103," + (0.35 + a * 0.4) + ")";
+            g.lineWidth = 2 / this.zoom;
+            g.strokeRect(fx, fy, fw, fh);
+            g.restore();
         }
         g.globalCompositeOperation = "lighter";
         for (const p of this.parts) {
@@ -1426,23 +2988,70 @@ export class NeonStrikeEngine {
             g.fill();
         }
         g.globalAlpha = 1;
+        // Plasma Wake and the Black Hole live under the bullets.
+        for (const tr of this.trails) {
+            g.globalAlpha = Math.max(0, tr.life / (tr.ml || 42)) * 0.6;
+            g.fillStyle = "#c9a4ff";
+            g.beginPath();
+            g.arc(tr.x, tr.y, 15, 0, 6.2832);
+            g.fill();
+        }
+        g.globalAlpha = 1;
+        for (const h of this.holes) {
+            const p = 1 + Math.sin(this.frame * 0.2) * 0.06;
+            g.fillStyle = "rgba(201,164,255,0.10)";
+            g.beginPath();
+            g.arc(h.x, h.y, h.r * p, 0, 6.2832);
+            g.fill();
+            g.fillStyle = "rgba(140,90,255,0.35)";
+            g.beginPath();
+            g.arc(h.x, h.y, 26 * p, 0, 6.2832);
+            g.fill();
+        }
+        for (const z of this.zaps) {
+            g.globalAlpha = Math.max(0, z.life / 8);
+            g.strokeStyle = "#8be9ff";
+            g.lineWidth = 2;
+            g.beginPath();
+            g.moveTo(z.x1, z.y1);
+            // A single kink is enough to read as an electric arc.
+            g.lineTo((z.x1 + z.x2) / 2 + (Math.random() - 0.5) * 18, (z.y1 + z.y2) / 2 + (Math.random() - 0.5) * 18);
+            g.lineTo(z.x2, z.y2);
+            g.stroke();
+        }
+        g.globalAlpha = 1;
         for (const b of this.bullets) {
-            g.fillStyle = "rgba(94,225,255,0.25)";
-            g.fillRect(b.x - 3, b.y - 2, 6, 16);
-            g.fillStyle = "#d8f8ff";
-            g.fillRect(b.x - 1.5, b.y, 3, 12);
+            if (b.cr) {
+                g.fillStyle = "rgba(255,209,102,0.3)";
+                g.fillRect(b.x - 4, b.y - 3, 8, 20);
+                g.fillStyle = "#fff0c2";
+                g.fillRect(b.x - 2, b.y, 4, 15);
+            } else if (b.ex) {
+                g.fillStyle = "rgba(255,179,71,0.3)";
+                g.fillRect(b.x - 4, b.y - 2, 8, 17);
+                g.fillStyle = "#ffe0b0";
+                g.fillRect(b.x - 2, b.y, 4, 13);
+            } else {
+                g.fillStyle = "rgba(94,225,255,0.25)";
+                g.fillRect(b.x - 3, b.y - 2, 6, 16);
+                g.fillStyle = "#d8f8ff";
+                g.fillRect(b.x - 1.5, b.y, 3, 12);
+            }
         }
         for (const b of this.ebullets) {
-            g.fillStyle = "rgba(255,110,110,0.3)";
+            const frozen = this.freezeT > 0;
+            g.fillStyle = frozen ? "rgba(94,225,255,0.3)" : "rgba(255,110,110,0.3)";
             g.beginPath();
             g.arc(b.x, b.y, 7, 0, 6.2832);
             g.fill();
-            g.fillStyle = "#ffdada";
+            g.fillStyle = frozen ? "#d8f8ff" : "#ffdada";
             g.beginPath();
             g.arc(b.x, b.y, 3.5, 0, 6.2832);
             g.fill();
         }
+        this._drawBeams();
         g.globalCompositeOperation = "source-over";
+        this._drawPerkEntities();
         for (const rk of this.rocks) {
             this.drawRock(rk);
         }
@@ -1482,11 +3091,231 @@ export class NeonStrikeEngine {
         g.globalAlpha = 1;
         if (this.flashT > 0) {
             g.fillStyle = "rgba(255,255,255," + ((this.flashT / 12) * 0.55) + ")";
-            g.fillRect(-30, -30, W + 60, H + 60);
+            g.fillRect(-mx - 30, -my - 30, W + mx * 2 + 60, H + my * 2 + 60);
         }
         g.restore();
 
+        // HUD in its own transform: it must not shrink with the camera.
+        g.setTransform(dpr, 0, 0, dpr, 0, 0);
+        g.translate(this.hudOx, this.hudOy);
+        g.scale(this.scale, this.scale);
         this._renderHud();
+        if (this.state === "perk") {
+            this._renderPerkChoice();
+        }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Perk UI (canvas: works the same on host and guest)                  */
+    /* ------------------------------------------------------------------ */
+
+    /** Geometry of the 3 cards offered to the local slot. */
+    _perkCards() {
+        const ph = this.perkPhase;
+        if (!ph) {
+            return [];
+        }
+        const offers = ph.offers[this.localSlot] || [];
+        const w = 188;
+        const h = 250;
+        const gap = 16;
+        const total = offers.length * w + Math.max(0, offers.length - 1) * gap;
+        const x0 = (this.W - total) / 2;
+        const y = this.H / 2 - h / 2 + 26;
+        return offers.map((idx, i) => ({ idx, i, x: x0 + i * (w + gap), y, w, h }));
+    }
+
+    _wrapText(text, maxW) {
+        const g = this.g;
+        const words = String(text).split(" ");
+        const lines = [];
+        let line = "";
+        for (const word of words) {
+            const next = line ? line + " " + word : word;
+            if (g.measureText(next).width > maxW && line) {
+                lines.push(line);
+                line = word;
+            } else {
+                line = next;
+            }
+        }
+        if (line) {
+            lines.push(line);
+        }
+        return lines;
+    }
+
+    _renderPerkChoice() {
+        const g = this.g;
+        const W = this.W;
+        const H = this.H;
+        const ph = this.perkPhase;
+        const picked = ph.picks[this.localSlot];
+        // Drawn in HUD space: overshoot to cover the letterbox and, if the
+        // camera is still pulled back, the margin around the arena.
+        g.fillStyle = "rgba(4,5,12,0.86)";
+        g.fillRect(-W, -H, W * 3, H * 3);
+        g.textAlign = "center";
+        g.textBaseline = "middle";
+        g.fillStyle = "#eaf6ff";
+        g.font = "500 26px system-ui,sans-serif";
+        g.fillText("CHOOSE AN UPGRADE", W / 2, 74);
+        g.fillStyle = "rgba(180,210,255,0.75)";
+        g.font = "400 14px system-ui,sans-serif";
+        g.fillText(
+            "Wave " + this.wave + " cleared · you keep it for the rest of the run",
+            W / 2,
+            100
+        );
+
+        for (const card of this._perkCards()) {
+            const perk = PERKS[card.idx];
+            if (!perk) {
+                continue;
+            }
+            const chosen = picked === card.idx;
+            const hover =
+                picked == null &&
+                this._hover &&
+                this._hover.x >= card.x && this._hover.x <= card.x + card.w &&
+                this._hover.y >= card.y && this._hover.y <= card.y + card.h;
+            g.fillStyle = chosen ? this.glow(perk.tint, 0.22) : hover ? "rgba(255,255,255,0.09)" : "rgba(255,255,255,0.04)";
+            g.fillRect(card.x, card.y, card.w, card.h);
+            g.strokeStyle = chosen || hover ? perk.tint : this.glow(perk.tint, 0.45);
+            g.lineWidth = chosen || hover ? 2.5 : 1.2;
+            g.strokeRect(card.x, card.y, card.w, card.h);
+            const cx = card.x + card.w / 2;
+            // Key hint.
+            g.fillStyle = this.glow(perk.tint, 0.75);
+            g.font = "500 12px system-ui,sans-serif";
+            g.fillText("[" + (card.i + 1) + "]", cx, card.y + 22);
+            // Kind + name.
+            g.fillStyle = perk.tint;
+            g.font = "500 11px system-ui,sans-serif";
+            g.fillText(perk.kind.toUpperCase() + " · " + perk.tag.toUpperCase(), cx, card.y + 46);
+            g.fillStyle = "#eaf6ff";
+            g.font = "500 18px system-ui,sans-serif";
+            for (const [k, line] of this._wrapText(perk.name, card.w - 24).entries()) {
+                g.fillText(line, cx, card.y + 76 + k * 22);
+            }
+            // Description.
+            g.fillStyle = "rgba(200,220,255,0.85)";
+            g.font = "400 13px system-ui,sans-serif";
+            const lines = this._wrapText(perk.desc, card.w - 28);
+            lines.forEach((line, k) => {
+                g.fillText(line, cx, card.y + 132 + k * 18);
+            });
+            if (perk.kind === "active") {
+                g.fillStyle = "rgba(255,179,71,0.9)";
+                g.font = "400 12px system-ui,sans-serif";
+                g.fillText("cooldown " + Math.round((perk.cd || 600) / 60) + " s", cx, card.y + card.h - 22);
+            }
+            if (chosen) {
+                g.fillStyle = perk.tint;
+                g.font = "500 13px system-ui,sans-serif";
+                g.fillText("SELECTED", cx, card.y + card.h - 22);
+            }
+        }
+
+        g.textAlign = "center";
+        if (picked != null) {
+            const pending = this.ships.filter((sp) => ph.picks[sp.slot] == null).length;
+            g.fillStyle = "rgba(180,210,255,0.8)";
+            g.font = "400 15px system-ui,sans-serif";
+            g.fillText(
+                pending ? "Waiting for " + pending + " player(s)… " + Math.ceil(ph.t / 60) + " s" : "Get ready…",
+                W / 2,
+                H - 42
+            );
+        } else {
+            const pul = 0.7 + Math.sin(this.frame * 0.08) * 0.3;
+            g.fillStyle = "rgba(255,255,255," + pul + ")";
+            g.font = "500 15px system-ui,sans-serif";
+            g.fillText("Click a card or press 1, 2 or 3 · " + Math.ceil(ph.t / 60) + " s", W / 2, H - 42);
+        }
+    }
+
+    /** Wide health bar for the colossus on duty (it has no floating bar). */
+    _renderColossusBar() {
+        const boss = this.enemies.find((e) => e.type === "colossus");
+        if (!boss) {
+            return;
+        }
+        const d = COLOSSI[boss.k] || COLOSSI[0];
+        const g = this.g;
+        const w = this.W - 120;
+        const x = 60;
+        const y = 52;
+        g.textAlign = "center";
+        g.fillStyle = d.tint;
+        g.font = "500 13px system-ui,sans-serif";
+        g.fillText(d.name + " · " + d.title.toUpperCase(), this.W / 2, y - 12);
+        g.fillStyle = "rgba(255,255,255,0.14)";
+        g.fillRect(x, y, w, 9);
+        const pct = Math.max(0, boss.hp / boss.mhp);
+        g.fillStyle = pct < 0.45 ? "#ff6b6b" : d.tint;
+        g.fillRect(x, y, w * pct, 9);
+        g.strokeStyle = "rgba(255,255,255,0.25)";
+        g.lineWidth = 1;
+        g.strokeRect(x, y, w, 9);
+    }
+
+    /** Bottom-left block: dash charges, actives and perks owned. */
+    _renderPerkHud() {
+        const g = this.g;
+        const sp = this._shipBySlot(this.localSlot);
+        if (!sp || sp.down) {
+            return;
+        }
+        const y = this.H - 26;
+        g.textAlign = "left";
+        g.textBaseline = "middle";
+        g.fillStyle = "rgba(180,210,255,0.65)";
+        g.font = "500 11px system-ui,sans-serif";
+        g.fillText("SPACE", 14, y);
+        let x = 56;
+        for (let i = 0; i < sp.dashMax; i++) {
+            const ready = i < sp.dashCharges;
+            g.fillStyle = ready ? "#c9a4ff" : "rgba(201,164,255,0.22)";
+            g.fillRect(x, y - 5, 14, 10);
+            x += 18;
+        }
+        x += 10;
+        sp.actives.forEach((a, i) => {
+            const perk = PERKS[PERK_INDEX[a.id]];
+            const ready = a.cd <= 0;
+            const w = 78;
+            g.fillStyle = "rgba(255,255,255,0.07)";
+            g.fillRect(x, y - 11, w, 22);
+            if (!ready) {
+                g.fillStyle = "rgba(255,179,71,0.20)";
+                g.fillRect(x, y - 11, w * (1 - a.cd / a.cdMax), 22);
+            }
+            g.strokeStyle = ready ? (perk ? perk.tint : "#ffb347") : "rgba(255,255,255,0.16)";
+            g.lineWidth = 1;
+            g.strokeRect(x, y - 11, w, 22);
+            g.fillStyle = ready ? "#eaf6ff" : "rgba(200,220,255,0.55)";
+            g.font = "500 10px system-ui,sans-serif";
+            g.fillText(
+                "[" + (i + 1) + "] " + (perk ? perk.name : a.id).slice(0, 11),
+                x + 5,
+                y
+            );
+            x += w + 8;
+        });
+        // Perks owned: one dot per perk, in its family colour.
+        if (sp.perks.length) {
+            let px = 14;
+            const py = y - 24;
+            for (const id of sp.perks.slice(0, 16)) {
+                const perk = PERKS[PERK_INDEX[id]];
+                g.fillStyle = perk ? perk.tint : "#eaf6ff";
+                g.beginPath();
+                g.arc(px, py, 3.5, 0, 6.2832);
+                g.fill();
+                px += 11;
+            }
+        }
     }
 
     _renderHud() {
@@ -1494,7 +3323,7 @@ export class NeonStrikeEngine {
         const W = this.W;
         const H = this.H;
         g.textBaseline = "middle";
-        if (this.state === "playing" || this.state === "over") {
+        if (this.state === "playing" || this.state === "over" || this.state === "perk") {
             g.textAlign = "left";
             g.fillStyle = "#eaf6ff";
             g.font = "500 16px system-ui,sans-serif";
@@ -1511,7 +3340,7 @@ export class NeonStrikeEngine {
             g.textAlign = "center";
             g.fillStyle = "rgba(180,210,255,0.7)";
             g.font = "500 13px system-ui,sans-serif";
-            g.fillText("Oleada " + this.wave, W / 2, 22);
+            g.fillText("Wave " + this.wave, W / 2, 22);
             // Per-player panel (top right).
             let py = 16;
             g.textAlign = "right";
@@ -1538,6 +3367,8 @@ export class NeonStrikeEngine {
                 }
                 py += 18;
             }
+            this._renderPerkHud();
+            this._renderColossusBar();
         }
         if (this.state === "start") {
             g.textAlign = "center";
@@ -1550,8 +3381,8 @@ export class NeonStrikeEngine {
             g.fillText("NEON STRIKE", W / 2, H / 2 - 64);
             g.fillStyle = "rgba(180,210,255,0.8)";
             g.font = "400 15px system-ui,sans-serif";
-            g.fillText("Drag to move · auto fire", W / 2, H / 2 - 16);
-            g.fillText("Survive the waves and take down the bosses", W / 2, H / 2 + 8);
+            g.fillText("Drag to move · auto fire · SPACE to dash", W / 2, H / 2 - 16);
+            g.fillText("Every 5 waves you keep 1 of 3 permanent upgrades", W / 2, H / 2 + 8);
             if (this.role !== "guest") {
                 g.fillStyle = "rgba(255,255,255," + pul + ")";
                 g.font = "500 18px system-ui,sans-serif";
@@ -1567,14 +3398,14 @@ export class NeonStrikeEngine {
         }
         if (this.state === "over") {
             g.fillStyle = "rgba(4,5,12,0.72)";
-            g.fillRect(0, 0, W, H);
+            g.fillRect(-W, -H, W * 3, H * 3);
             g.textAlign = "center";
             g.fillStyle = "#ff8f8f";
             g.font = "500 38px system-ui,sans-serif";
             g.fillText("Game over", W / 2, H / 2 - 58);
             g.fillStyle = "#eaf6ff";
             g.font = "500 22px system-ui,sans-serif";
-            g.fillText("Puntos: " + this.score.toLocaleString(), W / 2, H / 2 - 12);
+            g.fillText("Score: " + this.score.toLocaleString(), W / 2, H / 2 - 12);
             g.fillStyle = "rgba(180,210,255,0.85)";
             g.font = "400 15px system-ui,sans-serif";
             g.fillText("Best: " + this.best.toLocaleString() + " · Wave " + this.wave, W / 2, H / 2 + 16);
@@ -1597,9 +3428,12 @@ export class NeonStrikeEngine {
 
     _ptr(e) {
         const r = this.cv.getBoundingClientRect();
+        // Same transform as the render (scale * zoom), so the cursor keeps
+        // matching the ship while the camera pulls back for a colossus.
+        const eff = this.scale * this.zoom;
         return {
-            x: (e.clientX - r.left - this.ox) / this.scale,
-            y: (e.clientY - r.top - this.oy) / this.scale,
+            x: (e.clientX - r.left - this.ox) / eff,
+            y: (e.clientY - r.top - this.oy) / eff,
             touch: e.pointerType === "touch",
         };
     }
@@ -1618,6 +3452,17 @@ export class NeonStrikeEngine {
     _pointerDown(e) {
         this.audio();
         const p = this._ptr(e);
+        this._hover = { x: p.x, y: p.y };
+        if (this.state === "perk") {
+            // Clicking a card is the only thing a tap does while choosing.
+            for (const card of this._perkCards()) {
+                if (p.x >= card.x && p.x <= card.x + card.w && p.y >= card.y && p.y <= card.y + card.h) {
+                    this._choosePerk(card.idx);
+                    break;
+                }
+            }
+            return;
+        }
         // Only host/solo can start or retry by tapping; the guest cannot.
         if (this.role !== "guest" && this.state !== "playing") {
             this.beginPlay();
@@ -1627,6 +3472,64 @@ export class NeonStrikeEngine {
 
     _pointerMove(e) {
         const p = this._ptr(e);
+        this._hover = { x: p.x, y: p.y };
+        if (this.state === "perk") {
+            return;
+        }
         this._applyLocalInput(p.x, p.touch ? p.y - 60 : p.y);
+    }
+
+    /**
+     * Keyboard: Space dashes, 1..4 fire the actives and, while choosing,
+     * 1..3 pick a card. WASD only moves the second ship in hotseat.
+     */
+    _keyDown(e) {
+        const k = (e.key || "").toLowerCase();
+        this.keys[k] = true;
+        const digit = parseInt(k, 10);
+        if (this.state === "perk") {
+            const cards = this._perkCards();
+            if (digit >= 1 && digit <= cards.length) {
+                this._choosePerk(cards[digit - 1].idx);
+                e.preventDefault();
+            }
+            return;
+        }
+        if (k === " " || k === "spacebar") {
+            this.audio();
+            this._localAction("dash");
+            e.preventDefault();
+            return;
+        }
+        if (digit >= 1 && digit <= MAX_ACTIVES) {
+            this.audio();
+            this._localAction("act" + (digit - 1));
+        }
+    }
+
+    /** Route an action: the guest sends it to the host, everyone else applies it. */
+    _localAction(action) {
+        if (this.role === "guest") {
+            if (this.cb.onAction) {
+                this.cb.onAction(action);
+            }
+            return;
+        }
+        this.setRemoteAction(this.localSlot, action);
+    }
+
+    _choosePerk(index) {
+        const ph = this.perkPhase;
+        if (!ph || ph.picks[this.localSlot] != null) {
+            return;
+        }
+        if (this.role === "guest") {
+            // Optimistic: the host confirms it in the next snapshot.
+            if (this.cb.onAction) {
+                this.cb.onAction("perk" + index);
+            }
+            return;
+        }
+        this.pickPerk(this.localSlot, index);
     }
 }

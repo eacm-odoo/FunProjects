@@ -80,9 +80,9 @@ class NeonStrikeController(http.Controller):
         return match.start(self._token()) if match else False
 
     @http.route("/neon/input", type="json", auth="public")
-    def neon_input(self, match_id=None, x=0, y=0, **kw):
+    def neon_input(self, match_id=None, x=0, y=0, action=None, **kw):
         match = self._match(match_id)
-        return match.player_input(self._token(), x, y) if match else False
+        return match.player_input(self._token(), x, y, action) if match else False
 
     @http.route("/neon/state", type="json", auth="public")
     def neon_state(self, match_id=None, snapshot=None, **kw):

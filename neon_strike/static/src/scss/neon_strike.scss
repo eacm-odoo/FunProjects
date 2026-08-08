@@ -276,6 +276,63 @@ $ns-magenta: #ff2fd0;
         margin: 0;
     }
 
+    // Controls strip at the top of the glossary.
+    .ns_controls {
+        font-size: 12px;
+        color: #a9b0d4;
+        background: rgba($ns-odoo-purple, 0.14);
+        border: 1px solid rgba($ns-odoo-purple, 0.4);
+        border-radius: 6px;
+        padding: 8px 12px;
+        margin-bottom: 18px;
+    }
+
+    .ns_key {
+        display: inline-block;
+        font: 600 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: #eaf6ff;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 4px;
+        padding: 1px 6px;
+        margin: 0 2px;
+    }
+
+    // Perk catalogue: text-only cards, tinted by family.
+    .ns_perk_grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+        gap: 10px;
+    }
+
+    .ns_perk_card {
+        background: rgba($ns-odoo-purple, 0.1);
+        border: 1px solid rgba($ns-odoo-purple, 0.35);
+        border-left: 3px solid currentColor;
+        border-radius: 6px;
+        padding: 9px 11px;
+    }
+
+    .ns_perk_name {
+        font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 0.04em;
+    }
+
+    .ns_perk_tag {
+        font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: rgba(180, 210, 255, 0.5);
+        margin-bottom: 5px;
+    }
+
+    .ns_perk_desc {
+        font-size: 12px;
+        line-height: 1.4;
+        color: #a9b0d4;
+        margin: 0;
+    }
+
     .ns_menu_card {
         position: relative;
         z-index: 1;

@@ -51,7 +51,7 @@
                 </div>
                 <p t-if="state.error" class="ns_error mb-0" t-out="state.error"/>
                 <button class="btn ns_btn ns_glossary_open w-100 mt-2" t-on-click="toggleGlossary">
-                    <i class="fa fa-book me-2" role="img" aria-label="Glossary"/>Ships and enemies
+                    <i class="fa fa-book me-2" role="img" aria-label="Glossary"/>Ships, enemies and powers
                 </button>
                 <hr class="ns_hr"/>
                 <t t-call="neon_strike.Leaderboard"/>
@@ -99,7 +99,11 @@
             </div>
             <aside class="ns_leaderboard p-3">
                 <t t-call="neon_strike.Leaderboard"/>
-                <p class="ns_hint mb-0">Drag to move your ship. Capsules: T triple · S shield · B bomb · + life. Fly next to a downed ally to revive them.</p>
+                <p class="ns_hint mb-0">
+                    Drag to move · <b>Space</b> dashes (you are untouchable during it) · <b>1-4</b> fire your active perks.
+                    Every 5 waves you keep 1 of 3 permanent upgrades; a colossal boss shows up every 10.
+                    Capsules: T triple · S shield · B bomb · + life. Fly next to a downed ally to revive them.
+                </p>
             </aside>
         </div>
     </div>
@@ -111,12 +115,18 @@
          t-on-click="onGlossaryBackdrop">
         <div class="ns_glossary_panel">
             <div class="ns_glossary_head d-flex align-items-center">
-                <h4 class="ns_glossary_title mb-0">SHIPS AND ENEMIES</h4>
+                <h4 class="ns_glossary_title mb-0">SHIPS, ENEMIES AND POWERS</h4>
                 <button class="btn btn-sm ns_btn ms-auto" t-on-click="toggleGlossary">
                     <i class="fa fa-times me-1" role="img" aria-label="Close"/>Close
                 </button>
             </div>
             <div class="ns_glossary_body">
+                <div class="ns_controls">
+                    <span class="ns_key">Drag</span> move ·
+                    <span class="ns_key">Space</span> dash ·
+                    <span class="ns_key">1</span><span class="ns_key">2</span><span class="ns_key">3</span><span class="ns_key">4</span> active perks ·
+                    every 5 waves you keep 1 of 3 upgrades until you die.
+                </div>
                 <t t-foreach="glossaryGroups" t-as="group" t-key="group.title">
                     <div class="ns_glossary_group">
                         <div class="ns_glossary_group_head" t-out="group.title"/>
@@ -129,6 +139,27 @@
                                 <div class="ns_glossary_label" t-out="item.label"/>
                                 <div class="ns_glossary_sub" t-out="item.sub"/>
                                 <p class="ns_glossary_desc" t-out="item.desc"/>
+                            </div>
+                        </div>
+                    </div>
+                </t>
+                <!-- The 50 permanent perks: no sprite, tinted text cards. -->
+                <t t-foreach="perkGroups" t-as="group" t-key="group.title">
+                    <div class="ns_glossary_group">
+                        <div class="ns_glossary_group_head">
+                            <t t-out="group.title"/> · <t t-out="group.items.length"/>
+                        </div>
+                        <p class="ns_glossary_note" t-out="group.note"/>
+                        <div class="ns_perk_grid">
+                            <div t-foreach="group.items" t-as="perk" t-key="perk.id"
+                                 class="ns_perk_card" t-attf-style="border-left-color: {{ perk.tint }}">
+                                <div class="ns_perk_name" t-attf-style="color: {{ perk.tint }}" t-out="perk.name"/>
+                                <div class="ns_perk_tag">
+                                    <t t-out="perk.tag"/>
+                                    <t t-if="perk.cdLabel"> · <t t-out="perk.cdLabel"/></t>
+                                    <t t-if="perk.coop"> · co-op only</t>
+                                </div>
+                                <p class="ns_perk_desc" t-out="perk.desc"/>
                             </div>
                         </div>
                     </div>
