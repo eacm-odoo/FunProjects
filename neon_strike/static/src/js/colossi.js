@@ -22,7 +22,7 @@ export const COLOSSI = [
         w: 850,          // logical width; the arena is only 680 wide
         zoom: 0.6,       // camera scale while it is alive
         field: 1.3,     // the arena grows this much while it is alive
-        hp: 620,
+        hp: 300,       // starting hull; `+ wave * 28` on top (see mkColossus)
         val: 20000,
         // Vertical band it patrols and how fast it slides sideways.
         y: 150,
@@ -38,7 +38,7 @@ export const COLOSSI = [
         w: 780,
         zoom: 0.58,
         field: 1.32,     // the arena grows this much while it is alive
-        hp: 1450,
+        hp: 600,
         val: 24000,
         y: 165,
         speed: 1.15,
@@ -53,7 +53,7 @@ export const COLOSSI = [
         w: 800,
         zoom: 0.56,
         field: 1.35,     // the arena grows this much while it is alive
-        hp: 1750,
+        hp: 800,
         val: 28000,
         y: 160,
         speed: 0.75,
@@ -68,7 +68,7 @@ export const COLOSSI = [
         w: 820,
         zoom: 0.54,
         field: 1.38,     // the arena grows this much while it is alive
-        hp: 3100,
+        hp: 1000,
         val: 32000,
         y: 180,
         speed: 0.6,
@@ -83,7 +83,7 @@ export const COLOSSI = [
         w: 1000,
         zoom: 0.48,
         field: 1.45,     // the arena grows this much while it is alive
-        hp: 3900,
+        hp: 1300,
         val: 40000,
         y: 175,
         speed: 1.0,

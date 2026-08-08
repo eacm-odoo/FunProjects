@@ -51,9 +51,24 @@ const ENEMY_SPRITES = {
     boss: ["boss0"],
 };
 const ROCK_SPRITES = ["rock0", "rock1"];
-// Colour per power-up type (T triple, S shield, B bomb, L extra life). The
-// `pup<T>` sprite is tinted with it, so the two always go together.
-const PUP_COLORS = { T: "#5ee1ff", S: "#7bffb0", B: "#ffb347", L: "#ff8fb3" };
+// Colour per power-up type. The `pup<T>` sprite is tinted with it, so the two
+// always go together: adding a capsule means a sprite + a colour + an effect in
+// `_applyPup` + a weight in PUP_TABLE.
+const PUP_COLORS = {
+    T: "#5ee1ff", S: "#7bffb0", B: "#ffb347", L: "#ff8fb3",
+    R: "#ffd166", V: "#ff8f3d", P: "#c9a4ff", H: "#4de3c1", D: "#8be9ff",
+    G: "#e2e0ff", F: "#8bd0ff", X: "#ffe066", C: "#ff6fa5", Y: "#ffcc33",
+};
+// Drop weights. `supply` is what a boss fight drops: more firepower and fewer
+// situational ones, because there you need to keep up the damage.
+const PUP_TABLE = {
+    normal: { T: 10, S: 12, B: 7, L: 6, R: 8, V: 7, P: 6, H: 6, D: 5, G: 6, F: 5, X: 5, C: 6, Y: 5 },
+    supply: { T: 14, S: 13, B: 6, L: 5, R: 13, V: 11, P: 8, H: 8, D: 7, G: 9, F: 4, X: 4, C: 3, Y: 3 },
+};
+// Timed capsules: frames the buff lasts on the ship that grabbed it.
+const PUP_BUFFS = { R: 600, V: 600, P: 540, H: 600, D: 900, G: 240 };
+// Order of `ship.buffs` in the snapshot bitmask (never reorder, append only).
+const BUFF_KEYS = ["R", "V", "P", "H", "D", "G"];
 // Ship pixel size: a 16 px grid -> ~32 logical px wide.
 const SHIP_PX = pxFor("ship0", 30);
 const PUP_PX = pxFor("pupT", 30);
@@ -483,6 +498,9 @@ export class NeonStrikeEngine {
             inv: 0, shield: 0,
             weapon: "single", weaponT: 0, fireT: 0,
             lives: 3, down: false, reviveProgress: 0,
+            // Timed capsule buffs (frames left). They stack on top of the
+            // perks: `mods`/`flags` are perks only, these are read next to them.
+            buffs: { R: 0, V: 0, P: 0, H: 0, D: 0, G: 0 },
             // --- Perks kept for the whole run (wiped by `reset()`) ---------
             perks: [],                    // perk ids in pick order
             mods: Object.assign({}, BASE_MODS),
@@ -775,7 +793,10 @@ export class NeonStrikeEngine {
         const d = COLOSSI[k];
         const size = spriteSize(d.sprite);
         const h = (d.w * size.h) / size.w;
-        const hp = Math.round(d.hp + this.wave * 20 + (this.players - 1) * d.hp * 0.5);
+        // The wave term carries most of the hull, so meeting the same colossus
+        // again later (they cycle every 50 waves) is a real step up.
+        const base = d.hp + this.wave * 28;
+        const hp = Math.round(base * (1 + (this.players - 1) * 0.5));
         return {
             type: "colossus", k, id: ++this._eid,
             x: this.W / 2, y: -h * 0.55, ty: d.y,
@@ -866,16 +887,19 @@ export class NeonStrikeEngine {
      *        shields, which is what you actually need in a long fight
      */
     dropPup(x, y, supply) {
-        const r = Math.random();
+        const table = PUP_TABLE[supply ? "supply" : "normal"];
+        let total = 0;
+        for (const w of Object.values(table)) {
+            total += w;
+        }
+        let r = Math.random() * total;
         let t = "T";
-        if (supply) {
-            if (r > 0.42) { t = "S"; }
-            if (r > 0.74) { t = "B"; }
-            if (r > 0.92) { t = "L"; }
-        } else {
-            if (r > 0.35) { t = "S"; }
-            if (r > 0.62) { t = "B"; }
-            if (r > 0.85) { t = "L"; }
+        for (const [key, w] of Object.entries(table)) {
+            r -= w;
+            if (r <= 0) {
+                t = key;
+                break;
+            }
         }
         this.pups.push({ x, y, t, vy: 1.1, r: 13, ph: 0 });
     }
@@ -1336,6 +1360,15 @@ export class NeonStrikeEngine {
         if (sp.inv > 0) {
             sp.inv -= ts;
         }
+        for (const k of BUFF_KEYS) {
+            if (sp.buffs[k] > 0) {
+                sp.buffs[k] -= ts;
+                if (sp.buffs[k] <= 0) {
+                    sp.buffs[k] = 0;
+                    this.pop(sp.x, sp.y - 30, k === "D" ? "Wingman left" : "Boost over", "#8d93b8", 12);
+                }
+            }
+        }
         if (sp.hurtT > 0) {
             sp.hurtT -= ts;
         }
@@ -1367,8 +1400,8 @@ export class NeonStrikeEngine {
                 this.pop(sp.x, sp.y - 30, "Shield rebuilt", "#7bffb0", 13);
             }
         }
-        // Drone Wing: orbits and fires on its own.
-        if (sp.flags.drone) {
+        // Drone Wing (perk) or Wingman (capsule): orbits and fires on its own.
+        if (sp.flags.drone || sp.buffs.D > 0) {
             sp.droneA += 0.045 * ts;
             sp.droneT -= ts;
             if (sp.droneT <= 0) {
@@ -1496,6 +1529,9 @@ export class NeonStrikeEngine {
         if (sp.odT > 0) {
             m -= 0.66;
         }
+        if (sp.buffs.R > 0) {
+            m -= 0.4;
+        }
         if (sp.flags.berserker && sp.lives <= 1) {
             m -= 0.5;
         }
@@ -1513,7 +1549,7 @@ export class NeonStrikeEngine {
 
     /** Damage of a bullet at the moment it leaves the cannon. */
     _bulletDmg(sp) {
-        let d = 1 + sp.mods.dmg;
+        let d = 1 + sp.mods.dmg + (sp.buffs.V > 0 ? 1 : 0);
         if (sp.flags.berserker && sp.lives <= 1) {
             d += 1;
         }
@@ -1536,8 +1572,8 @@ export class NeonStrikeEngine {
             d: dmg * (crit ? 2 + sp.mods.critMul : 1),
             sl: sp.slot,
             cr: crit ? 1 : 0,
-            pi: sp.mods.pierce,
-            ho: sp.flags.homing ? 1 : 0,
+            pi: sp.mods.pierce + (sp.buffs.P > 0 ? 2 : 0),
+            ho: sp.flags.homing || sp.buffs.H > 0 ? 1 : 0,
             ri: sp.flags.ricochet ? 1 : 0,
             ex: sp.flags.explosive ? 1 : 0,
             ch: sp.flags.chain ? 1 : 0,
@@ -2398,23 +2434,76 @@ export class NeonStrikeEngine {
             if (picker) {
                 this.pups.splice(i, 1);
                 this.sPup();
-                this.burst(p.x, p.y, "#7bffb0", 14, 3);
+                this.burst(p.x, p.y, PUP_COLORS[p.t] || "#7bffb0", 14, 3);
                 this._ev({ k: "pup", x: p.x, y: p.y });
-                if (p.t === "T") {
-                    picker.weapon = "triple";
-                    picker.weaponT = 650;
-                    this.pop(picker.x, picker.y - 30, "Triple shot!", "#5ee1ff", 15);
-                } else if (p.t === "S") {
-                    picker.shield = 1;
-                    this.pop(picker.x, picker.y - 30, "Shield!", "#7bffb0", 15);
-                } else if (p.t === "B") {
-                    this.bomb(picker);
-                    this.pop(picker.x, picker.y - 30, "BOMB!", "#ffb347", 18);
+                this._applyPup(picker, p.t);
+            }
+        }
+    }
+
+    /**
+     * Effect of a capsule on the ship that grabbed it. Timed ones just set a
+     * counter in `ship.buffs` (read next to the perk mods); the rest resolve
+     * on the spot.
+     */
+    _applyPup(sp, t) {
+        const say = (txt, size) => this.pop(sp.x, sp.y - 30, txt, PUP_COLORS[t] || "#eaf6ff", size || 15);
+        if (PUP_BUFFS[t]) {
+            // Timed: picking the same one again refreshes it, never stacks.
+            sp.buffs[t] = Math.max(sp.buffs[t], PUP_BUFFS[t]);
+        }
+        if (t === "T") {
+            sp.weapon = "triple";
+            sp.weaponT = 650;
+            say("Triple shot!");
+        } else if (t === "S") {
+            sp.shield = 1;
+            say("Shield!");
+        } else if (t === "B") {
+            this.bomb(sp);
+            say("BOMB!", 18);
+        } else if (t === "L") {
+            sp.lives = Math.min(this._maxLives(sp), sp.lives + 1);
+            say("Extra life!");
+        } else if (t === "R") {
+            say("Rapid fire!");
+        } else if (t === "V") {
+            say("Overcharge!");
+        } else if (t === "P") {
+            say("Piercing rounds!");
+        } else if (t === "H") {
+            say("Homing rounds!");
+        } else if (t === "D") {
+            say("Wingman!");
+        } else if (t === "G") {
+            sp.inv = Math.max(sp.inv, PUP_BUFFS.G);
+            this.burst(sp.x, sp.y, PUP_COLORS.G, 22, 4);
+            say("Phase shift!");
+        } else if (t === "F") {
+            this.freezeT = 180;
+            this.flashT = 6;
+            say("Freeze!", 17);
+        } else if (t === "X") {
+            // Overload: locks the small fry, chips at anything too big to stun.
+            for (const e of this.enemies) {
+                if (this._isBoss(e)) {
+                    e.hp -= 8;
+                    e.flash = 6;
                 } else {
-                    picker.lives = Math.min(this._maxLives(picker), picker.lives + 1);
-                    this.pop(picker.x, picker.y - 30, "Extra life!", "#ff8fb3", 15);
+                    e.stun = 150;
                 }
             }
+            this.burst(sp.x, sp.y, PUP_COLORS.X, 34, 6);
+            this.shake = Math.min(this.shake + 10, 24);
+            say("Overload!", 17);
+        } else if (t === "C") {
+            this.combo = Math.min(this.combo + 6, COMBO_MAX);
+            this.comboT = 200;
+            say("Combo x" + this.combo + "!");
+        } else if (t === "Y") {
+            const pts = Math.round(150 * Math.max(1, this.wave) * this.combo * (1 + sp.mods.scoreMul));
+            this.score += pts;
+            this.pop(sp.x, sp.y - 30, "+" + pts.toLocaleString(), PUP_COLORS.Y, 17);
         }
     }
 
@@ -2532,6 +2621,7 @@ export class NeonStrikeEngine {
                 pk: s.perks.map((id) => PERK_INDEX[id]),
                 ds: s.dashCharges, dm: s.dashMax, dt: s.dash > 0 ? 1 : 0,
                 ac: s.actives.map((a) => [Math.round(Math.max(0, a.cd)), a.cdMax]),
+                bf: BUFF_KEYS.reduce((m, k, i) => m | (s.buffs[k] > 0 ? 1 << i : 0), 0),
                 da: s.flags.drone ? Math.round(s.droneA * 100) / 100 : undefined,
             })),
             en: this.enemies.map((e) => ({
@@ -2619,6 +2709,9 @@ export class NeonStrikeEngine {
                     sp.actives[i].cd = a[0];
                     sp.actives[i].cdMax = a[1];
                 }
+            });
+            BUFF_KEYS.forEach((k, i) => {
+                sp.buffs[k] = (s.bf || 0) & (1 << i) ? 1 : 0;
             });
             sp.dashCharges = s.ds != null ? s.ds : sp.dashCharges;
             sp.dashMax = s.dm != null ? s.dm : sp.dashMax;
@@ -2749,7 +2842,7 @@ export class NeonStrikeEngine {
     drawShip(sp) {
         const g = this.g;
         // Drone Wing: the companion is drawn even while the hull blinks.
-        if (sp.flags && sp.flags.drone) {
+        if (sp.flags && (sp.flags.drone || (sp.buffs && sp.buffs.D > 0))) {
             const p = this._dronePos(sp);
             drawSprite(g, "drone0", p.x, p.y, { tint: sp.color, px: pxFor("drone0", 18) });
         }
@@ -3362,6 +3455,11 @@ export class NeonStrikeEngine {
                     }
                     if (sp.shield > 0) {
                         extra += "  ◯";
+                    }
+                    // Timed capsules, by their letter.
+                    const buffs = BUFF_KEYS.filter((k) => sp.buffs[k] > 0);
+                    if (buffs.length) {
+                        extra += "  " + buffs.join("");
                     }
                     g.fillText(sp.name + "  " + extra, W - 14, py);
                 }
