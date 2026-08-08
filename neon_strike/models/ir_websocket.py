@@ -9,11 +9,11 @@ class IrWebsocket(models.AbstractModel):
     _inherit = "ir.websocket"
 
     def _build_bus_channel_list(self, channels):
-        """Autoriza la suscripción al canal de una partida por *capacidad*: el
-        canal incluye el ``access_token`` (uuid) de la partida, que solo conocen
-        quienes la crearon o se unieron. Se permite si existe una partida con ese
-        token; en caso contrario se descarta silenciosamente. Como el juego es
-        público, no dependemos de ``env.user`` (todos serían el usuario público)."""
+        """Authorize subscription to a match channel by *capability*: the channel
+        embeds the match ``access_token`` (uuid), known only to whoever created
+        or joined it. It is allowed when a match with that token exists, and
+        silently dropped otherwise. Since the game is public we cannot rely on
+        ``env.user`` (everyone would be the public user)."""
         channels = list(channels)
         allowed = []
         remaining = []
@@ -24,7 +24,7 @@ class IrWebsocket(models.AbstractModel):
                     [("access_token", "=", token)], limit=1
                 ):
                     allowed.append(channel)
-                # Token inválido -> se descarta.
+                # Invalid token -> dropped.
                 continue
             remaining.append(channel)
         return super()._build_bus_channel_list(remaining) + allowed

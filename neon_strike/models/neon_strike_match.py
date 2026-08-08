@@ -6,62 +6,63 @@ import uuid
 from odoo import api, fields, models
 from odoo.exceptions import UserError
 
-# Alfabeto sin caracteres ambiguos (0/O, 1/I) para los codigos de sala.
+# Alphabet without ambiguous characters (0/O, 1/I) for room codes.
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 
 class NeonStrikeMatch(models.Model):
-    """Partida multijugador de Neon Strike (co-op remoto sobre el bus de Odoo).
+    """Neon Strike multiplayer match (remote co-op over the Odoo bus).
 
-    El juego es *público*: nadie necesita cuenta de Odoo. Cada jugador se
-    identifica con un ``token`` de sesión y un apodo. Un jugador crea la partida y
-    actua de *host* (corre la simulacion en su navegador y difunde el estado por el
-    bus); los demas se unen con el codigo, envian su puntero y renderizan el estado
-    recibido. La autoridad real (empezar, difundir estado, guardar marcador) se
-    valida aqui comparando el token del host, no solo por ACL.
+    The game is *public*: nobody needs an Odoo account. Each player is
+    identified by a session ``token`` and a nickname. One player creates the
+    match and acts as the *host* (runs the simulation in their browser and
+    broadcasts the state over the bus); the others join with the code, send
+    their pointer and render the state they receive. Real authority (start,
+    broadcast state, save the score) is validated here by comparing the host
+    token, not by ACL alone.
 
-    Todos los metodos se invocan desde ``controllers/main.py`` con ``sudo()``.
+    Every method is called from ``controllers/main.py`` with ``sudo()``.
     """
 
     _name = "neon.strike.match"
-    _description = "Neon Strike - Partida"
+    _description = "Neon Strike - Match"
     _order = "create_date desc"
     _rec_name = "code"
 
     MAX_PLAYERS = 4
 
-    code = fields.Char(string="Código", required=True, index=True, copy=False)
+    code = fields.Char(string="Code", required=True, index=True, copy=False)
     access_token = fields.Char(
-        string="Token de acceso",
+        string="Access Token",
         required=True,
         index=True,
         copy=False,
         default=lambda self: uuid.uuid4().hex,
-        help="Secreto usado en el nombre del canal de bus (capacidad de suscripción).",
+        help="Secret used in the bus channel name (subscription capability).",
     )
-    host_token = fields.Char(string="Token del anfitrión", index=True)
+    host_token = fields.Char(string="Host Token", index=True)
     host_user_id = fields.Many2one(
         "res.users",
-        string="Anfitrión",
+        string="Host",
         ondelete="cascade",
-        help="Solo informativo: se rellena si el anfitrión resultó ser un usuario conectado.",
+        help="Informational only: filled in when the host happened to be a logged-in user.",
     )
     state = fields.Selection(
-        [("lobby", "Sala de espera"), ("playing", "En juego"), ("over", "Terminada")],
-        string="Estado",
+        [("lobby", "Lobby"), ("playing", "Playing"), ("over", "Over")],
+        string="State",
         default="lobby",
         required=True,
     )
     participant_ids = fields.One2many(
-        "neon.strike.participant", "match_id", string="Participantes"
+        "neon.strike.participant", "match_id", string="Participants"
     )
     player_count = fields.Integer(
-        string="Nº jugadores", compute="_compute_player_count"
+        string="Player Count", compute="_compute_player_count"
     )
 
     _sql_constraints = [
-        ("code_uniq", "unique(code)", "El código de partida debe ser único."),
-        ("access_token_uniq", "unique(access_token)", "El token de acceso debe ser único."),
+        ("code_uniq", "unique(code)", "The match code must be unique."),
+        ("access_token_uniq", "unique(access_token)", "The access token must be unique."),
     ]
 
     @api.depends("participant_ids")
@@ -70,11 +71,11 @@ class NeonStrikeMatch(models.Model):
             match.player_count = len(match.participant_ids)
 
     # ------------------------------------------------------------------ #
-    # Helpers internos                                                    #
+    # Internal helpers                                                    #
     # ------------------------------------------------------------------ #
 
     def _channel(self):
-        """Canal de bus de esta partida (autorizado en ir.websocket por token)."""
+        """Bus channel of this match (authorized in ir.websocket by token)."""
         self.ensure_one()
         return "neon_strike_match_%s" % self.access_token
 
@@ -83,7 +84,7 @@ class NeonStrikeMatch(models.Model):
             code = "NEON-" + "".join(random.choice(CODE_ALPHABET) for _i in range(4))
             if not self.sudo().search_count([("code", "=", code)]):
                 return code
-        # Fallback improbable: codigo mas largo.
+        # Unlikely fallback: longer code.
         return "NEON-" + "".join(random.choice(CODE_ALPHABET) for _i in range(6))
 
     def _add_participant(self, token, nickname, uid, slot):
@@ -105,7 +106,7 @@ class NeonStrikeMatch(models.Model):
         return bool(self.host_token) and self.host_token == token
 
     def _participants_payload(self):
-        """Lista de participantes (ordenada por slot) para OWL y el lobby."""
+        """Participant list (sorted by slot) for OWL and the lobby."""
         self.ensure_one()
         return [
             {"slot": p.slot, "name": p.name, "color": p.color}
@@ -113,7 +114,7 @@ class NeonStrikeMatch(models.Model):
         ]
 
     def _info(self, token):
-        """Diccionario de estado de la partida para el cliente OWL."""
+        """Match state dictionary for the OWL client."""
         self.ensure_one()
         mine = self._participant_of(token)
         return {
@@ -137,12 +138,12 @@ class NeonStrikeMatch(models.Model):
         })
 
     # ------------------------------------------------------------------ #
-    # API llamada desde los controladores públicos (/neon/*)             #
+    # API called from the public controllers (/neon/*)                    #
     # ------------------------------------------------------------------ #
 
     @api.model
     def create_match(self, token, nickname, uid=False):
-        """Crea una partida y añade al jugador actual como host (slot 0)."""
+        """Create a match and add the current player as host (slot 0)."""
         match = self.create({
             "code": self._generate_code(),
             "host_token": token,
@@ -154,19 +155,19 @@ class NeonStrikeMatch(models.Model):
 
     @api.model
     def join_by_code(self, code, token, nickname, uid=False):
-        """Une al jugador actual a la partida con ese código."""
+        """Join the current player to the match with that code."""
         code = (code or "").strip().upper()
         if not code:
-            raise UserError(self.env._("Introduce un código de partida."))
+            raise UserError(self.env._("Enter a match code."))
         match = self.search([("code", "=", code)], limit=1)
         if not match:
-            raise UserError(self.env._("No existe una partida con el código %s.", code))
+            raise UserError(self.env._("There is no match with code %s.", code))
         if match.state != "lobby":
-            raise UserError(self.env._("La partida ya empezó o terminó."))
+            raise UserError(self.env._("The match already started or is over."))
         if not match._participant_of(token):
             if len(match.participant_ids) >= self.MAX_PLAYERS:
                 raise UserError(self.env._(
-                    "La partida está llena (máx. %s jugadores).", self.MAX_PLAYERS
+                    "The match is full (max. %s players).", self.MAX_PLAYERS
                 ))
             used = set(match.participant_ids.mapped("slot"))
             slot = next(i for i in range(self.MAX_PLAYERS) if i not in used)
@@ -175,21 +176,21 @@ class NeonStrikeMatch(models.Model):
         return match._info(token)
 
     def start(self, token):
-        """El host arranca la partida."""
+        """The host starts the match."""
         self.ensure_one()
         if not self._is_host(token):
-            raise UserError(self.env._("Solo el anfitrión puede empezar la partida."))
+            raise UserError(self.env._("Only the host can start the match."))
         if self.state != "lobby":
-            raise UserError(self.env._("La partida no está en la sala de espera."))
+            raise UserError(self.env._("The match is not in the lobby."))
         self.state = "playing"
         self.env["bus.bus"]._sendone(self._channel(), "ns_start", {"id": self.id})
         return True
 
     def player_input(self, token, x, y):
-        """Un guest reenvía su puntero al canal (lo consume el host).
+        """A guest forwards its pointer to the channel (consumed by the host).
 
-        El ``slot`` se deriva del participante autenticado por token (no se
-        confía en el cliente) para que nadie pueda mover la nave de otro.
+        The ``slot`` is derived from the participant authenticated by token (the
+        client is not trusted) so that nobody can move someone else's ship.
         """
         self.ensure_one()
         participant = self._participant_of(token)
@@ -203,7 +204,7 @@ class NeonStrikeMatch(models.Model):
         return True
 
     def broadcast_state(self, token, snapshot):
-        """El host difunde un snapshot del estado del juego."""
+        """The host broadcasts a snapshot of the game state."""
         self.ensure_one()
         if not self._is_host(token):
             return False
@@ -211,7 +212,7 @@ class NeonStrikeMatch(models.Model):
         return True
 
     def submit_score(self, token, score, wave):
-        """El host guarda el marcador de equipo al terminar la partida."""
+        """The host saves the team score when the match ends."""
         self.ensure_one()
         if not self._is_host(token):
             return False
@@ -231,7 +232,7 @@ class NeonStrikeMatch(models.Model):
         return True
 
     def leave(self, token):
-        """El jugador actual abandona la partida."""
+        """The current player leaves the match."""
         self.ensure_one()
         if self._is_host(token):
             if self.state != "over":

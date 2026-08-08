@@ -60,10 +60,10 @@ export const END_DELAY = 0.9;
 export const SERVE_DELAY = 1.1;
 
 export const DIFFS = {
-    facil: { name: "Fácil", speed: 1.55, react: 0.34, err: 0.20, power: 0.80, spin: 0.35, reach: 0.30 },
+    facil: { name: "Easy", speed: 1.55, react: 0.34, err: 0.20, power: 0.80, spin: 0.35, reach: 0.30 },
     normal: { name: "Normal", speed: 2.35, react: 0.22, err: 0.115, power: 0.95, spin: 0.65, reach: 0.42 },
-    dificil: { name: "Difícil", speed: 3.20, react: 0.14, err: 0.062, power: 1.08, spin: 0.95, reach: 0.52 },
-    experto: { name: "Experto", speed: 4.20, react: 0.08, err: 0.030, power: 1.18, spin: 1.25, reach: 0.62 },
+    dificil: { name: "Hard", speed: 3.20, react: 0.14, err: 0.062, power: 1.08, spin: 0.95, reach: 0.52 },
+    experto: { name: "Expert", speed: 4.20, react: 0.08, err: 0.030, power: 1.18, spin: 1.25, reach: 0.62 },
 };
 
 /** Direction the given side hits towards: side 0 aims at -Z, side 1 at +Z. */

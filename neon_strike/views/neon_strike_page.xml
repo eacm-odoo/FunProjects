@@ -2,18 +2,18 @@
 <!-- Part of Odoo. See LICENSE file for full copyright and licensing details. -->
 <odoo>
 
-    <!-- Página pública que sirve el juego OWL sin necesidad de login. Se apoya
-         en `web.frontend_layout` para cargar los assets frontend y la session
-         info de forma canónica. Ojo: con `website` instalado, ese layout hereda
-         `website.layout`, que exige `website` en el contexto, así que la ruta
-         debe declarar `website=True` (ver controllers/main.py). El
-         componente se monta en `.o_neon_strike_root` (ver el bootstrap en
-         neon_strike_game.js), que se posiciona a pantalla completa por CSS. -->
+    <!-- Public page serving the OWL game without requiring a login. It relies on
+         `web.frontend_layout` to load the frontend assets and the session info
+         the canonical way. Careful: with `website` installed that layout
+         inherits `website.layout`, which requires `website` in the context, so
+         the route must declare `website=True` (see controllers/main.py). The
+         component is mounted on `.o_neon_strike_root` (see the bootstrap in
+         neon_strike_game.js), positioned full screen by CSS. -->
     <template id="page" name="Neon Strike">
         <t t-call="web.frontend_layout">
             <t t-set="title">Neon Strike</t>
-            <!-- El juego ocupa toda la ventana: nada de header/footer (ni los
-                 del módulo website, si está instalado). -->
+            <!-- The game fills the whole window: no header/footer (not even
+                 the website module ones, if installed). -->
             <t t-set="no_header" t-value="True"/>
             <t t-set="no_footer" t-value="True"/>
             <t t-set="additional_head">

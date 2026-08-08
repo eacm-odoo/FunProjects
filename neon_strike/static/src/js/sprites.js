@@ -1,19 +1,18 @@
 /** @odoo-module **/
 /* Part of Odoo. See LICENSE file for full copyright and licensing details.
- * Neon Strike - banco de sprites pixel art (estilo cyberpunk).
+ * Neon Strike - pixel art sprite bank (cyberpunk style).
  *
- * Cada sprite es una rejilla de caracteres (1 char = 1 pixel logico). Las rejillas
- * simetricas se escriben a media anchura y se espejan (`mir: true`) para ahorrar
- * datos. Los digitos son indices de paleta:
+ * Each sprite is a character grid (1 char = 1 logical pixel). Symmetric grids
+ * are written at half width and mirrored (`mir: true`) to save data. Digits are
+ * palette indices:
  *
- *   . transparente   0 blanco caliente   1 casco oscuro   2 casco medio
- *   3 metal          4 TINTE             5 tinte oscuro   6 tinte claro
- *   7 cristal        8 neon acento       9 acento oscuro
+ *   . transparent    0 hot white         1 dark hull      2 mid hull
+ *   3 metal          4 TINT              5 dark tint      6 light tint
+ *   7 glass          8 neon accent       9 dark accent
  *
- * 4/5/6 se recolorean en tiempo de dibujo con el color de la nave/enemigo, de modo
- * que un mismo sprite sirve para los 4 slots de jugador y para variantes de enemigo.
- * Los sprites se rasterizan una vez a un canvas offscreen y se cachean por
- * (nombre, color, escala, flash).
+ * 4/5/6 are re-tinted at draw time with the ship/enemy colour, so one sprite
+ * serves the 4 player slots and the enemy variants alike. Sprites are rasterized
+ * once to an offscreen canvas and cached by (name, colour, scale, flash).
  */
 
 const BASE = {
@@ -28,41 +27,41 @@ const BASE = {
 };
 
 /* ------------------------------------------------------------------ */
-/* Datos de los sprites                                                */
+/* Sprite data                                                         */
 /* ------------------------------------------------------------------ */
 
 export const SPRITES = {
-    /* --- Naves de jugador (16x18) ----------------------------------- */
+    /* --- Player ships (16x18) --------------------------------------- */
 
-    // Slot 0 - "Aguja": interceptor afilado, ala en flecha con borde neon.
+    // Slot 0 - "Needle": sharp interceptor, swept wing with a neon edge.
     ship0: { mir: true, rows: [
         ".......6", "......16", "......16", "......17", ".....117", ".....147",
         "....1147", "....1147", "...81147", "..881447", ".8814447", "88814447",
         ".8114445", "...11445", ".....145", ".....115", "......15", "......9.",
     ] },
 
-    // Slot 1 - "Martillo": cañonera pesada con dos cañones frontales.
+    // Slot 1 - "Hammer": heavy gunship with two forward cannons.
     ship1: { mir: true, rows: [
         "..11..11", "..14..17", "..14.117", "..14.147", "..14.147", ".1141447",
         ".1441447", "11441447", "18441447", "18444447", "18444445", ".1444445",
         "..144445", "..114445", "...11445", "...1.155", "....1.15", "......9.",
     ] },
 
-    // Slot 2 - "Espectro": stealth largo, canards y aletas traseras.
+    // Slot 2 - "Wraith": long stealth hull, canards and rear fins.
     ship2: { mir: true, rows: [
         ".......6", ".......4", "......14", "......17", "......17", ".....114",
         "...81144", "...81144", ".....144", ".....144", "....1144", "...81144",
         "..881444", ".8811444", "88.11445", "....1145", ".....115", "......9.",
     ] },
 
-    // Slot 3 - "Coral": casco redondo con anillos de propulsion laterales.
+    // Slot 3 - "Coral": round hull with side thruster rings.
     ship3: { mir: true, rows: [
         "......11", ".....144", ".....147", "....1147", "...31447", "..831447",
         ".8831447", ".8831447", ".8831444", "..831444", "...31444", "....1445",
         "....1445", "....1145", ".....145", ".....155", "......15", "......9.",
     ] },
 
-    /* --- Enemigos (miran hacia abajo) -------------------------------- */
+    /* --- Enemies (facing down) --------------------------------------- */
 
     drone0: { mir: true, rows: [
         ".....11.", "....1441", "...14441", "..144441", ".1444441", "11447744",
@@ -99,21 +98,21 @@ export const SPRITES = {
         ".8........",
     ] },
 
-    // Francotirador: plataforma con cañon largo central.
+    // Sniper: platform with a long central cannon.
     sniper0: { mir: true, rows: [
         "....1111", "..114444", ".1144444", "11444444", "14442244", "14422774",
         "14422774", "14442244", "11444444", ".1144444", "..114444", "8..11444",
         "88...144", ".8...114", "......14", "......14", "......17", "......11",
     ] },
 
-    // Kamikaze: casco romboidal con nucleo sobrecargado.
+    // Kamikaze: diamond hull with an overloaded core.
     kami0: { mir: true, rows: [
         "..11445", ".114445", "8114445", "1140045", "1400005", "1400005",
         "1140045", "8114445", ".114445", "..11445", "...1145", "....115",
         ".....11", "......9",
     ] },
 
-    // Jefe: acorazado de 44x24 con nucleo reactor.
+    // Boss: 44x24 dreadnought with a reactor core.
     boss0: { mir: true, rows: [
         "...................991",
         "..................9444",
@@ -141,9 +140,9 @@ export const SPRITES = {
         "...................111",
     ] },
 
-    /* --- Power-ups (16x16, capsula con glifo) ------------------------ */
+    /* --- Power-ups (16x16, capsule with a glyph) --------------------- */
 
-    // Triple disparo.
+    // Triple shot.
     pupT: { rows: [
         "................",
         ".....111111.....",
@@ -162,7 +161,7 @@ export const SPRITES = {
         ".....111111.....",
         "................",
     ] },
-    // Escudo.
+    // Shield.
     pupS: { rows: [
         "................",
         ".....111111.....",
@@ -181,7 +180,7 @@ export const SPRITES = {
         ".....111111.....",
         "................",
     ] },
-    // Bomba.
+    // Bomb.
     pupB: { rows: [
         "................",
         ".....111111.....",
@@ -200,7 +199,7 @@ export const SPRITES = {
         ".....111111.....",
         "................",
     ] },
-    // Vida extra.
+    // Extra life.
     pupL: { rows: [
         "................",
         ".....111111.....",
@@ -220,7 +219,7 @@ export const SPRITES = {
         "................",
     ] },
 
-    /* --- Asteroides (12x12, sin espejo) ------------------------------ */
+    /* --- Asteroids (12x12, no mirroring) ----------------------------- */
 
     rock0: { rows: [
         "...466664...", ".44666666644", "446666666654", "466661666554",
@@ -235,7 +234,7 @@ export const SPRITES = {
 };
 
 /* ------------------------------------------------------------------ */
-/* Rasterizado + cache                                                 */
+/* Rasterizing + cache                                                 */
 /* ------------------------------------------------------------------ */
 
 function hexToRgb(hex) {
@@ -282,11 +281,11 @@ export function spriteSize(name) {
 const cache = new Map();
 
 /**
- * Devuelve un canvas con el sprite rasterizado.
- * @param {string} name clave en SPRITES
- * @param {string} tint color hex para los indices 4/5/6
- * @param {number} px tamaño del pixel logico
- * @param {boolean} flash pinta la silueta en blanco (impacto)
+ * Return a canvas with the sprite rasterized.
+ * @param {string} name key in SPRITES
+ * @param {string} tint hex colour for indices 4/5/6
+ * @param {number} px logical pixel size
+ * @param {boolean} flash paint the silhouette white (hit)
  * @returns {HTMLCanvasElement|null}
  */
 export function sprite(name, tint, px, flash) {
@@ -327,16 +326,16 @@ export function sprite(name, tint, px, flash) {
 }
 
 /**
- * Dibuja un sprite centrado en (x, y) del contexto dado.
+ * Draw a sprite centred at (x, y) of the given context.
  * @param {CanvasRenderingContext2D} g
  * @param {string} name
- * @param {number} x centro
- * @param {number} y centro
+ * @param {number} x centre
+ * @param {number} y centre
  * @param {Object} [o]
  * @param {string} [o.tint="#5ee1ff"]
- * @param {number} [o.px=2] tamaño de pixel
+ * @param {number} [o.px=2] pixel size
  * @param {boolean} [o.flash]
- * @param {number} [o.rot] rotacion en radianes (asteroides)
+ * @param {number} [o.rot] rotation in radians (asteroids)
  * @param {number} [o.alpha]
  */
 export function drawSprite(g, name, x, y, o = {}) {
@@ -360,7 +359,7 @@ export function drawSprite(g, name, x, y, o = {}) {
     g.restore();
 }
 
-/** Tamaño de pixel para que un sprite ocupe `target` px de ancho logico. */
+/** Pixel size so a sprite spans `target` logical px in width. */
 export function pxFor(name, target) {
     const s = spriteSize(name);
     return s.w ? Math.max(1, Math.round((target / s.w) * 2) / 2) : 2;

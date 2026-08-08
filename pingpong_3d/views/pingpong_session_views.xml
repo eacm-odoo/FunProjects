@@ -11,15 +11,15 @@
         <field name="name">pingpong.session.list</field>
         <field name="model">pingpong.session</field>
         <field name="arch" type="xml">
-            <list string="Salas"
+            <list string="Rooms"
                   decoration-info="state == 'playing'"
                   decoration-muted="state in ('over', 'abandoned')">
-                <field name="create_date" string="Creada"/>
+                <field name="create_date" string="Created"/>
                 <field name="code"/>
                 <field name="state" widget="badge"
                        decoration-success="state == 'playing'"
                        decoration-warning="state in ('waiting', 'ready')"/>
-                <field name="player_count" string="Jugadores"/>
+                <field name="player_count" string="Players"/>
                 <field name="host_score"/>
                 <field name="guest_score"/>
                 <field name="is_public_queue" optional="show"/>
@@ -33,13 +33,13 @@
         <field name="name">pingpong.session.form</field>
         <field name="model">pingpong.session</field>
         <field name="arch" type="xml">
-            <form string="Sala">
+            <form string="Room">
                 <sheet>
                     <div class="oe_title">
                         <h1><field name="code" readonly="1"/></h1>
                     </div>
                     <group>
-                        <group string="Estado">
+                        <group string="State">
                             <field name="state"/>
                             <field name="is_public_queue"/>
                             <field name="player_count"/>
@@ -47,7 +47,7 @@
                             <field name="started_at"/>
                             <field name="ended_at"/>
                         </group>
-                        <group string="Partido">
+                        <group string="Match">
                             <field name="match_point"/>
                             <field name="first_server"/>
                             <field name="rng_seed"/>
@@ -56,7 +56,7 @@
                         </group>
                     </group>
                     <notebook>
-                        <page string="Jugadores" name="players">
+                        <page string="Players" name="players">
                             <field name="participant_ids" readonly="1">
                                 <list>
                                     <field name="slot"/>
@@ -68,7 +68,7 @@
                                 </list>
                             </field>
                         </page>
-                        <page string="Resultado" name="history">
+                        <page string="Result" name="history">
                             <field name="match_ids" readonly="1">
                                 <list>
                                     <field name="create_date"/>
@@ -78,7 +78,7 @@
                                 </list>
                             </field>
                         </page>
-                        <page string="Técnico" name="technical" groups="base.group_no_one">
+                        <page string="Technical" name="technical" groups="base.group_no_one">
                             <group>
                                 <!-- Knowing this token grants a bus subscription. -->
                                 <field name="access_token" readonly="1"/>
@@ -94,35 +94,35 @@
         <field name="name">pingpong.session.search</field>
         <field name="model">pingpong.session</field>
         <field name="arch" type="xml">
-            <search string="Salas">
+            <search string="Rooms">
                 <field name="code"/>
-                <field name="participant_ids" string="Jugador"/>
-                <filter name="filter_live" string="En curso"
+                <field name="participant_ids" string="Player"/>
+                <filter name="filter_live" string="In Progress"
                         domain="[('state', 'in', ('waiting', 'ready', 'playing'))]"/>
-                <filter name="filter_queue" string="En cola pública"
+                <filter name="filter_queue" string="In Public Queue"
                         domain="[('is_public_queue', '=', True), ('state', '=', 'waiting')]"/>
                 <separator/>
                 <!-- datetime.datetime.now() is UTC in the domain evaluator, which
                      is what last_activity is stored in. context_today() would be
                      a date, and subtracting minutes from it does nothing. -->
-                <filter name="filter_stale" string="Sin señal (2 min)"
+                <filter name="filter_stale" string="No Signal (2 min)"
                         domain="[('last_activity', '&lt;', (datetime.datetime.now() - datetime.timedelta(minutes=2)).strftime('%Y-%m-%d %H:%M:%S'))]"/>
                 <group>
-                    <filter name="group_state" string="Estado" context="{'group_by': 'state'}"/>
-                    <filter name="group_date" string="Creada" context="{'group_by': 'create_date:day'}"/>
+                    <filter name="group_state" string="State" context="{'group_by': 'state'}"/>
+                    <filter name="group_date" string="Created" context="{'group_by': 'create_date:day'}"/>
                 </group>
             </search>
         </field>
     </record>
 
     <record id="pingpong_session_action" model="ir.actions.act_window">
-        <field name="name">Salas online</field>
+        <field name="name">Online rooms</field>
         <field name="res_model">pingpong.session</field>
         <field name="view_mode">list,form</field>
         <field name="context">{'search_default_filter_live': 1}</field>
         <field name="help" type="html">
-            <p class="o_view_nocontent_smiling_face">No hay ninguna sala abierta</p>
-            <p>Las salas aparecen aquí cuando alguien crea o se une a un 1v1 online.</p>
+            <p class="o_view_nocontent_smiling_face">No room is open</p>
+            <p>Rooms show up here when someone creates or joins an online 1v1.</p>
         </field>
     </record>
 

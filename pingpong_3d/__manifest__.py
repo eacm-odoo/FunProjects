@@ -1,20 +1,20 @@
 {
     "name": "Ping Pong 3D",
-    "summary": "Juego de ping pong 3D contra la máquina, con física realista y varias dificultades",
+    "summary": "3D ping pong against the machine, with realistic physics and several difficulties",
     "description": """
 Ping Pong 3D
 ============
 
-Juego de tenis de mesa en 3D (three.js) integrado en Odoo:
+3D table tennis game (three.js) integrated into Odoo:
 
-* Partido contra la máquina con cuatro dificultades (fácil, normal, difícil, experto).
-* Física realista: gravedad, resistencia del aire, efecto Magnus, rebote con
+* Match against the machine with four difficulties (easy, normal, hard, expert).
+* Realistic physics: gravity, air drag, Magnus effect, bounce with
   transferencia de efecto, red y reglas de bote.
-* Control con el ratón: la posición coloca la pala y la velocidad del gesto
+* Mouse control: the position places the paddle and the gesture speed
   define potencia y efecto (liftado, cortado, lateral).
-* Los resultados de cada partido se guardan y se consultan desde el backend.
+* Every match result is stored and can be reviewed from the backend.
 
-Página pública: /pingpong
+Public page: /pingpong
 """,
     "author": "Odoo Development Services",
     "website": "https://github.com/odoo/odoo",

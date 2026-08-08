@@ -18,7 +18,7 @@ class PingPongMatch(models.Model):
 
     name = fields.Char(compute="_compute_name", store=True)
     mode = fields.Selection(
-        [("solo", "Contra la máquina"), ("online", "Online 1v1")],
+        [("solo", "Against the Machine"), ("online", "Online 1v1")],
         string="Modo",
         required=True,
         default="solo",
@@ -26,30 +26,30 @@ class PingPongMatch(models.Model):
     )
     partner_id = fields.Many2one(
         "res.partner",
-        string="Jugador",
+        string="Player",
         ondelete="set null",
         index=True,
-        help="Vacío cuando el partido lo jugó un visitante anónimo.",
+        help="Empty when the match was played by an anonymous visitor.",
     )
     opponent_partner_id = fields.Many2one(
         "res.partner",
         string="Rival",
         ondelete="set null",
         index=True,
-        help="Solo en online, y solo si el rival tenía sesión iniciada.",
+        help="Online only, and only if the opponent was logged in.",
     )
-    player_nickname = fields.Char(string="Apodo del jugador")
-    opponent_nickname = fields.Char(string="Apodo del rival")
-    player_name = fields.Char(compute="_compute_player_names", store=True, string="Jugador")
+    player_nickname = fields.Char(string="Player Nickname")
+    opponent_nickname = fields.Char(string="Opponent Nickname")
+    player_name = fields.Char(compute="_compute_player_names", store=True, string="Player")
     opponent_name = fields.Char(compute="_compute_player_names", store=True, string="Rival")
     difficulty = fields.Selection(
         [
-            ("facil", "Fácil"),
+            ("facil", "Easy"),
             ("normal", "Normal"),
-            ("dificil", "Difícil"),
-            ("experto", "Experto"),
+            ("dificil", "Hard"),
+            ("experto", "Expert"),
         ],
-        string="Dificultad",
+        string="Difficulty",
         # Optional since online matches have none. Odoo drops the NOT NULL on
         # upgrade, and existing rows keep their value.
         required=False,
@@ -58,22 +58,22 @@ class PingPongMatch(models.Model):
     )
     session_id = fields.Many2one(
         "pingpong.session",
-        string="Sala",
+        string="Room",
         ondelete="set null",
         index=True,
         readonly=True,
-        help="Sala online que produjo este resultado. Vacío en modo máquina.",
+        help="Online room that produced this result. Empty in machine mode.",
     )
-    player_score = fields.Integer(string="Puntos del jugador", required=True)
-    machine_score = fields.Integer(string="Puntos del rival", required=True)
+    player_score = fields.Integer(string="Player Score", required=True)
+    machine_score = fields.Integer(string="Opponent Score", required=True)
     hits = fields.Integer(string="Golpes")
-    rallies = fields.Integer(string="Puntos jugados")
-    duration = fields.Float(string="Duración", help="En segundos.")
+    rallies = fields.Integer(string="Rallies")
+    duration = fields.Float(string="Duration", help="In seconds.")
     finished_at = fields.Datetime(string="Terminado")
     won = fields.Boolean(string="Victoria", compute="_compute_won", store=True)
     margin = fields.Integer(string="Diferencia", compute="_compute_won", store=True)
     winner_side = fields.Selection(
-        [("player", "Jugador"), ("opponent", "Rival"), ("draw", "Empate")],
+        [("player", "Player"), ("opponent", "Opponent"), ("draw", "Draw")],
         string="Ganador",
         compute="_compute_won",
         store=True,
@@ -89,7 +89,7 @@ class PingPongMatch(models.Model):
         for match in self:
             if match.mode == "solo" and not match.difficulty:
                 raise ValidationError(
-                    self.env._("Un partido contra la máquina necesita una dificultad.")
+                    self.env._("A match against the machine needs a difficulty.")
                 )
 
     @api.depends("player_score", "machine_score")
@@ -118,7 +118,7 @@ class PingPongMatch(models.Model):
                     or "Rival"
                 )
             else:
-                match.opponent_name = "Máquina"
+                match.opponent_name = "Machine"
 
     @api.depends("mode", "player_name", "opponent_name", "player_score",
                  "machine_score", "difficulty")

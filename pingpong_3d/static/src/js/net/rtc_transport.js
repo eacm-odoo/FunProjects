@@ -78,7 +78,7 @@ export class RtcTransport {
         this._pc.onconnectionstatechange = () => {
             const pcState = this._pc && this._pc.connectionState;
             this.lastPcState = pcState;
-            console.info("pingpong_3d: conexión p2p ->", pcState);
+            console.info("pingpong_3d: p2p connection ->", pcState);
             if (pcState === "failed" || pcState === "closed") {
                 this._setState("failed");
             }
@@ -89,8 +89,8 @@ export class RtcTransport {
                 // No candidates at all means no STUN reached: only host
                 // addresses were available, and those do not cross a NAT.
                 console.warn(
-                    "pingpong_3d: no se obtuvo ningún candidato ICE. " +
-                    "Sin STUN accesible la conexión directa no es posible."
+                    "pingpong_3d: no ICE candidate was gathered. " +
+                    "Without reachable STUN a direct connection is not possible."
                 );
             }
         };

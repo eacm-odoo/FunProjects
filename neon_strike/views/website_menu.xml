@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Part of Odoo. See LICENSE file for full copyright and licensing details. -->
 <odoo>
-    <!-- Entrada en el menú público del website, igual que pingpong_3d: el juego
-         deja de ser una URL que hay que conocer y se puede llegar a él desde la
-         navegación del sitio. -->
+    <!-- Entry in the public website menu, same as pingpong_3d: the game stops
+         being a URL you have to know about and becomes reachable from the site
+         navigation. -->
     <record id="website_menu_neon_strike" model="website.menu">
         <field name="name">Neon Strike</field>
         <field name="url">/neon</field>

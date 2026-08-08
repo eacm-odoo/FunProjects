@@ -11,21 +11,21 @@
                 <field name="score"/>
                 <field name="wave"/>
                 <field name="mode"/>
-                <field name="player_count" string="Jugadores"/>
-                <field name="create_date" string="Fecha"/>
+                <field name="player_count" string="Players"/>
+                <field name="create_date" string="Date"/>
             </list>
         </field>
     </record>
 
     <record id="action_neon_strike_scores" model="ir.actions.act_window">
-        <field name="name">Marcadores</field>
+        <field name="name">Leaderboard</field>
         <field name="res_model">neon.strike.score</field>
         <field name="view_mode">list</field>
     </record>
 
-    <!-- El juego vive en la página pública /neon; este acceso la abre en una pestaña. -->
+    <!-- The game lives on the public /neon page; this action opens it in a tab. -->
     <record id="action_neon_strike_play_url" model="ir.actions.act_url">
-        <field name="name">Jugar</field>
+        <field name="name">Play</field>
         <field name="url">/neon</field>
         <field name="target">new</field>
     </record>
@@ -35,12 +35,12 @@
               web_icon="neon_strike,static/description/icon.png"
               sequence="90"/>
     <menuitem id="menu_neon_strike_game"
-              name="Jugar"
+              name="Play"
               parent="menu_neon_strike_root"
               action="action_neon_strike_play_url"
               sequence="10"/>
     <menuitem id="menu_neon_strike_scores"
-              name="Marcadores"
+              name="Leaderboard"
               parent="menu_neon_strike_root"
               action="action_neon_strike_scores"
               sequence="20"/>

@@ -5,16 +5,16 @@ import uuid
 from odoo import http
 from odoo.http import request
 
-# Longitud máxima del apodo (validación mínima anti-abuso).
+# Maximum nickname length (minimal anti-abuse validation).
 NICK_MAX = 20
 
 
 class NeonStrikeController(http.Controller):
-    """Puntos de entrada públicos de Neon Strike (jugar sin cuenta de Odoo).
+    """Public entry points for Neon Strike (play without an Odoo account).
 
-    La identidad de cada jugador es un ``token`` de sesión (uuid) más el apodo que
-    escribe. Toda la lógica ORM se ejecuta con ``sudo()``; la autoría del host se
-    valida en el modelo comparando el token, no por ACL.
+    Each player's identity is a session ``token`` (uuid) plus the nickname they
+    type. All ORM logic runs with ``sudo()``; host authority is validated in the
+    model by comparing the token, not by ACL.
     """
 
     # ------------------------------------------------------------------ #
@@ -22,7 +22,7 @@ class NeonStrikeController(http.Controller):
     # ------------------------------------------------------------------ #
 
     def _token(self):
-        """Token de sesión estable del jugador (se crea la primera vez)."""
+        """Stable session token of the player (created on first use)."""
         token = request.session.get("neon_token")
         if not token:
             token = uuid.uuid4().hex
@@ -30,12 +30,12 @@ class NeonStrikeController(http.Controller):
         return token
 
     def _uid(self):
-        """id del usuario si hay login real; False para jugadores anónimos."""
+        """User id when there is a real login; False for anonymous players."""
         return request.session.uid or False
 
     def _clean_nick(self, nickname):
         nickname = (nickname or "").strip()
-        return (nickname or "Jugador")[:NICK_MAX]
+        return (nickname or "Player")[:NICK_MAX]
 
     def _match(self, match_id):
         if not match_id:
@@ -43,23 +43,23 @@ class NeonStrikeController(http.Controller):
         return request.env["neon.strike.match"].sudo().browse(int(match_id)).exists()
 
     # ------------------------------------------------------------------ #
-    # Página pública                                                      #
+    # Public page                                                         #
     # ------------------------------------------------------------------ #
 
-    # `website=True` marca la ruta como frontend: es lo que hace que
-    # `request.is_frontend` sea True y que el contexto de render reciba
-    # `website`, que exige `website.layout` (hereda la cadena de
-    # `web.frontend_layout`). Sin el flag, renderizar el layout frontend
-    # revienta con KeyError: 'website'.
-    # `sitemap=True` publica la página en el sitemap del sitio.
+    # `website=True` marks the route as frontend: that is what makes
+    # `request.is_frontend` True and puts `website` in the render context,
+    # which `website.layout` requires (it inherits the `web.frontend_layout`
+    # chain). Without the flag, rendering the frontend layout blows up with
+    # KeyError: 'website'.
+    # `sitemap=True` publishes the page in the site sitemap.
     @http.route("/neon", type="http", auth="public", website=True, sitemap=True)
     def neon_page(self, **kw):
-        # Asegura el token de sesión antes de servir el juego.
+        # Make sure the session token exists before serving the game.
         self._token()
         return request.render("neon_strike.page")
 
     # ------------------------------------------------------------------ #
-    # API JSON (llamada con rpc() desde el componente OWL)                #
+    # JSON API (called with rpc() from the OWL component)                 #
     # ------------------------------------------------------------------ #
 
     @http.route("/neon/create", type="json", auth="public")

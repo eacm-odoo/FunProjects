@@ -1,26 +1,28 @@
 /** @odoo-module **/
 /* Part of Odoo. See LICENSE file for full copyright and licensing details.
- * Neon Strike - motor del juego (canvas 2D + Web Audio sintetizado).
- * Sin dependencias externas: el componente OWL solo instancia esta clase.
+ * Neon Strike - game engine (2D canvas + synthesised Web Audio).
+ * No external dependencies: the OWL component only instantiates this class.
  *
- * Soporta N naves (hasta 4) con vidas individuales, caída y revivir. Puede correr
- * en tres roles:
- *   - "solo":  simulacion local de 1 jugador (raton/tactil).
- *   - "host":  simula toda la partida y expone snapshot() para difundir por el bus.
- *   - "guest": no simula; renderiza el snapshot recibido (applySnapshot) e informa
- *              su puntero por onLocalInput.
- * El juego se simula siempre en un espacio logico fijo (LW x LH) para que las
- * coordenadas sean identicas en todas las maquinas; el render se escala al canvas.
+ * Supports N ships (up to 4) with individual lives, going down and reviving. It
+ * can run in three roles:
+ *   - "solo":  local single-player simulation (mouse/touch).
+ *   - "host":  simulates the whole match and exposes snapshot() to broadcast.
+ *   - "guest": does not simulate; renders the received snapshot (applySnapshot)
+ *              and reports its pointer through onLocalInput.
+ * The game always runs in a fixed logical space (LW x LH) so coordinates are
+ * identical on every machine; the render is scaled to the canvas.
  */
 
-import { drawSprite, pxFor } from "@neon_strike/js/sprites";
+// Relative import (not `@neon_strike/...`): Odoo resolves it the same way and
+// the engine keeps loading as native ESM outside Odoo (the design sprite gallery).
+import { drawSprite, pxFor } from "./sprites";
 
 const SHIP_COLORS = ["#5ee1ff", "#ff8fb3", "#7bffb0", "#ffd166"];
 const REVIVE_FRAMES = 120;
 const COMBO_MAX = 25;
 
-// Sprite por tipo de enemigo. Los tipos con dos entradas alternan chasis segun
-// `e.v` (variante fijada al crear el enemigo y viajada en el snapshot).
+// Sprite per enemy type. Types with two entries alternate chassis based on
+// `e.v` (variant fixed when the enemy is created and carried in the snapshot).
 const ENEMY_SPRITES = {
     drone: ["drone0", "drone1"],
     speedy: ["speedy0", "speedy1"],
@@ -30,10 +32,10 @@ const ENEMY_SPRITES = {
     boss: ["boss0"],
 };
 const ROCK_SPRITES = ["rock0", "rock1"];
-// Color por tipo de power-up (T triple, S escudo, B bomba, L vida extra). El
-// sprite `pup<T>` se recolorea con el, asi que ambos van siempre de la mano.
+// Colour per power-up type (T triple, S shield, B bomb, L extra life). The
+// `pup<T>` sprite is tinted with it, so the two always go together.
 const PUP_COLORS = { T: "#5ee1ff", S: "#7bffb0", B: "#ffb347", L: "#ff8fb3" };
-// Tamaño de pixel de las naves: 16 px de rejilla -> ~32 px logicos de ancho.
+// Ship pixel size: a 16 px grid -> ~32 logical px wide.
 const SHIP_PX = pxFor("ship0", 30);
 const PUP_PX = pxFor("pupT", 30);
 
@@ -42,12 +44,12 @@ export class NeonStrikeEngine {
      * @param {HTMLCanvasElement} canvas
      * @param {Object} callbacks
      * @param {function} [callbacks.onGameOver] - ({score, wave, best})
-     * @param {function} [callbacks.onLocalInput] - (tx, ty) puntero local (guest)
+     * @param {function} [callbacks.onLocalInput] - (tx, ty) local pointer (guest)
      * @param {"solo"|"host"|"guest"} [callbacks.role="solo"]
-     * @param {number} [callbacks.players=1] - numero de naves
-     * @param {number} [callbacks.localSlot=0] - slot controlado localmente
-     * @param {string[]} [callbacks.names] - nombre por slot
-     * @param {boolean} [callbacks.hotseat=false] - segunda nave por teclado (WASD)
+     * @param {number} [callbacks.players=1] - number of ships
+     * @param {number} [callbacks.localSlot=0] - locally controlled slot
+     * @param {string[]} [callbacks.names] - name per slot
+     * @param {boolean} [callbacks.hotseat=false] - second ship on keyboard (WASD)
      */
     constructor(canvas, callbacks = {}) {
         this.cv = canvas;
@@ -55,8 +57,8 @@ export class NeonStrikeEngine {
         this.cb = callbacks;
 
         this.role = callbacks.role || "solo";
-        // Lista explícita de slots (multijugador); si falta, se deriva 0..players-1.
-        // Los slots pueden ser NO contiguos si alguien abandonó el lobby.
+        // Explicit slot list (multiplayer); if missing, derived as 0..players-1.
+        // Slots may be NON contiguous if somebody left the lobby.
         this.slots = callbacks.slots && callbacks.slots.length ? callbacks.slots : null;
         this.players = Math.max(1, callbacks.players || (this.slots ? this.slots.length : 1));
         this.localSlot = callbacks.localSlot || 0;
@@ -67,7 +69,7 @@ export class NeonStrikeEngine {
         this.muted = false;
         this.AC = null;
 
-        // Espacio logico fijo (independiente del tamano de ventana).
+        // Fixed logical space (independent of the window size).
         this.W = 680;
         this.H = 540;
         this.dpr = 1;
@@ -122,7 +124,7 @@ export class NeonStrikeEngine {
     }
 
     /* ------------------------------------------------------------------ */
-    /* Ciclo de vida                                                       */
+    /* Lifecycle                                                           */
     /* ------------------------------------------------------------------ */
 
     start() {
@@ -147,7 +149,7 @@ export class NeonStrikeEngine {
             try {
                 this.AC.close();
             } catch (e) {
-                /* AudioContext ya cerrado */
+                /* AudioContext already closed */
             }
         }
     }
@@ -164,7 +166,7 @@ export class NeonStrikeEngine {
         this.state = "start";
     }
 
-    /** Arranca una partida (host/solo). Los guests obtienen el estado por snapshot. */
+    /** Start a game (host/solo). Guests get the state through snapshots. */
     beginPlay() {
         this.reset();
         this.state = "playing";
@@ -201,7 +203,7 @@ export class NeonStrikeEngine {
     }
 
     /* ------------------------------------------------------------------ */
-    /* Audio sintetizado                                                   */
+    /* Synthesised audio                                                   */
     /* ------------------------------------------------------------------ */
 
     audio() {
@@ -213,7 +215,7 @@ export class NeonStrikeEngine {
                 this.AC.resume();
             }
         } catch (e) {
-            /* navegador sin Web Audio */
+            /* browser without Web Audio */
         }
     }
 
@@ -327,7 +329,7 @@ export class NeonStrikeEngine {
         }
     }
 
-    /** Registra un evento cosmetico para reproducir en los guests. */
+    /** Record a cosmetic event to replay on the guests. */
     _ev(obj) {
         if (this.role === "host") {
             this._events.push(obj);
@@ -370,8 +372,8 @@ export class NeonStrikeEngine {
 
     _initShips() {
         this.ships = [];
-        // Usa los slots reales (pueden no ser contiguos) para que cada jugador
-        // conserve su nave/color/nombre aunque otro haya abandonado el lobby.
+        // Use the real slots (they may not be contiguous) so each player keeps
+        // their ship/colour/name even if somebody else left the lobby.
         const slots = this.slots || Array.from({ length: this.players }, (_v, i) => i);
         const p = slots.length;
         slots.forEach((slot, idx) => {
@@ -429,7 +431,7 @@ export class NeonStrikeEngine {
         return c[type] || "#ff5d8f";
     }
 
-    /** Variante de chasis (0/1) segun los sprites disponibles para el tipo. */
+    /** Chassis variant (0/1) based on the sprites available for the type. */
     _enemyVariant(type) {
         const names = ENEMY_SPRITES[type];
         return names && names.length > 1 ? Math.floor(Math.random() * names.length) : 0;
@@ -447,14 +449,14 @@ export class NeonStrikeEngine {
             return Object.assign(base, { hp: 4, mhp: 4, t: Math.random() * 200, val: 300 });
         }
         if (type === "sniper") {
-            // Se para a media altura y castiga con disparos precisos telegrafiados.
+            // Stops mid-screen and punishes with telegraphed, accurate shots.
             return Object.assign(base, {
                 hp: 3, mhp: 3, t: 0, val: 400,
                 stopY: 90 + Math.random() * 110, aim: 0,
             });
         }
         if (type === "kami") {
-            // Traza rumbo a una nave y acelera; muere al chocar (colision generica).
+            // Locks onto a ship and accelerates; dies on contact (generic collision).
             return Object.assign(base, { hp: 2, mhp: 2, t: 0, val: 350, vx: 0, vy: 1.2, rot: 0 });
         }
         const hp = 35 + this.wave * 9 + (this.players - 1) * 25;
@@ -469,7 +471,7 @@ export class NeonStrikeEngine {
         if (this.wave % 4 === 0) {
             this.enemies.push(this.mkEnemy("boss", this.W / 2, -90));
             this.bossAlive = true;
-            this.pop(this.W / 2, this.H / 2 - 50, "¡JEFE!", "#ff6b6b", 36, 90);
+            this.pop(this.W / 2, this.H / 2 - 50, "BOSS!", "#ff6b6b", 36, 90);
             return;
         }
         this.pop(this.W / 2, this.H / 2 - 50, "Oleada " + this.wave, "#8be9ff", 30, 80);
@@ -493,7 +495,7 @@ export class NeonStrikeEngine {
                 this.mkEnemy(type, 40 + Math.random() * (this.W - 80), -30 - i * 48 - Math.random() * 40)
             );
         }
-        // Un par de asteroides al inicio de oleada, mas a partir de la 3.
+        // A couple of asteroids at the start of a wave, more from wave 3 on.
         const rocks = 1 + Math.floor(this.wave / 3);
         for (let i = 0; i < rocks; i++) {
             this.spawnRock();
@@ -548,7 +550,7 @@ export class NeonStrikeEngine {
             for (const sp of this._livingShips()) {
                 sp.lives = Math.min(5, sp.lives + 1);
             }
-            this.pop(e.x, e.y - 40, "¡Vida extra para todos!", "#7bffb0", 16);
+            this.pop(e.x, e.y - 40, "Extra life for everyone!", "#7bffb0", 16);
         } else {
             this.sBoom();
             if (Math.random() < 0.22) {
@@ -587,7 +589,7 @@ export class NeonStrikeEngine {
             this.burst(sp.x, sp.y, "#7bffb0", 26, 5);
             this.noise(0.25, 0.2, 2000);
             sp.inv = 50;
-            this.pop(sp.x, sp.y - 30, "¡Escudo roto!", "#7bffb0", 14);
+            this.pop(sp.x, sp.y - 30, "Shield down!", "#7bffb0", 14);
             return;
         }
         sp.lives--;
@@ -606,7 +608,7 @@ export class NeonStrikeEngine {
             sp.shield = 0;
             sp.weapon = "single";
             this.burst(sp.x, sp.y, sp.color, 44, 7);
-            this.pop(sp.x, sp.y - 30, sp.name + " caído", "#ff8f8f", 15);
+            this.pop(sp.x, sp.y - 30, sp.name + " down", "#ff8f8f", 15);
             if (this._livingShips().length === 0) {
                 this.state = "over";
                 this.best = Math.max(this.best, this.score);
@@ -659,7 +661,7 @@ export class NeonStrikeEngine {
             return;
         }
 
-        // Control hotseat: la nave slot 1 se mueve con WASD.
+        // Hotseat control: the slot 1 ship moves with WASD.
         if (this.hotseat && this.ships[1] && !this.ships[1].down) {
             const sp = this.ships[1];
             const spd = 7;
@@ -671,7 +673,7 @@ export class NeonStrikeEngine {
             sp.ty = Math.max(70, Math.min(H - 24, sp.ty));
         }
 
-        // Naves vivas: movimiento, estela, disparo, timers.
+        // Living ships: movement, trail, fire, timers.
         for (const sp of this.ships) {
             if (sp.down) {
                 continue;
@@ -829,7 +831,7 @@ export class NeonStrikeEngine {
                     dn.inv = 120;
                     dn.reviveProgress = 0;
                     this.burst(dn.x, dn.y, "#7bffb0", 40, 6);
-                    this.pop(dn.x, dn.y - 30, "¡" + dn.name + " revive!", "#7bffb0", 16);
+                    this.pop(dn.x, dn.y - 30, dn.name + " revived!", "#7bffb0", 16);
                     this.sPup();
                     this._ev({ k: "pup", x: dn.x, y: dn.y });
                 }
@@ -867,7 +869,7 @@ export class NeonStrikeEngine {
                     }
                 }
             } else if (e.type === "sniper") {
-                // Baja hasta su altura de tiro y luego se queda apuntando.
+                // Descends to its firing height and then holds, aiming.
                 if (e.y < e.stopY) {
                     e.y += 1.1 * ts;
                 } else {
@@ -875,7 +877,7 @@ export class NeonStrikeEngine {
                     e.aim += ts;
                     if (e.aim >= 70) {
                         e.aim = 0;
-                        // Dispara a la nave que telegrafio (la mas cercana), no a una al azar.
+                        // Shoots the ship it telegraphed (the nearest one), not a random one.
                         const tgt = this._nearestShip(e.x, e.y);
                         if (tgt) {
                             const dx = tgt.x - e.x;
@@ -887,7 +889,7 @@ export class NeonStrikeEngine {
                     }
                 }
             } else if (e.type === "kami") {
-                // Persigue a la nave mas cercana acelerando; el nucleo se vuelve loco.
+                // Chases the nearest ship, accelerating; the core goes wild.
                 const tgt = this._nearestShip(e.x, e.y);
                 if (tgt) {
                     const dx = tgt.x - e.x;
@@ -938,7 +940,7 @@ export class NeonStrikeEngine {
                 this.enemies.splice(i, 1);
                 continue;
             }
-            // Colision con naves.
+            // Collision with ships.
             let killedByShip = false;
             for (const sp of this.ships) {
                 if (sp.down) {
@@ -994,7 +996,7 @@ export class NeonStrikeEngine {
                 this.rocks.splice(i, 1);
                 continue;
             }
-            // Colision con naves.
+            // Collision with ships.
             let broke = false;
             for (const sp of this.ships) {
                 if (sp.down) {
@@ -1076,16 +1078,16 @@ export class NeonStrikeEngine {
                 if (p.t === "T") {
                     picker.weapon = "triple";
                     picker.weaponT = 650;
-                    this.pop(picker.x, picker.y - 30, "¡Triple disparo!", "#5ee1ff", 15);
+                    this.pop(picker.x, picker.y - 30, "Triple shot!", "#5ee1ff", 15);
                 } else if (p.t === "S") {
                     picker.shield = 1;
-                    this.pop(picker.x, picker.y - 30, "¡Escudo!", "#7bffb0", 15);
+                    this.pop(picker.x, picker.y - 30, "Shield!", "#7bffb0", 15);
                 } else if (p.t === "B") {
                     this.bomb();
-                    this.pop(picker.x, picker.y - 30, "¡BOMBA!", "#ffb347", 18);
+                    this.pop(picker.x, picker.y - 30, "BOMB!", "#ffb347", 18);
                 } else {
                     picker.lives = Math.min(5, picker.lives + 1);
-                    this.pop(picker.x, picker.y - 30, "¡Vida extra!", "#ff8fb3", 15);
+                    this.pop(picker.x, picker.y - 30, "Extra life!", "#ff8fb3", 15);
                 }
             }
         }
@@ -1114,7 +1116,7 @@ export class NeonStrikeEngine {
     }
 
     /* ------------------------------------------------------------------ */
-    /* Update (guest): interpolacion, sin simulacion                       */
+    /* Update (guest): interpolation, no simulation                        */
     /* ------------------------------------------------------------------ */
 
     _guestUpdate(ts) {
@@ -1151,7 +1153,7 @@ export class NeonStrikeEngine {
     /* Red: entrada remota y snapshot                                      */
     /* ------------------------------------------------------------------ */
 
-    /** Host: aplica el puntero de un guest. */
+    /** Host: apply a guest pointer. */
     setRemoteInput(slot, tx, ty) {
         const sp = this.ships.find((s) => s.slot === slot);
         if (sp && !sp.down) {
@@ -1160,7 +1162,7 @@ export class NeonStrikeEngine {
         }
     }
 
-    /** Host: estado compacto para difundir por el bus. */
+    /** Host: compact state to broadcast over the bus. */
     snapshot() {
         const snap = {
             st: this.state,
@@ -1180,7 +1182,7 @@ export class NeonStrikeEngine {
             en: this.enemies.map((e) => ({
                 t: e.type, x: Math.round(e.x), y: Math.round(e.y),
                 h: e.hp, mh: e.mhp, f: e.flash > 0 ? 1 : 0, tt: Math.round(e.t),
-                // `v` = variante de chasis; `rt`/`am` solo para kamikaze/francotirador.
+                // `v` = chassis variant; `rt`/`am` only for kamikaze/sniper.
                 v: e.v || 0,
                 rt: e.rot != null ? Math.round(e.rot * 100) / 100 : undefined,
                 am: e.aim != null ? Math.round(e.aim) : undefined,
@@ -1198,7 +1200,7 @@ export class NeonStrikeEngine {
         return snap;
     }
 
-    /** Guest: aplica un snapshot recibido. */
+    /** Guest: apply a received snapshot. */
     applySnapshot(snap) {
         this.state = snap.st;
         this.score = snap.sc;
@@ -1207,7 +1209,7 @@ export class NeonStrikeEngine {
         this.comboT = snap.ct;
         this.shake = snap.sk;
         this.flashT = snap.fl;
-        // Naves por slot (interpolacion de posicion).
+        // Ships per slot (position interpolation).
         const slots = [];
         for (const s of snap.ships) {
             slots.push(s.s);
@@ -1230,7 +1232,7 @@ export class NeonStrikeEngine {
             sp.lives = s.lv;
         }
         this.ships = this.ships.filter((sp) => slots.includes(sp.slot));
-        // Entidades directas (sin interpolar en esta version).
+        // Entities taken as-is (no interpolation in this version).
         this.enemies = snap.en.map((e) => ({
             type: e.t, x: e.x, y: e.y, r: this._enemyR(e.t),
             hp: e.h, mhp: e.mh, c: this._enemyColor(e.t),
@@ -1272,7 +1274,7 @@ export class NeonStrikeEngine {
         g.closePath();
         g.fill();
         g.globalCompositeOperation = "source-over";
-        // Cada slot tiene su propio chasis; el sprite se recolorea con sp.color.
+        // Each slot has its own hull; the sprite is tinted with sp.color.
         drawSprite(g, "ship" + (sp.slot % 4), 0, 0, { tint: sp.color, px: SHIP_PX });
         if (sp.shield > 0) {
             g.strokeStyle = "rgba(123,255,176," + (0.5 + Math.sin(this.frame * 0.15) * 0.3) + ")";
@@ -1310,11 +1312,11 @@ export class NeonStrikeEngine {
         g.font = "500 11px system-ui,sans-serif";
         g.textAlign = "center";
         g.textBaseline = "middle";
-        g.fillText(sp.name + " caído", 0, 30);
+        g.fillText(sp.name + " down", 0, 30);
         g.restore();
     }
 
-    /** Nombre del sprite del enemigo segun tipo y variante de chasis. */
+    /** Enemy sprite name based on type and chassis variant. */
     _enemySprite(e) {
         const names = ENEMY_SPRITES[e.type] || ENEMY_SPRITES.drone;
         return names[(e.v || 0) % names.length];
@@ -1327,7 +1329,7 @@ export class NeonStrikeEngine {
         if (e.flash > 0) {
             e.flash--;
         }
-        // Halo de neon detras del sprite.
+        // Neon halo behind the sprite.
         g.save();
         g.globalCompositeOperation = "lighter";
         g.fillStyle = this.glow(e.c, 0.14);
@@ -1335,9 +1337,9 @@ export class NeonStrikeEngine {
         g.arc(e.x, e.y, e.r + 10, 0, 6.2832);
         g.fill();
         g.restore();
-        // Linea de mira del francotirador mientras carga. El objetivo se recalcula
-        // aqui (no viaja en el snapshot): las naves ya estan sincronizadas, asi que
-        // host y guest dibujan la misma mira.
+        // Sniper sight line while it charges. The target is recomputed here (it
+        // does not travel in the snapshot): ships are already synchronised, so
+        // host and guest draw the same sight.
         if (e.type === "sniper" && e.aim > 40) {
             const tgt = this._nearestShip(e.x, e.y);
             if (tgt) {
@@ -1353,7 +1355,7 @@ export class NeonStrikeEngine {
             }
         }
         if (e.type === "boss") {
-            // El acorazado respira: pulso suave alrededor del centro.
+            // The dreadnought breathes: gentle pulse around its centre.
             const p = 1 + Math.sin(e.t * 0.08) * 0.04;
             g.save();
             g.translate(e.x, e.y);
@@ -1392,12 +1394,12 @@ export class NeonStrikeEngine {
         const H = this.H;
         const dpr = this.dpr;
 
-        // Limpia todo el canvas fisico (barras de letterbox en negro).
+        // Clear the whole physical canvas (letterbox bars in black).
         g.setTransform(1, 0, 0, 1, 0, 0);
         g.fillStyle = "#05060e";
         g.fillRect(0, 0, this.cv.width, this.cv.height);
 
-        // Transform del mundo logico (escalado + centrado).
+        // Logical world transform (scale + centring).
         g.setTransform(dpr, 0, 0, dpr, 0, 0);
         g.translate(this.ox, this.oy);
         g.scale(this.scale, this.scale);
@@ -1454,7 +1456,7 @@ export class NeonStrikeEngine {
             g.arc(p.x, p.y + bob, p.r + 6, 0, 6.2832);
             g.fill();
             g.restore();
-            // La capsula lleva el glifo dibujado en la propia rejilla de pixeles.
+            // The capsule carries the glyph drawn in the pixel grid itself.
             drawSprite(g, "pup" + p.t, p.x, p.y + bob, { tint: col, px: PUP_PX });
         }
         for (const e of this.enemies) {
@@ -1510,7 +1512,7 @@ export class NeonStrikeEngine {
             g.fillStyle = "rgba(180,210,255,0.7)";
             g.font = "500 13px system-ui,sans-serif";
             g.fillText("Oleada " + this.wave, W / 2, 22);
-            // Panel por jugador (arriba a la derecha).
+            // Per-player panel (top right).
             let py = 16;
             g.textAlign = "right";
             for (const sp of this.ships) {
@@ -1518,7 +1520,7 @@ export class NeonStrikeEngine {
                 if (sp.down) {
                     g.fillStyle = "rgba(255,130,130,0.85)";
                     const pct = Math.floor((sp.reviveProgress / REVIVE_FRAMES) * 100);
-                    g.fillText(sp.name + " · caído " + pct + "%", W - 14, py);
+                    g.fillText(sp.name + " · down " + pct + "%", W - 14, py);
                 } else {
                     g.fillStyle = sp.color;
                     let hearts = "";
@@ -1548,20 +1550,20 @@ export class NeonStrikeEngine {
             g.fillText("NEON STRIKE", W / 2, H / 2 - 64);
             g.fillStyle = "rgba(180,210,255,0.8)";
             g.font = "400 15px system-ui,sans-serif";
-            g.fillText("Arrastra para moverte · disparo automático", W / 2, H / 2 - 16);
-            g.fillText("Sobrevive las oleadas y derrota a los jefes", W / 2, H / 2 + 8);
+            g.fillText("Drag to move · auto fire", W / 2, H / 2 - 16);
+            g.fillText("Survive the waves and take down the bosses", W / 2, H / 2 + 8);
             if (this.role !== "guest") {
                 g.fillStyle = "rgba(255,255,255," + pul + ")";
                 g.font = "500 18px system-ui,sans-serif";
-                g.fillText("Toca para jugar", W / 2, H / 2 + 58);
+                g.fillText("Tap to play", W / 2, H / 2 + 58);
             } else {
                 g.fillStyle = "rgba(180,210,255,0.7)";
                 g.font = "400 15px system-ui,sans-serif";
-                g.fillText("Esperando al anfitrión…", W / 2, H / 2 + 58);
+                g.fillText("Waiting for the host…", W / 2, H / 2 + 58);
             }
             g.fillStyle = "#b78bad";
             g.font = "500 12px system-ui,sans-serif";
-            g.fillText("Odoo 19 · módulo neon_strike", W / 2, H / 2 + 88);
+            g.fillText("Odoo 19 · neon_strike module", W / 2, H / 2 + 88);
         }
         if (this.state === "over") {
             g.fillStyle = "rgba(4,5,12,0.72)";
@@ -1569,22 +1571,22 @@ export class NeonStrikeEngine {
             g.textAlign = "center";
             g.fillStyle = "#ff8f8f";
             g.font = "500 38px system-ui,sans-serif";
-            g.fillText("Fin del juego", W / 2, H / 2 - 58);
+            g.fillText("Game over", W / 2, H / 2 - 58);
             g.fillStyle = "#eaf6ff";
             g.font = "500 22px system-ui,sans-serif";
             g.fillText("Puntos: " + this.score.toLocaleString(), W / 2, H / 2 - 12);
             g.fillStyle = "rgba(180,210,255,0.85)";
             g.font = "400 15px system-ui,sans-serif";
-            g.fillText("Récord: " + this.best.toLocaleString() + " · Oleada " + this.wave, W / 2, H / 2 + 16);
+            g.fillText("Best: " + this.best.toLocaleString() + " · Wave " + this.wave, W / 2, H / 2 + 16);
             const pul = 0.7 + Math.sin(this.frame * 0.08) * 0.3;
             if (this.role !== "guest") {
                 g.fillStyle = "rgba(255,255,255," + pul + ")";
                 g.font = "500 17px system-ui,sans-serif";
-                g.fillText("Toca para reintentar", W / 2, H / 2 + 62);
+                g.fillText("Tap to retry", W / 2, H / 2 + 62);
             } else {
                 g.fillStyle = "rgba(180,210,255,0.7)";
                 g.font = "400 15px system-ui,sans-serif";
-                g.fillText("Esperando al anfitrión…", W / 2, H / 2 + 62);
+                g.fillText("Waiting for the host…", W / 2, H / 2 + 62);
             }
         }
     }
@@ -1616,7 +1618,7 @@ export class NeonStrikeEngine {
     _pointerDown(e) {
         this.audio();
         const p = this._ptr(e);
-        // Solo el host/solo puede arrancar o reintentar tocando; el guest no.
+        // Only host/solo can start or retry by tapping; the guest cannot.
         if (this.role !== "guest" && this.state !== "playing") {
             this.beginPlay();
         }

@@ -7,8 +7,11 @@ import { useService } from "@web/core/utils/hooks";
 import { makeEnv, startServices } from "@web/env";
 import { getTemplate } from "@web/core/templates";
 import { NeonStrikeEngine } from "./game_engine";
+import { MenuBackdrop } from "./menu_backdrop";
+import { GLOSSARY } from "./glossary";
+import { sprite } from "./sprites";
 
-// Cadencias de red (host difunde estado, guest reenvía su puntero).
+// Network cadences (host broadcasts state, guest forwards its pointer).
 const BROADCAST_MS = 66; // ~15 Hz
 const INPUT_MS = 50; // ~20 Hz
 
@@ -19,6 +22,7 @@ export class NeonStrikeGame extends Component {
     setup() {
         this.bus = useService("bus_service");
         this.canvasRef = useRef("canvas");
+        this.menuCanvasRef = useRef("menuCanvas");
 
         this.state = useState({
             muted: false,
@@ -30,16 +34,20 @@ export class NeonStrikeGame extends Component {
             joinCode: "",
             error: "",
             connecting: false,
+            glossary: false, // ships and enemies panel over the menu
             match: null, // {id, code, is_host, slot, channel, participants, max_players, state}
         });
 
         this.engine = null;
+        this.backdrop = null;
+        // Glossary cards are rasterized once (see `glossaryGroups`).
+        this._glossary = null;
         this._broadcastHandle = null;
         this._inputHandle = null;
         this._pendingInput = null;
         this._broadcasting = false;
 
-        // Manejadores del bus (registrados una vez, retirados al desmontar).
+        // Bus handlers (registered once, removed on unmount).
         this._handlers = {
             ns_lobby: (p) => this._onLobby(p),
             ns_start: (p) => this._onStart(p),
@@ -51,7 +59,7 @@ export class NeonStrikeGame extends Component {
             this.bus.subscribe(type, cb);
         }
 
-        // Crea/destruye el motor al entrar/salir de la pantalla de juego.
+        // Create/destroy the engine when entering/leaving the game screen.
         useEffect(
             () => {
                 if (this.state.screen === "game" && this.canvasRef.el) {
@@ -62,8 +70,54 @@ export class NeonStrikeGame extends Component {
             () => [this.state.screen]
         );
 
+        // Animated menu backdrop: it only lives while the menu is visible, so no
+        // rAF is left running during the match.
+        useEffect(
+            () => {
+                if (this.state.screen === "menu" && this.menuCanvasRef.el) {
+                    this.backdrop = new MenuBackdrop(this.menuCanvasRef.el);
+                    this.backdrop.start();
+                }
+                return () => this._stopBackdrop();
+            },
+            () => [this.state.screen]
+        );
+
         onMounted(() => this.loadScores());
         onWillUnmount(() => this._cleanup());
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Glosario                                                            */
+    /* ------------------------------------------------------------------ */
+
+    /**
+     * Glossary groups with every card already rasterized to a data URL.
+     * Computed once and cached: `toDataURL()` is not cheap and the getter runs
+     * on every render of the panel.
+     */
+    get glossaryGroups() {
+        if (!this._glossary) {
+            this._glossary = GLOSSARY.map((group) => ({
+                ...group,
+                items: group.items.map((item) => ({
+                    ...item,
+                    src: sprite(item.sprite, item.tint, item.px, false).toDataURL(),
+                })),
+            }));
+        }
+        return this._glossary;
+    }
+
+    toggleGlossary() {
+        this.state.glossary = !this.state.glossary;
+    }
+
+    /** Close the glossary when clicking the dark backdrop, not the panel. */
+    onGlossaryBackdrop(ev) {
+        if (ev.target === ev.currentTarget) {
+            this.state.glossary = false;
+        }
     }
 
     /* ------------------------------------------------------------------ */
@@ -74,7 +128,7 @@ export class NeonStrikeGame extends Component {
         try {
             this.state.scores = await rpc("/neon/scores", {});
         } catch (e) {
-            console.warn("Neon Strike: no se pudieron cargar los marcadores", e);
+            console.warn("Neon Strike: could not load the leaderboard", e);
         }
     }
 
@@ -94,7 +148,7 @@ export class NeonStrikeGame extends Component {
             }
             await this.loadScores();
         } catch (e) {
-            console.warn("Neon Strike: no se pudo guardar la puntuación", e);
+            console.warn("Neon Strike: could not save the score", e);
         }
     }
 
@@ -152,6 +206,13 @@ export class NeonStrikeGame extends Component {
         }
     }
 
+    _stopBackdrop() {
+        if (this.backdrop) {
+            this.backdrop.destroy();
+            this.backdrop = null;
+        }
+    }
+
     async _broadcast() {
         if (!this.engine || !this.state.match || this._broadcasting) {
             return;
@@ -163,7 +224,7 @@ export class NeonStrikeGame extends Component {
                 snapshot: this.engine.snapshot(),
             });
         } catch (e) {
-            /* transitorio: reintentamos en el siguiente tick */
+            /* transient: retried on the next tick */
         } finally {
             this._broadcasting = false;
         }
@@ -231,12 +292,12 @@ export class NeonStrikeGame extends Component {
         if (!this.state.match) {
             return;
         }
-        this.state.error = "El anfitrión abandonó la partida.";
+        this.state.error = "The host left the match.";
         this._leaveToMenu(false);
     }
 
     /* ------------------------------------------------------------------ */
-    /* Navegación de pantallas                                             */
+    /* Screen navigation                                                   */
     /* ------------------------------------------------------------------ */
 
     _errMsg(e) {
@@ -245,7 +306,7 @@ export class NeonStrikeGame extends Component {
 
     _requireNick() {
         if (!(this.state.nickname || "").trim()) {
-            this.state.error = "Escribe un apodo para jugar.";
+            this.state.error = "Type a nickname to play.";
             return false;
         }
         return true;
@@ -286,7 +347,7 @@ export class NeonStrikeGame extends Component {
         }
         const code = (this.state.joinCode || "").trim();
         if (!code) {
-            this.state.error = "Introduce un código de partida.";
+            this.state.error = "Enter a match code.";
             return;
         }
         this.state.error = "";
@@ -356,6 +417,7 @@ export class NeonStrikeGame extends Component {
 
     _cleanup() {
         this._stopEngine();
+        this._stopBackdrop();
         for (const [type, cb] of Object.entries(this._handlers || {})) {
             this.bus.unsubscribe(type, cb);
         }
@@ -384,7 +446,7 @@ export class NeonStrikeGame extends Component {
     }
 
     fmt(n) {
-        return (n || 0).toLocaleString("es-MX");
+        return (n || 0).toLocaleString("en-US");
     }
 
     get isHost() {
@@ -393,9 +455,9 @@ export class NeonStrikeGame extends Component {
 }
 
 /**
- * Bootstrap de la página pública `/neon`: monta el juego como app OWL standalone
- * (sin webclient). Solo actúa si la página contiene el punto de anclaje, de modo
- * que importar este módulo en otras páginas frontend no monta nada.
+ * Bootstrap for the public `/neon` page: mounts the game as a standalone OWL app
+ * (no webclient). It only acts when the page contains the anchor point, so
+ * importing this module on other frontend pages mounts nothing.
  */
 whenReady(async () => {
     const root = document.querySelector(".o_neon_strike_root");

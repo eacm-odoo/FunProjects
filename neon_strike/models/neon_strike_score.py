@@ -4,44 +4,45 @@ from odoo import api, fields, models
 
 
 class NeonStrikeScore(models.Model):
-    """Puntuación de una partida de Neon Strike.
+    """Score of a Neon Strike game.
 
-    Cada registro se crea al terminar una partida. El juego es público (sin
-    login): el jugador se identifica por un apodo. ``user_id`` solo se rellena si
-    resultó ser un usuario de Odoo conectado. El leaderboard es global y único.
+    One record is created when a game ends. The game is public (no login): the
+    player is identified by a nickname. ``user_id`` is only filled in when the
+    player happened to be a logged-in Odoo user. The leaderboard is global and
+    unique.
     """
 
     _name = "neon.strike.score"
-    _description = "Neon Strike - Puntuación"
+    _description = "Neon Strike - Score"
     _order = "score desc, id asc"
     _rec_name = "player_name"
 
     user_id = fields.Many2one(
         "res.users",
-        string="Usuario",
+        string="User",
         index=True,
         ondelete="cascade",
     )
-    nickname = fields.Char(string="Apodo")
+    nickname = fields.Char(string="Nickname")
     player_name = fields.Char(
-        compute="_compute_player_name", store=True, string="Nombre",
+        compute="_compute_player_name", store=True, string="Name",
     )
-    score = fields.Integer(string="Puntos", required=True)
-    wave = fields.Integer(string="Oleada alcanzada")
+    score = fields.Integer(string="Points", required=True)
+    wave = fields.Integer(string="Wave Reached")
     mode = fields.Selection(
-        [("solo", "Individual"), ("coop", "Cooperativo")],
-        string="Modo",
+        [("solo", "Solo"), ("coop", "Co-op")],
+        string="Mode",
         default="solo",
         required=True,
     )
-    player_count = fields.Integer(string="Jugadores", default=1)
+    player_count = fields.Integer(string="Players", default=1)
     match_id = fields.Many2one(
         "neon.strike.match",
-        string="Partida",
+        string="Match",
         ondelete="set null",
     )
 
     @api.depends("nickname", "user_id.name")
     def _compute_player_name(self):
         for score in self:
-            score.player_name = score.nickname or score.user_id.name or "Jugador"
+            score.player_name = score.nickname or score.user_id.name or "Player"
