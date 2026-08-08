@@ -17,6 +17,7 @@
 // the engine keeps loading as native ESM outside Odoo (the design sprite gallery).
 import { drawSprite, pxFor, spriteSize } from "./sprites";
 import { MAX_ACTIVES, PERKS, PERK_INDEX, rollOffers } from "./perks";
+import { BOSSES, bossForWave } from "./bosses";
 import { COLOSSI, colossusForWave } from "./colossi";
 
 const SHIP_COLORS = ["#5ee1ff", "#ff8fb3", "#7bffb0", "#ffd166"];
@@ -48,7 +49,8 @@ const ENEMY_SPRITES = {
     tank: ["tank0", "tank1"],
     sniper: ["sniper0"],
     kami: ["kami0"],
-    boss: ["boss0"],
+    // The boss family is indexed by `e.k`, see BOSSES.
+    boss: BOSSES.map((b) => b.sprite),
 };
 const ROCK_SPRITES = ["rock0", "rock1"];
 // Colour per power-up type. The `pup<T>` sprite is tinted with it, so the two
@@ -844,8 +846,16 @@ export class NeonStrikeEngine {
             // Locks onto a ship and accelerates; dies on contact (generic collision).
             return Object.assign(base, { hp: 2, mhp: 2, t: 0, val: 350, vx: 0, vy: 1.2, rot: 0 });
         }
-        const hp = 35 + this.wave * 9 + (this.players - 1) * 25;
-        return Object.assign(base, { type: "boss", hp, mhp: hp, t: 0, val: 5000, dropAt: 0.75 });
+        // Regular boss: `k` picks which one of the family it is.
+        const k = Math.max(0, base.k != null ? base.k : bossForWave(this.wave));
+        const d = BOSSES[k] || BOSSES[0];
+        const hp = Math.round((35 + this.wave * 9 + (this.players - 1) * 25) * d.hp);
+        return Object.assign(base, {
+            type: "boss", k, hp, mhp: hp, t: 0,
+            r: d.r, c: d.tint, v: k,
+            val: Math.round(5000 * d.val), dropAt: 0.75,
+            phase: 0, armor: 0, gap: 140, vx: 0, vy: 0,
+        });
     }
 
     /**
@@ -895,10 +905,14 @@ export class NeonStrikeEngine {
             this.sBigBoom();
             return;
         }
-        if (this.wave % 4 === 0) {
-            this.enemies.push(this.mkEnemy("boss", this.W / 2, -90));
+        const bk = bossForWave(this.wave);
+        if (bk >= 0) {
+            const d = BOSSES[bk];
+            const boss = this.mkEnemy("boss", this.W / 2, -90);
+            this.enemies.push(boss);
             this.bossAlive = true;
-            this.pop(this.W / 2, this.H / 2 - 50, "BOSS!", "#ff6b6b", 36, 90);
+            this.pop(this.W / 2, this.H / 2 - 60, "BOSS", "#ff6b6b", 34, 100);
+            this.pop(this.W / 2, this.H / 2 - 24, d.name, d.tint, 22, 100);
             return;
         }
         this.pop(this.W / 2, this.H / 2 - 50, "Wave " + this.wave, "#8be9ff", 30, 80);
@@ -1135,11 +1149,8 @@ export class NeonStrikeEngine {
         for (let i = this.enemies.length - 1; i >= 0; i--) {
             const e = this.enemies[i];
             if (this._isBoss(e)) {
-                e.hp -= 14;
                 this.burst(e.x, e.y, "#ffb347", 30, 6);
-                if (e.hp <= 0) {
-                    this.killEnemy(e, killer);
-                }
+                this._damageEnemy(e, 14, killer);
             } else {
                 this.killEnemy(e, killer);
             }
@@ -1738,6 +1749,22 @@ export class NeonStrikeEngine {
         return d;
     }
 
+    /**
+     * Apply damage to an enemy through a single door: WARDEN raises armour and
+     * every source (bullets, splash, chains, trails, singularities, bombs) has
+     * to respect it.
+     *
+     * @returns {boolean} true if the enemy died
+     */
+    _damageEnemy(e, dmg, killer) {
+        e.hp -= e.armor ? dmg * 0.35 : dmg;
+        if (e.hp <= 0) {
+            this.killEnemy(e, killer);
+            return true;
+        }
+        return false;
+    }
+
     /** Explosive Tips / Orbital Strike splash. */
     _splash(x, y, r, dmg, sp, skip) {
         this.burst(x, y, "#ffb347", 12, 3.5);
@@ -1746,11 +1773,8 @@ export class NeonStrikeEngine {
             if (e === skip || (e.x - x) ** 2 + (e.y - y) ** 2 > r * r) {
                 continue;
             }
-            e.hp -= dmg;
             e.flash = 5;
-            if (e.hp <= 0) {
-                this.killEnemy(e, sp);
-            }
+            this._damageEnemy(e, dmg, sp);
         }
     }
 
@@ -1771,13 +1795,10 @@ export class NeonStrikeEngine {
         if (!best) {
             return;
         }
-        best.hp -= dmg;
         best.flash = 5;
         this.zaps.push({ x1: from.x, y1: from.y, x2: best.x, y2: best.y, life: 8 });
         this._ev({ k: "zap", x: from.x, y: from.y, x2: best.x, y2: best.y });
-        if (best.hp <= 0) {
-            this.killEnemy(best, sp);
-        }
+        this._damageEnemy(best, dmg, sp);
     }
 
     /* ------------------------------------------------------------------ */
@@ -1823,8 +1844,8 @@ export class NeonStrikeEngine {
                 // A colossus is too big to stun: the EMP only chips at it.
                 if ((e.x - sp.x) ** 2 + (e.y - sp.y) ** 2 < 240 * 240) {
                     if (e.type === "colossus") {
-                        e.hp -= 6;
                         e.flash = 6;
+                        this._damageEnemy(e, 6, sp);
                     } else {
                         e.stun = 150;
                     }
@@ -1890,11 +1911,8 @@ export class NeonStrikeEngine {
             for (let k = this.enemies.length - 1; k >= 0; k--) {
                 const e = this.enemies[k];
                 if ((e.x - tr.x) ** 2 + (e.y - tr.y) ** 2 < (e.r + 16) ** 2) {
-                    e.hp -= 0.14 * ts;
                     e.flash = 3;
-                    if (e.hp <= 0) {
-                        this.killEnemy(e, sp);
-                    }
+                    this._damageEnemy(e, 0.14 * ts, sp);
                 }
             }
         }
@@ -1959,10 +1977,7 @@ export class NeonStrikeEngine {
                 }
                 const d = pull(e, 1.8);
                 if (d <= h.r) {
-                    e.hp -= 0.08 * ts;
-                    if (e.hp <= 0) {
-                        this.killEnemy(e, sp);
-                    }
+                    this._damageEnemy(e, 0.08 * ts, sp);
                 }
             }
             for (const rk of this.rocks) {
@@ -2272,6 +2287,206 @@ export class NeonStrikeEngine {
         }
     }
 
+    /**
+     * AI of the regular boss family (keyed by `e.k`, same order as BOSSES).
+     * They all fit the arena and leave the camera alone; what changes is how
+     * they ask you to move.
+     */
+    _updateBoss(e, mv) {
+        const W = this.W;
+        if (e.k === 2) {
+            this._bossLancer(e, mv);
+            return;
+        }
+        if (e.k === 4) {
+            this._bossPrism(e, mv);
+            return;
+        }
+        // Dreadnought, warden and hive share the "slide in and patrol" base.
+        if (e.y < 95) {
+            e.y += 1.4 * mv;
+            return;
+        }
+        if (mv <= 0) {
+            return;
+        }
+        if (e.k === 1) {
+            this._bossWarden(e, mv);
+            return;
+        }
+        if (e.k === 3) {
+            this._bossHive(e, mv);
+            return;
+        }
+        // DREADNOUGHT: wide sweep, radial bursts and aimed triples.
+        e.x = W / 2 + Math.sin(e.t * 0.016) * (W * 0.32);
+        if (Math.floor(e.t) % 85 === 0) {
+            for (let k = 0; k < 9; k++) {
+                const a = (k / 9) * 6.2832 + e.t * 0.01;
+                this._eb(e.x, e.y, Math.cos(a) * 2.3, Math.sin(a) * 2.3);
+            }
+            this.sTick();
+        }
+        if (Math.floor(e.t) % 55 === 27) {
+            for (let k = -1; k <= 1; k++) {
+                this._ebAimed(e.x, e.y, 3, k * 0.22);
+            }
+            this.sTick();
+        }
+    }
+
+    /**
+     * WARDEN: alternates an armoured phase (curtain of fire with one gap, hits
+     * barely scratch it) with an exposed one (aimed fans). The whole fight is
+     * about spending the window when the armour drops.
+     */
+    _bossWarden(e, mv) {
+        e.x += Math.sin(e.t * 0.011) * 1.5 * mv;
+        e.x = Math.max(this.fx0 + 80, Math.min(this.fx1 - 80, e.x));
+        e.phase -= mv;
+        if (e.phase <= 0) {
+            e.armor = e.armor ? 0 : 1;
+            e.phase = e.armor ? 330 : 260;
+            this.burst(e.x, e.y, e.armor ? "#4de3c1" : "#ffd166", 20, 4);
+            this.pop(e.x, e.y - e.r - 16, e.armor ? "ARMOUR UP" : "ARMOUR DOWN",
+                e.armor ? "#4de3c1" : "#ffd166", 13);
+        }
+        if (e.armor) {
+            if (Math.floor(e.t) % 105 === 0) {
+                e.gap = this.fx0 + 60 + ((e.gap + 151) % (this.fx1 - this.fx0 - 120));
+                for (let x = this.fx0 + 12; x < this.fx1; x += 40) {
+                    if (Math.abs(x - e.gap) < 66) {
+                        continue;
+                    }
+                    this._eb(x, e.y + e.r * 0.6, 0, 2.2);
+                }
+                this.sTick();
+            }
+        } else if (Math.floor(e.t) % 42 === 0) {
+            for (let k = -2; k <= 2; k++) {
+                this._ebAimed(e.x, e.y, 3.4, k * 0.17);
+            }
+            this.sTick();
+        }
+    }
+
+    /**
+     * LANCER: hovers, charges a lance beam straight down, then dives through
+     * the arena and climbs back. Light hull, so it punishes standing still.
+     */
+    _bossLancer(e, mv) {
+        if (e.y < 110 && e.phase === 0) {
+            e.y += 2 * mv;
+            return;
+        }
+        if (mv <= 0) {
+            return;
+        }
+        e.phase = e.phase || 1;
+        if (e.phase === 1) {
+            // Hover over a target and charge the lance.
+            const tgt = this._target(e.x, e.y);
+            if (tgt) {
+                e.x += Math.max(-2.2, Math.min(2.2, (tgt.x - e.x) * 0.02)) * mv;
+            }
+            e.a1 = (e.a1 || 0) - mv;
+            if (e.a1 <= 0) {
+                e.a1 = 250;
+                this.beams.push(this.mkBeam({
+                    src: e.id, oy: e.r * 0.7, a: Math.PI / 2,
+                    warn: 55, life: 90, w: 34, spin: 0, c: "#ffd166", len: 900,
+                }));
+                e.phase = 2;
+                e.a2 = 150;
+            }
+            if (Math.floor(e.t) % 30 === 0) {
+                this._ebAimed(e.x, e.y, 3.6);
+            }
+        } else if (e.phase === 2) {
+            // The dive starts once the beam is spent.
+            e.a2 -= mv;
+            if (e.a2 <= 0) {
+                e.phase = 3;
+                const tgt = this._target(e.x, e.y);
+                e.vx = tgt ? Math.max(-3, Math.min(3, (tgt.x - e.x) * 0.03)) : 0;
+                e.vy = 7;
+            }
+        } else {
+            e.x += e.vx * mv;
+            e.y += e.vy * mv;
+            if (this.frame % 3 === 0) {
+                this.burst(e.x, e.y, e.c, 3, 2);
+            }
+            if (e.y > this.fy1 - 40) {
+                e.vy = -6.5;   // climb back out
+            }
+            if (e.y < 110 && e.vy < 0) {
+                e.y = 110;
+                e.vy = 0;
+                e.phase = 1;
+                e.a1 = 120;
+            }
+        }
+    }
+
+    /** HIVE: barely shoots, keeps pouring interceptors out of its bays. */
+    _bossHive(e, mv) {
+        e.x += Math.sin(e.t * 0.008) * 1.1 * mv;
+        e.x = Math.max(this.fx0 + 70, Math.min(this.fx1 - 70, e.x));
+        e.a1 = (e.a1 || 0) - mv;
+        if (e.a1 <= 0) {
+            e.a1 = Math.max(62, 140 - this.wave * 2);
+            const brood = this.wave > 8 ? ["drone", "speedy", "kami"] : ["drone", "speedy"];
+            // Three bays past the midgame: the flood is the whole point.
+            const bays = this.wave > 12 ? [-e.r * 0.6, 0, e.r * 0.6] : [-e.r * 0.55, e.r * 0.55];
+            for (const off of bays) {
+                const type = brood[Math.floor(Math.random() * brood.length)];
+                this.enemies.push(this.mkEnemy(type, e.x + off, e.y + e.r * 0.5));
+            }
+            this.burst(e.x, e.y + e.r * 0.5, e.c, 10, 3);
+            this.sTick();
+        }
+        if (Math.floor(e.t) % 130 === 0) {
+            for (let k = 0; k < 7; k++) {
+                const a = (k / 7) * 6.2832 + e.t * 0.02;
+                this._eb(e.x, e.y, Math.cos(a) * 1.9, Math.sin(a) * 1.9);
+            }
+        }
+    }
+
+    /** PRISM: blinks around the arena, spinning a three-armed spiral. */
+    _bossPrism(e, mv) {
+        if (e.y < 120 && !e.phase) {
+            e.y += 2 * mv;
+            return;
+        }
+        if (mv <= 0) {
+            return;
+        }
+        e.phase = 1;
+        e.a1 = (e.a1 || 0) - mv;
+        if (e.a1 <= 0) {
+            e.a1 = 150;
+            // Shockwave where it was, then reappear somewhere else.
+            for (let k = 0; k < 14; k++) {
+                const a = (k / 14) * 6.2832;
+                this._eb(e.x, e.y, Math.cos(a) * 2.6, Math.sin(a) * 2.6);
+            }
+            this.burst(e.x, e.y, e.c, 26, 5);
+            this._ev({ k: "boom", x: e.x, y: e.y, c: e.c, b: 0 });
+            e.x = this.fx0 + 90 + Math.random() * (this.fx1 - this.fx0 - 180);
+            e.y = 110 + Math.random() * 90;
+            this.burst(e.x, e.y, "#ffffff", 20, 4);
+            this.sPup();
+        }
+        if (Math.floor(e.t) % 7 === 0) {
+            for (let k = 0; k < 3; k++) {
+                const a = e.t * 0.09 + (k / 3) * 6.2832;
+                this._eb(e.x, e.y, Math.cos(a) * 2.9, Math.sin(a) * 2.9);
+            }
+        }
+    }
+
     _updateEnemies(ts) {
         const W = this.W;
         const H = this.H;
@@ -2355,32 +2570,7 @@ export class NeonStrikeEngine {
                 // The sprite looks downwards: rotate relative to +Y.
                 e.rot = Math.atan2(e.vy, e.vx) - Math.PI / 2;
             } else {
-                if (e.y < 95) {
-                    e.y += 1.4 * mv;
-                } else {
-                    e.x = W / 2 + Math.sin(e.t * 0.016) * (W * 0.32);
-                }
-                if (e.y >= 90 && mv > 0) {
-                    if (Math.floor(e.t) % 85 === 0) {
-                        for (let k = 0; k < 9; k++) {
-                            const a = (k / 9) * 6.2832 + e.t * 0.01;
-                            this.ebullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * 2.3, vy: Math.sin(a) * 2.3 });
-                        }
-                        this.sTick();
-                    }
-                    if (Math.floor(e.t) % 55 === 27) {
-                        const tgt = this.decoys.length ? this._target(e.x, e.y) : this._aimShip();
-                        if (tgt) {
-                            const dx = tgt.x - e.x;
-                            const dy = tgt.y - e.y;
-                            const d = Math.sqrt(dx * dx + dy * dy) || 1;
-                            for (let k = -1; k <= 1; k++) {
-                                this.ebullets.push({ x: e.x, y: e.y, vx: (dx / d) * 3 + k * 0.7, vy: (dy / d) * 3 });
-                            }
-                            this.sTick();
-                        }
-                    }
-                }
+                this._updateBoss(e, mv);
             }
             // Every quarter of health a boss loses, it sheds a capsule.
             if (this._isBoss(e) && e.dropAt > 0 && e.hp <= e.mhp * e.dropAt) {
@@ -2415,13 +2605,9 @@ export class NeonStrikeEngine {
                         killedByShip = true;
                     } else if (ram) {
                         // Ram Prow also bites into a boss, without killing it.
-                        e.hp -= 3;
                         e.flash = 6;
                         this.burst(sp.x, sp.y, "#c9a4ff", 20, 5);
-                        if (e.hp <= 0) {
-                            this.killEnemy(e, sp);
-                            killedByShip = true;
-                        }
+                        killedByShip = this._damageEnemy(e, 3, sp);
                     }
                     break;
                 }
@@ -2440,7 +2626,7 @@ export class NeonStrikeEngine {
                 }
                 const owner = this._shipBySlot(b.sl);
                 const dmg = this._impactDmg(b, e, owner);
-                e.hp -= dmg;
+                const dead = this._damageEnemy(e, dmg, owner);
                 this.burst(b.x, b.y, b.cr ? "#ffd166" : "#fff", b.cr ? 10 : 4, b.cr ? 3.5 : 2);
                 if (b.cr) {
                     this.pop(b.x, b.y - 8, "CRIT", "#ffd166", 11, 30);
@@ -2460,8 +2646,7 @@ export class NeonStrikeEngine {
                 } else {
                     this.bullets.splice(j, 1);
                 }
-                if (e.hp <= 0) {
-                    this.killEnemy(e, owner);
+                if (dead) {
                     break;
                 }
                 e.flash = 6;
@@ -2639,8 +2824,8 @@ export class NeonStrikeEngine {
             // Overload: locks the small fry, chips at anything too big to stun.
             for (const e of this.enemies) {
                 if (this._isBoss(e)) {
-                    e.hp -= 8;
                     e.flash = 6;
+                    this._damageEnemy(e, 8, sp);
                 } else {
                     e.stun = 150;
                 }
@@ -2787,8 +2972,10 @@ export class NeonStrikeEngine {
                 rt: e.rot != null ? Math.round(e.rot * 100) / 100 : undefined,
                 am: e.aim != null ? Math.round(e.aim) : undefined,
                 sn: e.stun > 0 ? 1 : 0,
-                // Colossus index: the guest rebuilds size/zoom from COLOSSI.
+                // Boss/colossus index: the guest rebuilds the rest from the
+                // catalogues. `ar` is the WARDEN armour.
                 ck: e.k,
+                ar: e.armor ? 1 : 0,
             })),
             // 3rd slot = style bits: 1 critical, 2 explosive.
             bu: this.bullets.map((b) => [Math.round(b.x), Math.round(b.y), (b.cr ? 1 : 0) | (b.ex ? 2 : 0)]),
@@ -2883,8 +3070,13 @@ export class NeonStrikeEngine {
                 type: e.t, x: e.x, y: e.y, r: this._enemyR(e.t),
                 hp: e.h, mhp: e.mh, c: this._enemyColor(e.t),
                 flash: e.f ? 4 : 0, t: e.tt, v: e.v || 0, rot: e.rt, aim: e.am,
-                stun: e.sn ? 1 : 0,
+                stun: e.sn ? 1 : 0, armor: e.ar ? 1 : 0,
             };
+            if (e.t === "boss") {
+                // Radius, colour and hull come from the shared catalogue.
+                const d = BOSSES[e.ck || 0] || BOSSES[0];
+                Object.assign(en, { k: e.ck || 0, r: d.r, c: d.tint, v: e.ck || 0 });
+            }
             if (e.t === "colossus") {
                 // Size, colour and zoom come from the shared catalogue, so only
                 // the index travels.
@@ -3150,6 +3342,17 @@ export class NeonStrikeEngine {
                 flash,
                 rot: e.type === "kami" ? e.rot || 0 : 0,
             });
+        }
+        if (e.armor) {
+            // WARDEN with the shield up: hits barely scratch it.
+            g.save();
+            g.globalCompositeOperation = "lighter";
+            g.strokeStyle = "rgba(77,227,193," + (0.45 + Math.sin(this.frame * 0.12) * 0.25) + ")";
+            g.lineWidth = 3;
+            g.beginPath();
+            g.arc(e.x, e.y, e.r + 9, 0, 6.2832);
+            g.stroke();
+            g.restore();
         }
         if (e.stun > 0) {
             // EMP: crackling ring around a stunned hull.

@@ -3,7 +3,7 @@
 # UI palette follows Odoo brand assets: https://www.odoo.com/page/brand-assets
 {
     "name": "Neon Strike",
-    "version": "19.0.5.2.0",
+    "version": "19.0.5.3.0",
     "category": "Productivity",
     "summary": "Co-op neon space shooter, playable without a login on a public page",
     "description": """
@@ -15,7 +15,8 @@ playable **without an account**: pick a nickname and go.
 * Remote co-op for up to 4 players over the Odoo bus (room by code)
 * No sign-up: identity is a session token + nickname (anonymous players)
 * Individual lives per player, with the option to revive a downed ally
-* 6 enemy types with distinct AI, a boss every 4 waves and asteroids
+* 6 enemy types with distinct AI, asteroids, and a rotating family of 5 bosses
+  every 4 waves (dreadnought, warden, lancer, hive, prism)
 * Custom pixel art: one hull per player slot and enemy chassis variants
 * In-menu glossary covering every ship, enemy, boss, capsule and perk
 * 100% synthesised audio with the Web Audio API (no sound files)
@@ -45,6 +46,7 @@ Built with Odoo. Brand guide: https://www.odoo.com/page/brand-assets
         "web.assets_frontend": [
             "neon_strike/static/src/js/sprites.js",
             "neon_strike/static/src/js/perks.js",
+            "neon_strike/static/src/js/bosses.js",
             "neon_strike/static/src/js/colossi.js",
             "neon_strike/static/src/js/menu_backdrop.js",
             "neon_strike/static/src/js/glossary.js",

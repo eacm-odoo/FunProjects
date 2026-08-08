@@ -10,10 +10,12 @@
  * `px` is the pixel size the card is rasterized at (~120-130 px wide for all of
  * them, whatever the sprite grid is).
  *
- * The colossal boss group is generated from `colossi.js` so their names and
- * behaviour lines never drift from the ones the engine uses.
+ * The boss and colossal boss groups are generated from `bosses.js` and
+ * `colossi.js` so their names and behaviour lines never drift from the ones
+ * the engine uses.
  */
 
+import { BOSSES } from "./bosses";
 import { COLOSSI } from "./colossi";
 
 export const GLOSSARY = [
@@ -89,13 +91,20 @@ export const GLOSSARY = [
         ],
     },
     {
-        title: "BOSS AND ASTEROIDS",
+        title: "BOSSES",
+        note: "One every 4 waves, rotating through the five so the boss wave is never the same fight. Any of them drops 3 capsules and gives the whole team a life when it dies. On waves that are a multiple of 10 a colossal boss takes over instead.",
+        items: BOSSES.map((b) => ({
+            sprite: b.sprite,
+            tint: b.tint,
+            px: 3,
+            label: b.name,
+            sub: "boss · " + (5000 * b.val).toLocaleString("en-US") + " pts",
+            desc: b.desc,
+        })),
+    },
+    {
+        title: "ASTEROIDS",
         items: [
-            {
-                sprite: "boss0", tint: "#ff4d4d", px: 3,
-                label: "DREADNOUGHT", sub: "boss · 5,000 pts",
-                desc: "Shows up every 4 waves. Alternates spread fire with aimed bursts. When it dies it drops 3 capsules and gives the whole team a life.",
-            },
             {
                 sprite: "rock0", tint: "#8a8faf", px: 10,
                 label: "ASTEROID · A", sub: "50 pts",
