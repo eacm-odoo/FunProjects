@@ -43,7 +43,11 @@ to dash: a short burst towards the cursor during which nothing can touch you.
 Keys **1** to **4** trigger the active perks you picked up, in that order.
 
 Capsules dropped by downed enemies give **T** triple shot, **S** shield, **B**
-bomb and **+** an extra life. In co-op, fly next to a downed ally to revive them.
+bomb, **+** an extra life, **R** rapid fire, **V** overcharge, **P** piercing,
+**H** homing, **D** a wingman drone, **G** a phase shift, **F** freeze, **X**
+overload, **C** a combo surge and **Y** a payday. The timed ones show up as
+letters next to your lives and refresh instead of stacking. In co-op, fly next
+to a downed ally to revive them.
 
 Every **5 cleared waves** the run pauses and each player is offered **3 of the 50
 permanent perks** and keeps 1 — passives, situational bonuses and active powers

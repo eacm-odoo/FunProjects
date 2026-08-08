@@ -122,7 +122,7 @@ export const GLOSSARY = [
     },
     {
         title: "POWER-UPS",
-        note: "Dropped by downed enemies. Just fly over one to pick it up.",
+        note: "Dropped by downed enemies, and on a timer plus every 25% of a boss's health while one is up. Just fly over one to pick it up. The timed ones show as letters next to your lives and refresh instead of stacking.",
         items: [
             {
                 sprite: "pupT", tint: "#5ee1ff", px: 8,
@@ -143,6 +143,56 @@ export const GLOSSARY = [
                 sprite: "pupL", tint: "#ff8fb3", px: 8,
                 label: "EXTRA LIFE", sub: "capsule +",
                 desc: "Adds one life (up to 5).",
+            },
+            {
+                sprite: "pupR", tint: "#ffd166", px: 8,
+                label: "RAPID FIRE", sub: "capsule R · 10 s",
+                desc: "Your cannons cycle 40% faster.",
+            },
+            {
+                sprite: "pupV", tint: "#ff8f3d", px: 8,
+                label: "OVERCHARGE", sub: "capsule V · 10 s",
+                desc: "+1 damage on every bullet you fire.",
+            },
+            {
+                sprite: "pupP", tint: "#c9a4ff", px: 8,
+                label: "PIERCING", sub: "capsule P · 9 s",
+                desc: "Bullets go through two extra enemies.",
+            },
+            {
+                sprite: "pupH", tint: "#4de3c1", px: 8,
+                label: "HOMING", sub: "capsule H · 10 s",
+                desc: "Bullets steer towards the closest hull.",
+            },
+            {
+                sprite: "pupD", tint: "#8be9ff", px: 8,
+                label: "WINGMAN", sub: "capsule D · 15 s",
+                desc: "An escort drone orbits you and fires on its own.",
+            },
+            {
+                sprite: "pupG", tint: "#e2e0ff", px: 8,
+                label: "PHASE SHIFT", sub: "capsule G · 4 s",
+                desc: "Four seconds where nothing can touch you.",
+            },
+            {
+                sprite: "pupF", tint: "#8bd0ff", px: 8,
+                label: "FREEZE", sub: "capsule F · instant",
+                desc: "Pins every enemy bullet on screen for 3 s.",
+            },
+            {
+                sprite: "pupX", tint: "#ffe066", px: 8,
+                label: "OVERLOAD", sub: "capsule X · instant",
+                desc: "Stuns every enemy for 2.5 s; bosses just take the hit.",
+            },
+            {
+                sprite: "pupC", tint: "#ff6fa5", px: 8,
+                label: "COMBO SURGE", sub: "capsule C · instant",
+                desc: "Adds 6 to the team combo and refills its timer.",
+            },
+            {
+                sprite: "pupY", tint: "#ffcc33", px: 8,
+                label: "PAYDAY", sub: "capsule Y · instant",
+                desc: "Cash bonus scaled by the wave and your combo.",
             },
         ],
     },
