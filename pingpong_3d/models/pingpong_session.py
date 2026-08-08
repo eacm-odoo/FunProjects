@@ -28,20 +28,20 @@ class PingPongSession(models.Model):
     """
 
     _name = "pingpong.session"
-    _description = "Ping Pong 3D - Sala online"
+    _description = "Ping Pong 3D - Online Room"
     _order = "create_date desc"
     _rec_name = "code"
 
     MAX_PLAYERS = 2
 
-    code = fields.Char(string="Código", required=True, index=True, copy=False)
+    code = fields.Char(string="Code", required=True, index=True, copy=False)
     access_token = fields.Char(
         string="Token de acceso",
         required=True,
         index=True,
         copy=False,
         default=lambda self: uuid.uuid4().hex,
-        help="Secreto que da nombre al canal de bus: conocerlo es la credencial.",
+        help="Secret naming the bus channel: knowing it is the credential.",
     )
     state = fields.Selection(
         [
@@ -57,21 +57,21 @@ class PingPongSession(models.Model):
         index=True,
     )
     is_public_queue = fields.Boolean(
-        string="En cola pública",
+        string="In Public Queue",
         default=False,
         index=True,
-        help="Creada por partida rápida: cualquiera en la cola puede emparejarse.",
+        help="Created by quick match: anyone in the queue can be paired.",
     )
-    match_point = fields.Integer(string="Puntos para ganar", required=True, default=11)
+    match_point = fields.Integer(string="Points To Win", required=True, default=11)
     rng_seed = fields.Integer(
         string="Semilla",
         required=True,
         default=lambda self: random.getrandbits(30),
-        help="Los dos clientes derivan de ella saques idénticos sin negociarlos.",
+        help="Both clients derive identical serves from it without negotiating.",
     )
     first_server = fields.Selection(
-        [("host", "Anfitrión"), ("guest", "Invitado")],
-        string="Saque inicial",
+        [("host", "Host"), ("guest", "Guest")],
+        string="First Serve",
         default="host",
         required=True,
     )
@@ -82,28 +82,28 @@ class PingPongSession(models.Model):
     player_count = fields.Integer(
         string="Nº jugadores", compute="_compute_player_count", store=True
     )
-    host_score = fields.Integer(string="Puntos del anfitrión", default=0)
-    guest_score = fields.Integer(string="Puntos del invitado", default=0)
-    started_at = fields.Datetime(string="Empezó")
-    ended_at = fields.Datetime(string="Terminó")
+    host_score = fields.Integer(string="Host Score", default=0)
+    guest_score = fields.Integer(string="Guest Score", default=0)
+    started_at = fields.Datetime(string="Started At")
+    ended_at = fields.Datetime(string="Ended At")
     last_activity = fields.Datetime(
-        string="Última señal",
+        string="Last Signal",
         index=True,
         default=fields.Datetime.now,
-        help="La toca el latido, nunca las rutas de relay: escribir en esta fila "
-             "a 25 mensajes por segundo serializaría las dos peticiones entre sí.",
+        help="Touched by the heartbeat, never by the relay routes: writing this row "
+             "at 25 messages per second would serialize the two requests against each other.",
     )
     match_ids = fields.One2many("pingpong.match", "session_id", string="Historial")
 
     _code_uniq = models.Constraint(
-        "unique (code)", "El código de sala debe ser único."
+        "unique (code)", "The room code must be unique."
     )
     _access_token_uniq = models.Constraint(
-        "unique (access_token)", "El token de acceso debe ser único."
+        "unique (access_token)", "The access token must be unique."
     )
     _match_point_range = models.Constraint(
         "CHECK (match_point BETWEEN 3 AND 21)",
-        "Los puntos para ganar deben estar entre 3 y 21.",
+        "Points to win must be between 3 and 21.",
     )
     _queue_idx = models.Index(
         "(create_date) WHERE is_public_queue IS TRUE AND state = 'waiting'"
@@ -153,7 +153,7 @@ class PingPongSession(models.Model):
                 continue
             session._add_participant(session_key, nickname, partner_id, slot=0)
             return session
-        raise UserError(self.env._("No se pudo generar un código de sala libre."))
+        raise UserError(self.env._("Could not generate a free room code."))
 
     def _add_participant(self, session_key, nickname, partner_id=False, slot=0):
         self.ensure_one()
@@ -228,18 +228,18 @@ class PingPongSession(models.Model):
         """Take the free seat in the room with that code."""
         code = (code or "").strip().upper()
         if not code:
-            raise UserError(self.env._("Escribe un código de sala."))
+            raise UserError(self.env._("Type a room code."))
         if not code.startswith(CODE_PREFIX):
             code = CODE_PREFIX + code
         session = self.search([("code", "=", code)], limit=1)
         if not session:
-            raise UserError(self.env._("No existe ninguna sala con el código %s.", code))
+            raise UserError(self.env._("There is no room with code %s.", code))
         if session.state in ("over", "abandoned"):
-            raise UserError(self.env._("Esa sala ya terminó."))
+            raise UserError(self.env._("That room is already over."))
         if session.state == "playing":
-            raise UserError(self.env._("Esa partida ya empezó."))
+            raise UserError(self.env._("That match already started."))
         if len(session.participant_ids) >= self.MAX_PLAYERS:
-            raise UserError(self.env._("La sala está llena."))
+            raise UserError(self.env._("The room is full."))
 
         participant = session._add_participant(session_key, nickname, partner_id, slot=1)
         session.write({"state": "ready", "last_activity": fields.Datetime.now()})
@@ -255,7 +255,7 @@ class PingPongSession(models.Model):
         """
         self.ensure_one()
         if participant.role != "host":
-            raise UserError(self.env._("Solo el anfitrión puede empezar la partida."))
+            raise UserError(self.env._("Only the host can start the match."))
         if self.state == "playing":
             return False
         if len(self.participant_ids) < self.MAX_PLAYERS:

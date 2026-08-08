@@ -8,7 +8,7 @@
             <t t-if="state.screen === 'playing'">
                 <div class="o_pp_hud">
                     <div class="side you">
-                        <div class="lbl">Tú</div>
+                        <div class="lbl">You</div>
                         <div class="val" t-out="state.score[localSide]"/>
                     </div>
                     <div class="mid">
@@ -18,7 +18,7 @@
                             </t>
                             <t t-else="" t-out="difficultyName"/>
                         </div>
-                        <div class="serve">Saca: <t t-out="serverName"/></div>
+                        <div class="serve">Serving: <t t-out="serverName"/></div>
                     </div>
                     <div class="side cpu">
                         <div class="lbl" t-out="opponentLabel"/>
@@ -28,38 +28,38 @@
 
                 <div class="o_pp_meters">
                     <div class="o_pp_meter">
-                        <div class="t"><span>Potencia</span><b t-ref="powVal">0.0 m/s</b></div>
+                        <div class="t"><span>Power</span><b t-ref="powVal">0.0 m/s</b></div>
                         <div class="o_pp_bar"><i t-ref="powBar"/></div>
                     </div>
                     <div class="o_pp_meter">
-                        <div class="t"><span>Efecto</span><b t-ref="spinVal">—</b></div>
+                        <div class="t"><span>Spin</span><b t-ref="spinVal">—</b></div>
                         <div class="o_pp_bar spin"><i t-ref="spinBar"/></div>
                     </div>
                 </div>
 
                 <div class="o_pp_hint">
-                    <b>Mueve el ratón</b> para colocar la pala: horizontal apunta, vertical sube o baja.<br/>
-                    <b>Golpea con movimiento</b>: barrer hacia arriba da liftado, hacia abajo cortado, y de lado efecto lateral.<br/>
-                    <kbd>Espacio</kbd> saque ·
-                    <t t-if="state.mode === 'solo'"><kbd>P</kbd> pausa · </t>
-                    <kbd>C</kbd> cámara
+                    <b>Move the mouse</b> to place the paddle: horizontal aims, vertical raises or lowers.<br/>
+                    <b>Hit with movement</b>: sweeping up gives topspin, down backspin, and sideways side spin.<br/>
+                    <kbd>Space</kbd> serve ·
+                    <t t-if="state.mode === 'solo'"><kbd>P</kbd> pause · </t>
+                    <kbd>C</kbd> camera
                 </div>
 
                 <div class="o_pp_net" t-if="state.mode === 'online'"
-                     t-att-title="'Total al rival: ' + state.rtt + ' ms · ida y vuelta a mí mismo: '
-                                  + state.selfRtt + ' ms · solo HTTP: ' + state.httpRtt
-                                  + ' ms · en vuelo: ' + state.inFlight
-                                  + ' · descartados por obsoletos: ' + state.superseded
-                                  + ' · peor frame: ' + state.worstFrame + ' ms'
-                                  + ' · enlace: ' + (state.peerLink === 'open' ? 'directo (p2p)' : 'bus de Odoo')">
+                     t-att-title="'Total to opponent: ' + state.rtt + ' ms · round trip to myself: '
+                                  + state.selfRtt + ' ms · HTTP only: ' + state.httpRtt
+                                  + ' ms · in flight: ' + state.inFlight
+                                  + ' · dropped as stale: ' + state.superseded
+                                  + ' · worst frame: ' + state.worstFrame + ' ms'
+                                  + ' · link: ' + (state.peerLink === 'open' ? 'direct (p2p)' : 'Odoo bus')">
                     <span t-att-class="'dot ' + (state.rtt &lt; 120 ? 'good' : (state.rtt &lt; 250 ? 'fair' : 'poor'))"/>
                     <t t-out="state.rtt"/> ms
                     <b class="o_pp_link" t-if="state.peerLink === 'open'"
-                       title="Conexión directa entre navegadores">p2p</b>
+                       title="Direct browser-to-browser connection">p2p</b>
                     <b class="o_pp_link off" t-elif="state.peerLink === 'failed' or state.peerLink === 'unavailable'"
-                       title="No se pudo abrir la conexión directa; la partida va por el servidor">bus</b>
+                       title="Could not open a direct connection; the match goes through the server">bus</b>
                     <small t-if="state.httpRtt">
-                        http <t t-out="state.httpRtt"/><t t-if="state.selfRtt"> · yo <t t-out="state.selfRtt"/></t><t t-if="state.fps"> · <t t-out="state.fps"/> fps</t>
+                        http <t t-out="state.httpRtt"/><t t-if="state.selfRtt"> · me <t t-out="state.selfRtt"/></t><t t-if="state.fps"> · <t t-out="state.fps"/> fps</t>
                     </small>
                 </div>
             </t>
@@ -75,9 +75,9 @@
             <div class="o_pp_screen" t-if="state.screen === 'menu'">
                 <div class="o_pp_card">
                     <div class="o_pp_brand"><span class="dot"/>Ping Pong 3D</div>
-                    <h1>Juega contra la máquina<br/>o contra alguien más</h1>
-                    <p>Física real: gravedad, resistencia del aire y efecto Magnus. El liftado hunde la bola,
-                        el cortado la frena y el lateral la curva. Primero en llegar a <t t-out="matchPoint"/> puntos gana.</p>
+                    <h1>Play against the machine<br/>or against someone else</h1>
+                    <p>Real physics: gravity, air drag and the Magnus effect. Topspin dips the ball,
+                        backspin slows it and side spin curves it. First to <t t-out="matchPoint"/> points wins.</p>
 
                     <div class="o_pp_diffs">
                         <button t-foreach="difficulties" t-as="diff" t-key="diff.key"
@@ -88,25 +88,25 @@
                         </button>
                     </div>
                     <div class="o_pp_row">
-                        <button class="o_pp_btn primary" t-on-click="startSolo">Jugar contra la máquina</button>
+                        <button class="o_pp_btn primary" t-on-click="startSolo">Play against the machine</button>
                         <button class="o_pp_btn ghost" t-on-click="cycleCamera">
-                            Cámara: <t t-out="state.camLabel"/>
+                            Camera: <t t-out="state.camLabel"/>
                         </button>
                     </div>
 
-                    <div class="o_pp_sep"><span>o juega online 1 contra 1</span></div>
+                    <div class="o_pp_sep"><span>or play online 1 on 1</span></div>
 
                     <div class="o_pp_online">
-                        <input type="text" class="o_pp_input" placeholder="Tu nombre"
+                        <input type="text" class="o_pp_input" placeholder="Your name"
                                maxlength="24" t-model="state.nickname"/>
                         <div class="o_pp_row">
                             <button class="o_pp_btn primary" t-on-click="createRoom"
-                                    t-att-disabled="state.busy">Crear sala</button>
-                            <span class="o_pp_or">o</span>
+                                    t-att-disabled="state.busy">Create room</button>
+                            <span class="o_pp_or">or</span>
                             <input type="text" class="o_pp_input code" placeholder="PONG-XXXX"
                                    maxlength="12" t-model="state.joinCode"/>
                             <button class="o_pp_btn ghost" t-on-click="joinRoom"
-                                    t-att-disabled="state.busy">Unirse</button>
+                                    t-att-disabled="state.busy">Join</button>
                         </div>
                         <p class="o_pp_error" t-if="state.error" t-out="state.error"/>
                     </div>
@@ -116,21 +116,21 @@
             <!-- lobby -->
             <div class="o_pp_screen" t-if="state.screen === 'lobby' and state.room">
                 <div class="o_pp_card">
-                    <div class="o_pp_brand"><span class="dot"/>Sala</div>
-                    <h1 class="o_pp_code" t-on-click="copyCode" title="Copiar"
+                    <div class="o_pp_brand"><span class="dot"/>Room</div>
+                    <h1 class="o_pp_code" t-on-click="copyCode" title="Copy"
                         t-out="state.room.code"/>
-                    <p>Comparte el código con la otra persona. Cuando esté dentro, el anfitrión empieza la partida.</p>
+                    <p>Share the code with the other person. Once they are in, the host starts the match.</p>
 
                     <div class="o_pp_players">
                         <div t-foreach="state.room.players" t-as="player" t-key="player.slot"
                              t-att-class="'o_pp_player' + (player.slot === state.room.slot ? ' me' : '')">
-                            <span class="tag" t-out="player.role === 'host' ? 'Anfitrión' : 'Invitado'"/>
+                            <span class="tag" t-out="player.role === 'host' ? 'Host' : 'Guest'"/>
                             <span class="who" t-out="player.name"/>
-                            <span class="you" t-if="player.slot === state.room.slot">tú</span>
+                            <span class="you" t-if="player.slot === state.room.slot">you</span>
                         </div>
                         <div class="o_pp_player waiting" t-if="state.room.players.length &lt; 2">
-                            <span class="tag">Invitado</span>
-                            <span class="who">Esperando…</span>
+                            <span class="tag">Guest</span>
+                            <span class="who">Waiting…</span>
                         </div>
                     </div>
 
@@ -141,16 +141,16 @@
                          shown during play: if this one is small and that one is
                          not, the traffic is the problem, not the server. -->
                     <p class="o_pp_probe" t-if="state.idleRtt">
-                        Bus en reposo: <b><t t-out="state.idleRtt"/> ms</b>
+                        Idle bus: <b><t t-out="state.idleRtt"/> ms</b>
                         <span> (HTTP <t t-out="state.idleHttp"/> ms)</span>
                     </p>
 
                     <div class="o_pp_row" style="margin-top:22px">
                         <button class="o_pp_btn primary" t-if="isHost"
                                 t-att-disabled="!canStart or state.busy"
-                                t-on-click="startOnlineMatch">Empezar partida</button>
-                        <span class="o_pp_or" t-if="!isHost">Esperando al anfitrión…</span>
-                        <button class="o_pp_btn ghost" t-on-click="leaveRoom">Salir de la sala</button>
+                                t-on-click="startOnlineMatch">Start match</button>
+                        <span class="o_pp_or" t-if="!isHost">Waiting for the host…</span>
+                        <button class="o_pp_btn ghost" t-on-click="leaveRoom">Leave room</button>
                     </div>
                 </div>
             </div>
@@ -158,12 +158,12 @@
             <!-- pause, solo only -->
             <div class="o_pp_screen" t-if="state.paused">
                 <div class="o_pp_card">
-                    <div class="o_pp_brand"><span class="dot"/>Pausa</div>
+                    <div class="o_pp_brand"><span class="dot"/>Paused</div>
                     <h1><t t-out="state.score[localSide]"/> — <t t-out="state.score[remoteSide]"/></h1>
-                    <p>El partido está detenido. Puedes seguir o volver al menú para cambiar la dificultad.</p>
+                    <p>The match is on hold. You can resume or go back to the menu to change the difficulty.</p>
                     <div class="o_pp_row" style="margin-top:24px">
-                        <button class="o_pp_btn primary" t-on-click="() => this.setPaused(false)">Continuar</button>
-                        <button class="o_pp_btn ghost" t-on-click="toMenu">Volver al menú</button>
+                        <button class="o_pp_btn primary" t-on-click="() => this.setPaused(false)">Resume</button>
+                        <button class="o_pp_btn ghost" t-on-click="toMenu">Back to menu</button>
                     </div>
                 </div>
             </div>
@@ -171,11 +171,11 @@
             <!-- opponent walked away -->
             <div class="o_pp_screen" t-if="state.opponentGone and state.screen === 'playing'">
                 <div class="o_pp_card">
-                    <div class="o_pp_brand"><span class="dot"/>Partida interrumpida</div>
-                    <h1>Te quedaste solo</h1>
+                    <div class="o_pp_brand"><span class="dot"/>Match interrupted</div>
+                    <h1>You are on your own</h1>
                     <p t-out="state.opponentGone"/>
                     <div class="o_pp_row" style="margin-top:24px">
-                        <button class="o_pp_btn primary" t-on-click="toMenu">Volver al menú</button>
+                        <button class="o_pp_btn primary" t-on-click="toMenu">Back to menu</button>
                     </div>
                 </div>
             </div>
@@ -184,27 +184,27 @@
             <div class="o_pp_screen" t-if="state.screen === 'over' and state.result">
                 <div class="o_pp_card">
                     <div class="o_pp_brand">
-                        <span class="dot"/><t t-out="state.result.won ? 'Victoria' : 'Derrota'"/>
+                        <span class="dot"/><t t-out="state.result.won ? 'Victory' : 'Defeat'"/>
                     </div>
-                    <h1 t-out="state.result.won ? '¡Ganaste el partido!' : 'Gana ' + opponentName"/>
+                    <h1 t-out="state.result.won ? 'You won the match!' : opponentName + ' wins'"/>
                     <div class="o_pp_final">
                         <b><t t-out="state.result.mine"/> — <t t-out="state.result.theirs"/></b>
                         <span>
-                            <t t-if="state.mode === 'solo'">Dificultad <t t-out="difficultyName"/> · </t>
-                            <t t-out="state.result.hits"/> golpes ·
-                            <t t-out="state.result.rallies"/> puntos jugados
+                            <t t-if="state.mode === 'solo'"><t t-out="difficultyName"/> difficulty · </t>
+                            <t t-out="state.result.hits"/> hits ·
+                            <t t-out="state.result.rallies"/> rallies
                         </span>
                     </div>
                     <div class="o_pp_row" style="margin-top:26px">
                         <button class="o_pp_btn primary" t-if="state.mode === 'solo'"
-                                t-on-click="startSolo">Revancha</button>
-                        <button class="o_pp_btn ghost" t-on-click="toMenu">Volver al menú</button>
+                                t-on-click="startSolo">Rematch</button>
+                        <button class="o_pp_btn ghost" t-on-click="toMenu">Back to menu</button>
                     </div>
                 </div>
             </div>
         </div>
 
-        <a href="/" class="o_pp_back">← Volver</a>
+        <a href="/" class="o_pp_back">← Back</a>
     </t>
 
 </templates>

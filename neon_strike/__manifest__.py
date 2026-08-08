@@ -3,32 +3,33 @@
 # UI palette follows Odoo brand assets: https://www.odoo.com/page/brand-assets
 {
     "name": "Neon Strike",
-    "version": "19.0.4.1.0",
+    "version": "19.0.4.4.0",
     "category": "Productivity",
-    "summary": "Shooter espacial neón cooperativo, jugable sin login en una página pública",
+    "summary": "Co-op neon space shooter, playable without a login on a public page",
     "description": """
 Neon Strike
 ===========
-Juego arcade (canvas 2D + OWL 2) servido en una página pública de Odoo 19 (``/neon``),
-jugable **sin cuenta**: entra con un apodo y a jugar.
+Arcade game (2D canvas + OWL 2) served from a public Odoo 19 page (``/neon``),
+playable **without an account**: pick a nickname and go.
 
-* Cooperativo remoto de hasta 4 jugadores sobre el bus de Odoo (sala por código)
-* Sin registro: identidad por token de sesión + apodo (jugadores anónimos)
-* Vidas individuales por jugador y posibilidad de revivir a un aliado caído
-* 6 tipos de enemigos con IA distinta, un jefe cada 4 oleadas y asteroides
-* Arte pixel art propio: chasis por slot de jugador y variantes de chasis enemigo
-* Audio 100% sintetizado con Web Audio API (sin archivos de sonido)
-* Power-ups en cápsula pixel art: triple disparo, escudo, bomba y vida extra
-* Sistema de combos hasta x25, partículas, screen shake y slow-motion
-* Marcador global único (individual y de equipo) en ``neon.strike.score``
+* Remote co-op for up to 4 players over the Odoo bus (room by code)
+* No sign-up: identity is a session token + nickname (anonymous players)
+* Individual lives per player, with the option to revive a downed ally
+* 6 enemy types with distinct AI, a boss every 4 waves and asteroids
+* Custom pixel art: one hull per player slot and enemy chassis variants
+* In-menu glossary covering every ship, enemy, boss, asteroid and capsule
+* 100% synthesised audio with the Web Audio API (no sound files)
+* Pixel-art capsule power-ups: triple shot, shield, bomb and extra life
+* Combo system up to x25, particles, screen shake and slow motion
+* Single global leaderboard (solo and team) in ``neon.strike.score``
 
-Creado con Odoo. Guía de marca: https://www.odoo.com/page/brand-assets
+Built with Odoo. Brand guide: https://www.odoo.com/page/brand-assets
 """,
     "author": "Odoo",
     "website": "https://www.odoo.com",
     "license": "LGPL-3",
-    # `website` es necesario para publicar /neon en la navegación del sitio
-    # (record `website.menu`), igual que hace pingpong_3d.
+    # `website` is required to publish /neon in the site navigation
+    # (`website.menu` record), same as pingpong_3d does.
     "depends": ["web", "bus", "website"],
     "data": [
         "security/ir.model.access.csv",
@@ -39,6 +40,8 @@ Creado con Odoo. Guía de marca: https://www.odoo.com/page/brand-assets
     "assets": {
         "web.assets_frontend": [
             "neon_strike/static/src/js/sprites.js",
+            "neon_strike/static/src/js/menu_backdrop.js",
+            "neon_strike/static/src/js/glossary.js",
             "neon_strike/static/src/js/game_engine.js",
             "neon_strike/static/src/js/neon_strike_game.js",
             "neon_strike/static/src/xml/neon_strike_templates.xml",

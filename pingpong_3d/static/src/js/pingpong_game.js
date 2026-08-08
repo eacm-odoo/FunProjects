@@ -20,10 +20,10 @@ import { PingPongEngine } from "./pingpong_engine.js";
  */
 
 const DIFF_BLURB = {
-    facil: "Devuelve lento y con poco efecto",
-    normal: "Ritmo de club, algo de liftado",
-    dificil: "Rápido, coloca y castiga los fallos",
-    experto: "Reacción casi perfecta y efecto pesado",
+    facil: "Returns slowly and with little spin",
+    normal: "Club pace, some topspin",
+    dificil: "Fast, places well and punishes mistakes",
+    experto: "Near-perfect reactions and heavy spin",
 };
 
 const NICKNAME_KEY = "pingpong_nickname";
@@ -81,7 +81,7 @@ export class PingPongGame extends Component {
         // Side 0 is the +Z end on every machine; the host plays it, so a guest
         // sits at side 1 and only its camera and pointer are mirrored.
         this.localSide = 0;
-        this.opponentName = "la máquina";
+        this.opponentName = "the machine";
 
         this.difficulties = Object.entries(DIFFS).map(([key, diff]) => ({
             key,
@@ -122,11 +122,11 @@ export class PingPongGame extends Component {
     }
 
     get serverName() {
-        return this.state.server === this.localSide ? "tú" : this.opponentName;
+        return this.state.server === this.localSide ? "you" : this.opponentName;
     }
 
     get opponentLabel() {
-        return this.state.mode === "online" ? this.opponentName : "Máquina";
+        return this.state.mode === "online" ? this.opponentName : "Machine";
     }
 
     get isHost() {
@@ -183,13 +183,13 @@ export class PingPongGame extends Component {
             this._buildEngine("solo", 0);
         }
         this.state.mode = "solo";
-        this.opponentName = "la máquina";
+        this.opponentName = "the machine";
         this.state.screen = "playing";
         this.state.paused = false;
         this.state.result = null;
         this.engine.startMatch({ difficulty: this.state.difficulty, server: 0 });
         this.syncScore();
-        this.toast("¡A jugar!", "Pulsa Espacio para sacar", 1400);
+        this.toast("Let's play!", "Press Space to serve", 1400);
     }
 
     // ------------------------------------------------------------- online
@@ -201,7 +201,7 @@ export class PingPongGame extends Component {
     async joinRoom() {
         const code = (this.state.joinCode || "").trim().toUpperCase();
         if (!code) {
-            this.state.error = "Escribe un código de sala.";
+            this.state.error = "Type a room code.";
             return;
         }
         await this._enterRoom("/pingpong/online/join", {
@@ -216,7 +216,7 @@ export class PingPongGame extends Component {
         try {
             const result = await rpc(route, params);
             if (!result.ok) {
-                this.state.error = result.error || "No se pudo entrar en la sala.";
+                this.state.error = result.error || "Could not join the room.";
                 return;
             }
             storeValue(NICKNAME_KEY, this.state.nickname);
@@ -257,7 +257,7 @@ export class PingPongGame extends Component {
                 player_token: this.playerToken,
             });
             if (!result.ok) {
-                this.state.error = result.error || "No se pudo empezar.";
+                this.state.error = result.error || "Could not start.";
             }
         } finally {
             this.state.busy = false;
@@ -345,7 +345,7 @@ export class PingPongGame extends Component {
     copyCode() {
         if (navigator.clipboard && this.state.room) {
             navigator.clipboard.writeText(this.state.room.code).catch(() => {});
-            this.toast("Código copiado", this.state.room.code, 900);
+            this.toast("Code copied", this.state.room.code, 900);
         }
     }
 
@@ -447,7 +447,7 @@ export class PingPongGame extends Component {
         this.state.screen = "playing";
         this.state.result = null;
         this.state.opponentGone = "";
-        this.toast("Sincronizando…", "midiendo la latencia", 1200);
+        this.toast("Syncing…", "measuring latency", 1200);
 
         // The clock probes fit inside the gap before tick 0, so the sync costs
         // nothing anybody can see.
@@ -459,7 +459,7 @@ export class PingPongGame extends Component {
             firstServer: payload.first_server,
         });
         this.syncScore();
-        this.toast("¡A jugar!", "Pulsa Espacio para sacar", 1400);
+        this.toast("Let's play!", "Press Space to serve", 1400);
     }
 
     /**
@@ -518,13 +518,13 @@ export class PingPongGame extends Component {
             onState: (state) => {
                 this.state.peerLink = state;
                 if (state === "open") {
-                    this.toast("Conexión directa", "el servidor ya no está en medio", 1600);
+                    this.toast("Direct connection", "the server is out of the way now", 1600);
                 } else if (state === "failed") {
                     // Worth saying. Silence here reads as "it worked", and the
                     // difference is the whole point of the feature.
                     this.toast(
-                        "Sin conexión directa",
-                        hasTurn ? "seguimos por el servidor" : "haría falta un TURN",
+                        "No direct connection",
+                        hasTurn ? "we keep going through the server" : "a TURN server would be needed",
                         2200
                     );
                 }
@@ -543,7 +543,7 @@ export class PingPongGame extends Component {
             return;
         }
         this.state.opponentGone = payload.reason === "host_left"
-            ? "El anfitrión cerró la sala."
+            ? "The host closed the room."
             : "Tu rival se fue.";
         if (this.engine) {
             this.engine.stopMatch();
@@ -588,13 +588,13 @@ export class PingPongGame extends Component {
                 }
                 break;
             case "net":
-                this.toast("¡Red!", "", 700);
+                this.toast("Net!", "", 700);
                 break;
             case "point":
                 this.syncScore();
                 this._reportPoint(event);
                 this.toast(
-                    event.winner === this.localSide ? "Punto para ti" : `Punto para ${this.opponentName}`,
+                    event.winner === this.localSide ? "Point for you" : `Point for ${this.opponentName}`,
                     this.reasonText(event.reason, event.winner),
                     1200
                 );
@@ -714,15 +714,15 @@ export class PingPongGame extends Component {
         const loserIsLocal = other(winner) === this.localSide;
         switch (reason) {
             case REASON.NET_SERVE:
-                return "Saque nulo";
+                return "Let serve";
             case REASON.OWN_HALF:
-                return loserIsLocal ? "La bola cayó en tu propio campo" : "Cayó en su propio campo";
+                return loserIsLocal ? "The ball landed in your own half" : "It landed in their own half";
             case REASON.DOUBLE_BOUNCE:
-                return "Doble bote — sin devolución";
+                return "Double bounce — no return";
             case REASON.MISSED:
-                return loserIsLocal ? "No llegaste" : `${this.opponentLabel} no llegó`;
+                return loserIsLocal ? "You did not reach it" : `${this.opponentLabel} did not reach it`;
             case REASON.OUT:
-                return loserIsLocal ? "Tu bola se fue fuera" : `Bola fuera de ${this.opponentName}`;
+                return loserIsLocal ? "Your ball went out" : `${this.opponentName} hit it out`;
             default:
                 return "Bola perdida";
         }

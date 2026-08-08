@@ -4,9 +4,61 @@ $ns-odoo-purple: #714B67;
 $ns-bg: #0a0b14;
 $ns-panel: #10121f;
 $ns-cyan: #5ee1ff;
+// Neon accents. The Odoo purple stays the base of the chrome (brand assets);
+// cyan and magenta are the same accents the sprite bank uses in game.
+$ns-magenta: #ff2fd0;
 
-// Página pública (/neon): el juego se monta aquí y cubre toda la ventana,
-// por encima de cualquier chrome que añada web.frontend_layout.
+// Slides the toolbar underline. `background-size: 200%` plus a full-width shift
+// makes it loop seamlessly.
+@keyframes ns-scanline {
+    from { background-position: 0% 0; }
+    to { background-position: -200% 0; }
+}
+
+// Breathing glow for the primary call to action.
+@keyframes ns-pulse {
+    0%, 100% { box-shadow: 0 0 0 1px rgba(94, 225, 255, 0.18), 0 0 14px rgba(113, 75, 103, 0.5); }
+    50% { box-shadow: 0 0 0 1px rgba(94, 225, 255, 0.42), 0 0 26px rgba(255, 47, 208, 0.42); }
+}
+
+// Neon sign flicker: mostly lit, with a couple of short dips.
+@keyframes ns-flicker {
+    0%, 42%, 46%, 74%, 78%, 100% { opacity: 1; }
+    44%, 76% { opacity: 0.62; }
+}
+
+// Shared button treatment: a light sweep that crosses on hover plus a lift.
+// `overflow: hidden` keeps the sweep inside the rounded corners.
+@mixin ns-neon-button($glow) {
+    position: relative;
+    overflow: hidden;
+    transition: box-shadow 0.18s ease, transform 0.18s ease, background 0.18s ease;
+
+    &::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: -60%;
+        width: 40%;
+        background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.25), transparent);
+        transform: skewX(-18deg);
+        transition: left 0.55s ease;
+        pointer-events: none;
+    }
+
+    &:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 0 16px rgba($glow, 0.4), inset 0 0 14px rgba($glow, 0.14);
+
+        &::after {
+            left: 130%;
+        }
+    }
+}
+
+// Public page (/neon): the game mounts here and covers the whole window, above
+// any chrome added by web.frontend_layout.
 .o_neon_strike_root {
     position: fixed;
     inset: 0;
@@ -20,13 +72,41 @@ $ns-cyan: #5ee1ff;
     min-height: 100%;
 
     .ns_toolbar {
-        background: $ns-odoo-purple;
+        position: relative;
+        background: linear-gradient(
+            90deg,
+            darken($ns-odoo-purple, 10%) 0%,
+            $ns-odoo-purple 50%,
+            darken($ns-odoo-purple, 10%) 100%
+        );
         color: #fff;
+        box-shadow: 0 2px 18px rgba(0, 0, 0, 0.45);
+
+        // Neon strip running along the bottom edge of the bar.
+        &::after {
+            content: "";
+            position: absolute;
+            inset: auto 0 0 0;
+            height: 2px;
+            background: linear-gradient(
+                90deg,
+                transparent 0%,
+                $ns-cyan 18%,
+                $ns-magenta 38%,
+                $ns-cyan 58%,
+                transparent 100%
+            );
+            background-size: 200% 100%;
+            animation: ns-scanline 7s linear infinite;
+            pointer-events: none;
+        }
 
         .ns_logo {
             font-weight: 600;
             letter-spacing: 2px;
             color: $ns-cyan;
+            text-shadow: 0 0 6px rgba($ns-cyan, 0.85), 0 0 18px rgba($ns-cyan, 0.45);
+            animation: ns-flicker 5s ease-in-out infinite;
         }
 
         .ns_btn {
@@ -63,14 +143,142 @@ $ns-cyan: #5ee1ff;
     }
 
     // ---------------------------------------------------------------- //
-    // Menú y lobby                                                      //
+    // Menu and lobby                                                    //
     // ---------------------------------------------------------------- //
     .ns_menu {
+        position: relative;
         background: radial-gradient(circle at 50% 0%, #161a2e 0%, $ns-bg 70%);
         overflow: auto;
     }
 
+    // Animated menu backdrop (attract mode). Decorative: it sits below the card
+    // and does not intercept the mouse.
+    .ns_menu_bg {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+        z-index: 0;
+        pointer-events: none;
+    }
+
+    // ---------------------------------------------------------------- //
+    // Ships and enemies glossary                                        //
+    // ---------------------------------------------------------------- //
+    // Same visual language as the sprite gallery in the design project:
+    // monospaced headers and cards over the Odoo purple.
+    .ns_glossary {
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        display: flex;
+        padding: 16px;
+        background: rgba(5, 6, 14, 0.82);
+        backdrop-filter: blur(2px);
+    }
+
+    .ns_glossary_panel {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        max-width: 1100px;
+        max-height: 100%;
+        margin: auto;
+        background: $ns-panel;
+        border: 1px solid rgba($ns-odoo-purple, 0.55);
+        border-radius: 12px;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+        overflow: hidden;
+    }
+
+    .ns_glossary_head {
+        padding: 14px 18px;
+        border-bottom: 1px solid rgba($ns-odoo-purple, 0.45);
+        background: rgba($ns-odoo-purple, 0.22);
+    }
+
+    .ns_glossary_title {
+        color: $ns-cyan;
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: 2px;
+    }
+
+    .ns_glossary_body {
+        padding: 18px;
+        overflow: auto;
+    }
+
+    .ns_glossary_group + .ns_glossary_group {
+        margin-top: 26px;
+    }
+
+    .ns_glossary_group_head {
+        font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 0.14em;
+        color: #b78bad;
+        border-bottom: 1px solid rgba($ns-odoo-purple, 0.4);
+        padding-bottom: 8px;
+        margin-bottom: 12px;
+    }
+
+    .ns_glossary_note {
+        font-size: 12px;
+        color: #8d93b8;
+        margin: -4px 0 12px;
+    }
+
+    .ns_glossary_grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+        gap: 14px;
+    }
+
+    .ns_glossary_card {
+        background: rgba($ns-odoo-purple, 0.1);
+        border: 1px solid rgba($ns-odoo-purple, 0.45);
+        border-radius: 6px;
+        padding: 12px;
+    }
+
+    .ns_glossary_art {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 130px;
+        margin-bottom: 10px;
+        background: #080a16;
+        border-radius: 4px;
+
+        img {
+            max-width: 90%;
+            max-height: 118px;
+            image-rendering: pixelated;
+        }
+    }
+
+    .ns_glossary_label {
+        font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: #eaf6ff;
+    }
+
+    .ns_glossary_sub {
+        font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: rgba(180, 210, 255, 0.5);
+        margin-bottom: 6px;
+    }
+
+    .ns_glossary_desc {
+        font-size: 12px;
+        line-height: 1.4;
+        color: #a9b0d4;
+        margin: 0;
+    }
+
     .ns_menu_card {
+        position: relative;
+        z-index: 1;
         width: 100%;
         max-width: 420px;
         background: $ns-panel;
@@ -96,25 +304,61 @@ $ns-cyan: #5ee1ff;
         }
     }
 
+    // Secondary button, defined game-wide. Careful: `.ns_btn` is also used
+    // outside the toolbar (Join, Leave in the lobby, Close in the glossary); if
+    // it is only defined nested inside `.ns_toolbar`, elsewhere it falls back to
+    // Bootstrap's `.btn` and ends up dark text on a dark panel, i.e. invisible.
+    // The toolbar variant (white on purple) wins by specificity.
+    .ns_btn {
+        @include ns-neon-button($ns-cyan);
+
+        background: rgba(94, 225, 255, 0.1);
+        color: $ns-cyan;
+        border: 1px solid rgba(94, 225, 255, 0.35);
+        text-shadow: 0 0 8px rgba($ns-cyan, 0.35);
+
+        &:hover,
+        &:focus {
+            background: rgba(94, 225, 255, 0.2);
+            color: $ns-cyan;
+            border-color: rgba(94, 225, 255, 0.65);
+        }
+
+        &:disabled {
+            opacity: 0.55;
+        }
+    }
+
     .ns_cta {
+        @include ns-neon-button($ns-magenta);
+
         background: $ns-odoo-purple;
         color: #fff;
         font-weight: 500;
-        border: 0;
+        border: 1px solid rgba(94, 225, 255, 0.22);
         padding: 0.6rem;
+        letter-spacing: 0.5px;
+        animation: ns-pulse 3.4s ease-in-out infinite;
 
         &:hover {
             background: darken($ns-odoo-purple, 6%);
             color: #fff;
+            // Hand the glow over to the hover shadow instead of fighting it.
+            animation-play-state: paused;
         }
 
         &.ns_cta_alt {
+            @include ns-neon-button($ns-cyan);
+
             background: rgba(94, 225, 255, 0.14);
             color: $ns-cyan;
             border: 1px solid rgba(94, 225, 255, 0.4);
+            text-shadow: 0 0 8px rgba($ns-cyan, 0.4);
+            animation: none;
 
             &:hover {
                 background: rgba(94, 225, 255, 0.24);
+                border-color: rgba(94, 225, 255, 0.7);
             }
         }
     }
@@ -297,6 +541,31 @@ $ns-cyan: #5ee1ff;
 
         .ns_stage {
             min-height: 360px;
+        }
+    }
+}
+
+// Everything above is decorative motion. Honour the OS setting: the neon stays,
+// the movement stops. Same policy as the menu backdrop canvas.
+@media (prefers-reduced-motion: reduce) {
+    .o_neon_strike {
+        .ns_toolbar::after,
+        .ns_logo,
+        .ns_cta {
+            animation: none;
+        }
+
+        .ns_btn,
+        .ns_cta {
+            transition: none;
+
+            &::after {
+                display: none;
+            }
+
+            &:hover:not(:disabled) {
+                transform: none;
+            }
         }
     }
 }

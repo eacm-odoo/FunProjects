@@ -20,27 +20,27 @@ class PingPongParticipant(models.Model):
     """
 
     _name = "pingpong.participant"
-    _description = "Ping Pong 3D - Jugador de una sala"
+    _description = "Ping Pong 3D - Room Player"
     _order = "session_id, slot"
 
     session_id = fields.Many2one(
         "pingpong.session",
-        string="Sala",
+        string="Room",
         required=True,
         ondelete="cascade",
         index=True,
     )
     token = fields.Char(
-        string="Token del jugador",
+        string="Player Token",
         required=True,
         index=True,
         copy=False,
-        help="Credencial emitida por el servidor. Nunca la elige el cliente.",
+        help="Credential issued by the server. Never chosen by the client.",
     )
     session_key = fields.Char(
-        string="Sesión HTTP",
+        string="HTTP Session",
         index=True,
-        help="Solo para agrupar límites de tasa y para la vinculación opcional.",
+        help="Only to group rate limits and for the optional binding.",
     )
     nickname = fields.Char(string="Apodo")
     partner_id = fields.Many2one(
@@ -48,29 +48,29 @@ class PingPongParticipant(models.Model):
     )
     slot = fields.Integer(string="Puesto", required=True, default=0)
     role = fields.Selection(
-        [("host", "Anfitrión"), ("guest", "Invitado")],
+        [("host", "Host"), ("guest", "Guest")],
         string="Rol",
         compute="_compute_role",
         store=True,
     )
     name = fields.Char(string="Nombre", compute="_compute_name", store=True)
-    score = fields.Integer(string="Puntos", default=0)
-    last_seen = fields.Datetime(string="Visto por última vez", index=True)
+    score = fields.Integer(string="Score", default=0)
+    last_seen = fields.Datetime(string="Last Seen", index=True)
     input_seq = fields.Integer(
-        string="Última secuencia",
+        string="Last Sequence",
         default=0,
         help="Descarta entradas repetidas o desordenadas.",
     )
 
     _slot_uniq = models.Constraint(
         "unique (session_id, slot)",
-        "Ese puesto ya está ocupado en la sala.",
+        "That slot is already taken in the room.",
     )
     _token_uniq = models.Constraint(
-        "unique (token)", "Token de jugador duplicado."
+        "unique (token)", "Duplicate player token."
     )
     _slot_range = models.Constraint(
-        "CHECK (slot IN (0, 1))", "Puesto inválido."
+        "CHECK (slot IN (0, 1))", "Invalid slot."
     )
 
     @api.depends("slot")
@@ -84,7 +84,7 @@ class PingPongParticipant(models.Model):
             participant.name = (
                 participant.nickname
                 or participant.partner_id.display_name
-                or ("Anfitrión" if participant.slot == 0 else "Invitado")
+                or ("Host" if participant.slot == 0 else "Guest")
             )
 
     @property

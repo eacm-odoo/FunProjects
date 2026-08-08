@@ -1,231 +1,230 @@
 # Ping Pong 3D (Odoo 19.0 Community)
 
-Juego de tenis de mesa 3D contra la máquina, servido como página del sitio web
-de Odoo, con los resultados guardados en un modelo consultable desde el backend.
+3D table tennis game against the machine, served as an Odoo website page, with
+results stored in a model you can review from the backend.
 
-## Instalación
+## Installation
 
-    cp -r pingpong_3d /ruta/a/odoo/addons/
-    odoo-bin -d midb -i pingpong_3d
+    cp -r pingpong_3d /path/to/odoo/addons/
+    odoo-bin -d mydb -i pingpong_3d
 
-Luego abre **/pingpong** o el menú *Ping Pong 3D -> Jugar*.
+Then open **/pingpong** or the *Ping Pong 3D -> Play* menu.
 
-## Estructura
+## Structure
 
     pingpong_3d/
-    |- __manifest__.py                 version 19.0.2.0.0, depende de web, bus y website
-    |- controllers/main.py             /pingpong, /pingpong/score y las rutas /pingpong/online/*
-    |- models/pingpong_match.py        modelo pingpong.match, victoria y diferencia calculadas
-    |- models/pingpong_session.py      sala online: codigo, token de canal, marcador
-    |- models/pingpong_participant.py  jugador de una sala, con token propio
-    |- models/ir_websocket.py          autoriza los canales de bus por capacidad
-    |- security/ir.model.access.csv    lectura para usuarios internos, escritura para admins
-    |- views/pingpong_templates.xml    plantilla QWeb de la pagina a pantalla completa
+    |- __manifest__.py                 version 19.0.2.0.0, depends on web, bus and website
+    |- controllers/main.py             /pingpong, /pingpong/score and the /pingpong/online/* routes
+    |- models/pingpong_match.py        pingpong.match model, win and margin computed
+    |- models/pingpong_session.py      online room: code, channel token, score
+    |- models/pingpong_participant.py  player of a room, with its own token
+    |- models/ir_websocket.py          authorizes bus channels by capability
+    |- security/ir.model.access.csv    read for internal users, write for admins
+    |- views/pingpong_templates.xml    QWeb template of the full-screen page
     |- views/pingpong_match_views.xml  list / form / graph / search + menus
-    |- views/pingpong_session_views.xml  salas en vivo (solo para depurar)
-    |- views/website_menu.xml          entrada "Ping Pong" en el menu del sitio web
+    |- views/pingpong_session_views.xml  live rooms (for debugging only)
+    |- views/website_menu.xml          "Ping Pong" entry in the website menu
     \- static/
-       |- lib/three/                   three.js 0.184 vendorizado (MIT, ver LICENSE)
+       |- lib/three/                   three.js 0.184 vendored (MIT, see LICENSE)
        \- src/
-          |- scss/pingpong.scss        HUD y pantallas (paleta Odoo), todo bajo .o_pingpong_root
-          |- boot/pingpong_boot.js  carga el bundle del juego solo en su pagina
-          |- xml/pingpong_game_templates.xml  plantillas OWL de las pantallas
-          |- xml/pingpong_lab_templates.xml   plantilla del banco de netcode
+          |- scss/pingpong.scss        HUD and screens (Odoo palette), all under .o_pingpong_root
+          |- boot/pingpong_boot.js  loads the game bundle only on its page
+          |- xml/pingpong_game_templates.xml  OWL templates of the screens
+          |- xml/pingpong_lab_templates.xml   template of the netcode bench
           \- js/
-             |- pingpong_game.js       componente OWL y montaje de la pagina
-             |- pingpong_engine.js     fachada: simulacion + vista + entrada + bucle
-             |- loopback_lab.js        banco: anfitrion e invitado en una pestana
-             |- engine/constants.js    medidas, dificultades, paso fijo, codigos de motivo
-             |- engine/rng.js          PRNG sembrado (mulberry32) para saques replicables
-             |- engine/physics.js      integracion pura: gravedad, arrastre, Magnus, bote
-             |- engine/sim.js          partido headless: fases, golpes, puntuacion
-             |- engine/ai.js           prediccion de caida y controlador de la maquina
-             |- engine/history.js      buffer circular de estados, indexado por tick
-             |- net/protocol.js        formato de cable (enteros: mm y rad/s x10)
-             |- net/clock.js           MatchClock (tiempo -> tick) y ClockSync (NTP)
-             |- net/transport.js       interfaz de transporte y enlace loopback
-             |- net/netgame.js         snapshots, claims, rebobinado, reconciliacion
-             |- net/bus_transport.js   transporte sobre el bus (respaldo y señalizacion)
-             |- net/rtc_transport.js   transporte peer-to-peer y el hibrido que sube a el
-             |- render/scene.js        construccion de la escena three.js y su dispose
-             \- render/view.js         dibujo por frame, camara y efectos
+             |- pingpong_game.js       OWL component and page mounting
+             |- pingpong_engine.js     facade: simulation + view + input + loop
+             |- loopback_lab.js        bench: host and guest in one tab
+             |- engine/constants.js    measurements, difficulties, fixed step, reason codes
+             |- engine/rng.js          seeded PRNG (mulberry32) for replicable serves
+             |- engine/physics.js      pure integration: gravity, drag, Magnus, bounce
+             |- engine/sim.js          headless match: phases, hits, scoring
+             |- engine/ai.js           landing prediction and the machine controller
+             |- engine/history.js      circular state buffer, indexed by tick
+             |- net/protocol.js        wire format (integers: mm and rad/s x10)
+             |- net/clock.js           MatchClock (time -> tick) and ClockSync (NTP)
+             |- net/transport.js       transport interface and loopback link
+             |- net/netgame.js         snapshots, claims, rewind, reconciliation
+             |- net/bus_transport.js   transport over the bus (fallback and signalling)
+             |- net/rtc_transport.js   peer-to-peer transport and the hybrid that upgrades to it
+             |- render/scene.js        three.js scene construction and its dispose
+             \- render/view.js         per-frame drawing, camera and effects
 
-## Notas técnicas
+## Technical notes
 
-* **three.js 0.184 está vendorizado** en `static/lib/three/` (`three.module.js` y
-  `three.core.js`, MIT). Llevan la cabecera `/** @odoo-module **/` para que el
-  transpilador de Odoo los convierta en módulos `odoo.define`; el juego los
-  importa con `import * as THREE from "../../lib/three/three.module.js"`. Deben
-  ser las builds **sin minificar**: el transpilador está anclado a líneas y no
-  procesa un bundle de una sola línea. No hay ninguna petición a un CDN.
-* Los assets del juego viven en un bundle propio, `pingpong_3d.assets_game`, que
-  solo carga la página del juego. No están en `web.assets_frontend` porque
-  three.js son ~2 MB de fuente y se descargarían en todo el sitio.
-* Todo el CSS está anidado bajo `.o_pingpong_root`, y las clases genéricas se
-  llaman `o_pp_*`. La hoja original era para un documento autónomo y traía un
-  reset global `*` y clases (`.btn`, `.card`, `.row`, `.hidden`) que chocan con
-  Bootstrap.
-* La carga tiene dos pasos por una razón concreta. Odoo emite el cargador de
-  módulos (`web.assets_frontend_minimal`) como script con `defer` y el resto
-  (`web.assets_frontend_lazy`) de forma diferida por JS, así que un
-  `t-call-assets` en el `<head>` correría **antes de que exista `odoo.define`**.
-  Por eso `pingpong_boot.js` vive en `web.assets_frontend` y pide el bundle del
-  juego con `loadBundle()` en tiempo de ejecución, cuando el cargador y los
-  módulos `@web` ya están.
-* La interfaz es una **app OWL standalone** montada sobre `.o_pingpong_root`.
-  Reutiliza el `env` que el frontend público ya construyó y publicó en
-  `Component.env` (`web/legacy/js/public/public_root.js`). **No** llames a
-  `startServices()` otra vez: vuelve a ejecutar el `start()` de cada servicio y
-  el de notificaciones falla al reinscribir `NotificationContainer`.
-* El motor vive mientras vive la página, no una instancia por pantalla: el menú
-  y la pantalla final son capas sobre la mesa ya renderizada, y recrear el
-  contexto WebGL en cada cambio filtraría contextos sin necesidad.
-* Los medidores de potencia y efecto se escriben directamente en el DOM con
-  `t-ref`: se actualizan en cada golpe y nadie más los lee, así que no pasan por
-  la reactividad.
-* La ruta de guardado usa `type="http"` + `request.make_json_response` en lugar
-  del envoltorio JSON-RPC, para aceptar un `fetch` con
-  `Content-Type: application/json` desde el propio juego. Es pública y sanea
-  los valores recibidos (rango y dificultad).
-* La física corre a **paso fijo real** de 1/240 s con un acumulador y un
-  contador de ticks. Antes eran 6 subpasos por frame, así que el tamaño del
-  paso dependía de los FPS y un cliente a 144 Hz y otro a 60 Hz divergían. Con
-  el paso fijo, el flujo de eventos de un partido es idéntico de 24 a 240 fps.
-* Los lados son numéricos: **0 es el extremo +Z y 1 el extremo -Z**, igual en
-  las dos máquinas. Solo se invierten la cámara y el mapeo del ratón. La física
-  es equivariante bajo espejo: el mismo golpe jugado desde cada extremo produce
-  trayectorias espejo exactas. Antes no lo era — el efecto lateral curvaba
-  siempre hacia el mismo lado absoluto, sin importar quién había golpeado.
-* Los saques usan un PRNG sembrado por (semilla de partido, número de punto),
-  de modo que dos clientes pueden reproducir el mismo saque. En modo contra la
-  máquina no hay semilla y se usa `Math.random`.
+* **three.js 0.184 is vendored** in `static/lib/three/` (`three.module.js` and
+  `three.core.js`, MIT). They carry the `/** @odoo-module **/` header so Odoo's
+  transpiler turns them into `odoo.define` modules; the game imports them with
+  `import * as THREE from "../../lib/three/three.module.js"`. They must be the
+  **non-minified** builds: the transpiler is line-anchored and does not process a
+  single-line bundle. There is no request to a CDN.
+* The game assets live in their own bundle, `pingpong_3d.assets_game`, loaded only
+  by the game page. They are not in `web.assets_frontend` because three.js is
+  ~2 MB of source and would be downloaded across the whole site.
+* All the CSS is nested under `.o_pingpong_root`, and the generic classes are
+  named `o_pp_*`. The original sheet was written for a standalone document and
+  carried a global `*` reset and classes (`.btn`, `.card`, `.row`, `.hidden`) that
+  clash with Bootstrap.
+* Loading happens in two steps for a specific reason. Odoo emits the module
+  loader (`web.assets_frontend_minimal`) as a `defer` script and the rest
+  (`web.assets_frontend_lazy`) lazily from JS, so a `t-call-assets` in the
+  `<head>` would run **before `odoo.define` exists**. That is why
+  `pingpong_boot.js` lives in `web.assets_frontend` and requests the game bundle
+  with `loadBundle()` at runtime, once the loader and the `@web` modules are there.
+* The interface is a **standalone OWL app** mounted on `.o_pingpong_root`. It
+  reuses the `env` the public frontend already built and published in
+  `Component.env` (`web/legacy/js/public/public_root.js`). Do **not** call
+  `startServices()` again: it re-runs every service's `start()` and the
+  notification one fails when re-registering `NotificationContainer`.
+* The engine lives as long as the page does, not one instance per screen: the
+  menu and the end screen are layers over the already-rendered table, and
+  recreating the WebGL context on every change would leak contexts for nothing.
+* The power and spin meters are written straight to the DOM with `t-ref`: they
+  update on every hit and nobody else reads them, so they do not go through
+  reactivity.
+* The saving route uses `type="http"` + `request.make_json_response` instead of
+  the JSON-RPC wrapper, to accept a `fetch` with `Content-Type: application/json`
+  from the game itself. It is public and sanitises the received values (range and
+  difficulty).
+* Physics runs at a **real fixed step** of 1/240 s with an accumulator and a tick
+  counter. It used to be 6 substeps per frame, so the step size depended on FPS
+  and a client at 144 Hz and one at 60 Hz diverged. With the fixed step, a match's
+  event stream is identical from 24 to 240 fps.
+* Sides are numeric: **0 is the +Z end and 1 the -Z end**, the same on both
+  machines. Only the camera and the mouse mapping are flipped. The physics is
+  equivariant under mirroring: the same hit played from either end produces exact
+  mirror trajectories. It did not use to be — side spin always curved towards the
+  same absolute side, no matter who had hit it.
+* Serves use a PRNG seeded by (match seed, point number), so two clients can
+  reproduce the same serve. In machine mode there is no seed and `Math.random` is
+  used.
 
-## Modo online (en curso)
+## Online mode (in progress)
 
-Autoridad repartida: el anfitrión simula la bola y puntúa, **cada lado posee su
-propia pala sin latencia**, y el invitado predice su propio golpe y el anfitrión
-lo confirma. Sin esa última parte el juego no es jugable cuando un viaje de ida
-y vuelta es una fracción apreciable de un intercambio.
+Split authority: the host simulates the ball and scores, **each side owns its own
+paddle with no latency**, and the guest predicts its own hit while the host
+confirms it. Without that last part the game is not playable when a round trip is
+an appreciable fraction of a rally.
 
-* **Base de tiempo compartida.** Los dos extremos derivan su tick del mismo
-  instante (`MatchClock` + `ClockSync` estilo NTP sobre el propio transporte),
-  así que sus contadores coinciden por construcción y el invitado puede indexar
-  su historial con el tick que trae un snapshot del anfitrión.
-* **Dirigido por eventos.** 10 Hz de snapshot base y 12 Hz de paletas en lotes,
-  más un mensaje **inmediato** en cada golpe, saque y punto. El del golpe del
-  anfitrión es el más valioso del protocolo: sin él la corrección mediana en el
-  invitado es de 469 mm, con él baja a 43 mm.
-* **Reclamación de golpe.** El invitado golpea y lo dibuja al instante; el
-  anfitrión rebobina al tick reclamado y **recalcula el tiro él mismo** desde su
-  propia bola y la pala reclamada. El tiro que mandó el invitado solo se guarda
-  como métrica. Eso elimina la clase entera de trampas de "tiro a medida" y,
-  como el golpe es determinista, aceptar no cuesta ninguna corrección visible.
-* **Veredicto retrasado.** "No llegó" y "fuera" son los dos únicos fallos que una
-  reclamación puede revocar, así que el anfitrión los retiene mientras la ventana
-  de rebobinado siga abierta. La ventana y el retraso se dimensionan con el RTT
-  medido: una ventana más corta que el enlace convierte golpes legítimos en
-  rechazos.
-* **Banco de pruebas**: `/pingpong?net=loopback` monta anfitrión e invitado lado
-  a lado con deslizadores de latencia, jitter y pérdida. Todo el netcode corre de
-  verdad salvo el transporte.
-* **Identidad sin cuenta.** El servidor emite un `token` por jugador y lo
-  devuelve una sola vez; el cliente lo guarda en `sessionStorage`, o sea por
-  pestaña. Es una desviación deliberada de `neon_strike`, que deriva la identidad
-  de la sesión HTTP y por eso no distingue dos pestañas del mismo navegador, lo
-  que hace imposible probar un juego de dos en local.
-* **Canales autorizados por capacidad.** Todos los jugadores son el usuario
-  público, así que no hay nada que comprobar en `env.user`. Lo que el nombre del
-  canal lleva es un secreto — el `access_token` de la sala o el `token` del
-  jugador — y conocerlo es la prueba de que te dejaron entrar, porque el único
-  sitio donde se entregan es la respuesta a crear o unirse. Una sala terminada
-  deja de conceder suscripción, y los canales ajenos se pasan a `super()`:
-  olvidarlo rompería Discuss en la misma página.
-* **Dos planos.** El canal de sala (`pingpong_session_<token>`) lleva el control
-  — lobby, arranque, marcador, fin. Cada jugador tiene además un buzón privado
-  (`pingpong_player_<token>`) para los datos, de modo que el anfitrión no recibe
-  de vuelta sus propios snapshots ni el invitado el flujo de pala del otro.
-* **El servidor manda el arranque.** `/pingpong/online/start` fija `t0` y la
-  semilla y los difunde por el canal de sala; los dos clientes anclan su tick al
-  mismo instante. Si lo anunciara el anfitrión, estaríamos confiando a un cliente
-  el reloj contra el que se mide cada rebobinado.
-* **Nada se reenvía tal cual.** `/pingpong/online/relay` reconstruye cada payload
-  desde una lista blanca por tipo (`RELAY_TYPES` en el modelo de sala). Reenviar
-  el diccionario del cliente convertiría el buzón en una vía para inyectar
-  objetos arbitrarios en el cliente del rival.
-* **El marcador lo lleva el servidor.** El anfitrión reporta por
-  `/pingpong/online/point` *quién ganó el punto y por qué*, nunca el marcador; el
-  servidor incrementa su propia cuenta de uno en uno. Para cuando llega
-  `/pingpong/online/finish`, el resultado ya se conoce en el servidor y la cifra
-  que mande el cliente **se ignora**. Es la diferencia entre un marcador que se
-  afirma y uno que hay que ganarse punto a punto.
-* **Cada tipo tiene un remitente permitido.** Solo el anfitrión difunde estado y
-  eventos; solo el invitado manda su pala y reclama un golpe (`RELAY_ROLES`).
-* **Las rutas de relay no escriben.** Odoo trabaja en REPEATABLE READ y reintenta
-  los fallos de serialización con hasta segundos de espera; si los mensajes de
-  los dos jugadores actualizaran la misma fila a estas tasas se serializarían
-  entre sí y ese backoff destrozaría el netcode. Solo escribe el latido, y con
-  throttle.
+* **Shared time base.** Both ends derive their tick from the same instant
+  (`MatchClock` + NTP-style `ClockSync` over the transport itself), so their
+  counters match by construction and the guest can index its history with the tick
+  carried by a host snapshot.
+* **Event-driven.** 10 Hz of base snapshots and 12 Hz of batched paddles, plus an
+  **immediate** message on every hit, serve and point. The host's hit message is
+  the most valuable in the protocol: without it the median correction on the guest
+  is 469 mm, with it it drops to 43 mm.
+* **Hit claim.** The guest hits and draws it instantly; the host rewinds to the
+  claimed tick and **recomputes the shot itself** from its own ball and the claimed
+  paddle. The shot the guest sent is only kept as a metric. That removes the whole
+  class of "made-to-measure shot" cheats and, because the hit is deterministic,
+  accepting costs no visible correction.
+* **Delayed verdict.** "Did not reach" and "out" are the only two faults a claim
+  can revoke, so the host holds them back while the rewind window is still open.
+  The window and the delay are sized from the measured RTT: a window shorter than
+  the link turns legitimate hits into rejections.
+* **Test bench**: `/pingpong?net=loopback` mounts host and guest side by side with
+  latency, jitter and loss sliders. All the netcode runs for real except the
+  transport.
+* **Identity without an account.** The server issues a `token` per player and
+  returns it exactly once; the client stores it in `sessionStorage`, i.e. per tab.
+  This is a deliberate departure from `neon_strike`, which derives identity from
+  the HTTP session and therefore cannot tell two tabs of the same browser apart,
+  making it impossible to test a two-player game locally.
+* **Channels authorized by capability.** Every player is the public user, so there
+  is nothing to check on `env.user`. What the channel name carries is a secret —
+  the room `access_token` or the player `token` — and knowing it is the proof you
+  were let in, because the only place they are handed out is the response to
+  creating or joining. A finished room stops granting subscription, and channels
+  belonging to others are passed to `super()`: forgetting that would break Discuss
+  on the same page.
+* **Two planes.** The room channel (`pingpong_session_<token>`) carries control —
+  lobby, start, score, end. Each player also has a private mailbox
+  (`pingpong_player_<token>`) for the data, so the host does not get its own
+  snapshots back nor the guest the other's paddle stream.
+* **The server owns the start.** `/pingpong/online/start` fixes `t0` and the seed
+  and broadcasts them over the room channel; both clients anchor their tick to the
+  same instant. If the host announced it, we would be trusting a client with the
+  clock every rewind is measured against.
+* **Nothing is forwarded verbatim.** `/pingpong/online/relay` rebuilds every
+  payload from a per-type allowlist (`RELAY_TYPES` in the room model). Forwarding
+  the client's dictionary would turn the mailbox into a way to inject arbitrary
+  objects into the opponent's client.
+* **The server keeps the score.** The host reports through
+  `/pingpong/online/point` *who won the point and why*, never the score; the
+  server increments its own count one at a time. By the time
+  `/pingpong/online/finish` arrives, the result is already known on the server and
+  the figure the client sends **is ignored**. That is the difference between a
+  score that is claimed and one that has to be earned point by point.
+* **Each type has one allowed sender.** Only the host broadcasts state and events;
+  only the guest sends its paddle and claims a hit (`RELAY_ROLES`).
+* **Relay routes do not write.** Odoo works in REPEATABLE READ and retries
+  serialization failures with waits of up to seconds; if both players' messages
+  updated the same row at these rates they would serialize against each other and
+  that backoff would wreck the netcode. Only the heartbeat writes, and it is
+  throttled.
 
-Medido sobre partidos completos simulados (26 mensajes/s por partida en todos los
-casos, y el marcador siempre coincide entre los dos extremos):
+Measured over full simulated matches (26 messages/s per match in every case, and
+the score always matching on both ends):
 
-| RTT   | error medio | corrección mediana | rechazo de claims |
-|-------|-------------|--------------------|-------------------|
-| 0 ms  | 4 mm        | 3 mm               | 2,3 %             |
-| 20 ms | 4 mm        | 8 mm               | 2,3 %             |
-| 100 ms| 30 mm       | 43 mm              | 2,2 %             |
-| 200 ms| 96 mm       | 61 mm              | 2,0 %             |
-| 300 ms| 130 mm      | 45 mm              | 5-15 %            |
+| RTT   | mean error | median correction | claim rejection |
+|-------|------------|-------------------|-----------------|
+| 0 ms  | 4 mm       | 3 mm              | 2.3 %           |
+| 20 ms | 4 mm       | 8 mm              | 2.3 %           |
+| 100 ms| 30 mm      | 43 mm             | 2.2 %           |
+| 200 ms| 96 mm      | 61 mm             | 2.0 %           |
+| 300 ms| 130 mm     | 45 mm             | 5-15 %          |
 
-Por encima de ~250 ms de RTT la experiencia se degrada de forma apreciable; ahí
-conviene avisar al jugador y no emparejar automáticamente.
+Above ~250 ms RTT the experience degrades noticeably; that is where the player
+should be warned rather than matched automatically.
 
-### Por qué los datos no van por el bus
+### Why the data does not go over the bus
 
-Medido en un build de Odoo.sh con un worker, con el cliente a 59 fps:
+Measured on an Odoo.sh build with one worker, with the client at 59 fps:
 
-| | Bus en reposo | Bus en partida |
+| | Idle bus | Bus during a match |
 |---|---|---|
-| Entrega | ~30 ms | ~380 ms |
+| Delivery | ~30 ms | ~380 ms |
 
-El HTTP se mantuvo en ~89 ms y estable, el cliente sano, y **recortar un 35% de
-los mensajes no cambió nada**. El coste no es el tamaño ni el ritmo: es que cada
-notificación entregada ejecuta una consulta ORM completa (`bus.bus._poll`) en el
-proceso gevent, que es cooperativo y lo comparte toda la instancia.
+HTTP stayed at ~89 ms and stable, the client healthy, and **cutting 35% of the
+messages changed nothing**. The cost is neither the size nor the rate: it is that
+every delivered notification runs a full ORM query (`bus.bus._poll`) in the gevent
+process, which is cooperative and shared by the whole instance.
 
-Por eso el plano de datos sale del servidor. Funciona así:
+That is why the data plane leaves the server. It works like this:
 
-1. La partida **empieza sobre el bus** y es jugable desde el primer segundo.
-2. En paralelo se negocia un `RTCDataChannel` (`{ordered:false, maxRetransmits:0}`),
-   con la señalización por el mismo relay. Los servidores STUN/TURN salen de
-   `mail.ice.server`, que Discuss ya configura.
-3. Cuando el canal abre, `HybridTransport` cambia solo. `NetGame` no se entera:
-   sostiene un transporte y nunca sabe por dónde fueron sus mensajes.
-4. Si la negociación falla —NAT simétrico, red corporativa— se sigue en el bus.
-   No hay nada que hacer ni que avisar.
+1. The match **starts over the bus** and is playable from the first second.
+2. In parallel an `RTCDataChannel` is negotiated (`{ordered:false, maxRetransmits:0}`),
+   with signalling over the same relay. The STUN/TURN servers come from
+   `mail.ice.server`, which Discuss already configures.
+3. When the channel opens, `HybridTransport` switches on its own. `NetGame` never
+   notices: it holds one transport and never knows which way its messages went.
+4. If negotiation fails — symmetric NAT, corporate network — play continues on the
+   bus. There is nothing to do and nothing to announce.
 
-El canal es **desordenado y sin retransmisión** a propósito: el netcode ya
-descarta snapshots viejos por número de secuencia, así que reenviar uno que ya
-quedó obsoleto solo retrasaría el que importa.
+The channel is **unordered and without retransmission** on purpose: the netcode
+already discards old snapshots by sequence number, so resending one that is
+already stale would only delay the one that matters.
 
-Sin TURN configurado, un porcentaje de parejas no conseguirá conexión directa y
-se quedará en el bus. El indicador del HUD muestra `p2p` cuando el enlace directo
-está activo.
+Without TURN configured, a percentage of pairs will not get a direct connection
+and will stay on the bus. The HUD indicator shows `p2p` when the direct link is
+active.
 
-## Siguientes pasos sugeridos
+## Suggested next steps
 
-* **Partida rápida**: cola pública que empareja a quien esté esperando. El modelo
-  ya lleva `is_public_queue` y el emparejamiento sin carrera está diseñado con
-  `try_lock_for_update`, que emite `FOR UPDATE SKIP LOCKED`.
-* **Limpieza**: cron que cierre salas abandonadas (`state` en `waiting`/`ready`
-  sin señal, o `playing` con un jugador ido) y borre las viejas. Hoy quedan como
-  basura, que es lo que pasa con un endpoint público.
-* **Límites de tasa** en las rutas públicas: hoy cualquiera puede crear salas sin
-  freno. El core de Odoo no trae nada reutilizable para esto.
-* **Reclamar victoria por abandono**: si el rival lleva 15 s sin latido, el que
-  queda debería poder cerrar el partido a su favor, validándolo el servidor
-  contra `last_seen` y no contra lo que diga el cliente.
-* **Reconexión** tras un F5: el token vive en `sessionStorage` y `/info` ya
-  devuelve la sala entera, así que falta sobre todo la parte de interfaz.
-* Ranking público (`/pingpong/ranking`) con los mejores resultados por dificultad.
-* Sonido y repetición del último punto.
+* **Quick match**: a public queue pairing whoever is waiting. The model already
+  carries `is_public_queue` and race-free pairing is designed with
+  `try_lock_for_update`, which emits `FOR UPDATE SKIP LOCKED`.
+* **Cleanup**: a cron closing abandoned rooms (`state` in `waiting`/`ready` with no
+  signal, or `playing` with a player gone) and deleting old ones. Today they pile
+  up as garbage, which is what happens with a public endpoint.
+* **Rate limits** on the public routes: today anyone can create rooms unchecked.
+  Odoo core ships nothing reusable for this.
+* **Claiming a win by walkover**: if the opponent has gone 15 s without a
+  heartbeat, the one left should be able to close the match in their favour, with
+  the server validating it against `last_seen` and not against what the client
+  says.
+* **Reconnection** after an F5: the token lives in `sessionStorage` and `/info`
+  already returns the whole room, so what is mostly missing is the interface part.
+* Public ranking (`/pingpong/ranking`) with the best results per difficulty.
+* Sound and a replay of the last point.

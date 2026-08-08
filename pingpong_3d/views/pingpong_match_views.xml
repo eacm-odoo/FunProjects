@@ -4,15 +4,15 @@
         <field name="name">pingpong.match.list</field>
         <field name="model">pingpong.match</field>
         <field name="arch" type="xml">
-            <list string="Partidos" decoration-success="won == True" decoration-muted="won == False">
-                <field name="create_date" string="Fecha"/>
+            <list string="Matches" decoration-success="won == True" decoration-muted="won == False">
+                <field name="create_date" string="Date"/>
                 <field name="mode" optional="show"/>
                 <field name="player_name"/>
                 <field name="opponent_name" optional="show"/>
                 <field name="partner_id" optional="hide"/>
                 <field name="difficulty" optional="show"/>
-                <field name="player_score" sum="Puntos jugador"/>
-                <field name="machine_score" sum="Puntos máquina"/>
+                <field name="player_score" sum="Player Score"/>
+                <field name="machine_score" sum="Machine Score"/>
                 <field name="margin"/>
                 <field name="hits" optional="show"/>
                 <field name="rallies" optional="hide"/>
@@ -25,7 +25,7 @@
         <field name="name">pingpong.match.form</field>
         <field name="model">pingpong.match</field>
         <field name="arch" type="xml">
-            <form string="Partido">
+            <form string="Match">
                 <sheet>
                     <div class="oe_title">
                         <h1><field name="name" readonly="1"/></h1>
@@ -38,7 +38,7 @@
                             <field name="difficulty"
                                    invisible="mode != 'solo'"
                                    required="mode == 'solo'"/>
-                            <field name="create_date" string="Jugado el" readonly="1"/>
+                            <field name="create_date" string="Played On" readonly="1"/>
                             <field name="duration" widget="float_time"/>
                         </group>
                         <group>
@@ -62,7 +62,7 @@
         <field name="name">pingpong.match.graph</field>
         <field name="model">pingpong.match</field>
         <field name="arch" type="xml">
-            <graph string="Partidos" type="bar">
+            <graph string="Matches" type="bar">
                 <field name="difficulty"/>
                 <field name="margin" type="measure"/>
             </graph>
@@ -73,40 +73,40 @@
         <field name="name">pingpong.match.search</field>
         <field name="model">pingpong.match</field>
         <field name="arch" type="xml">
-            <search string="Partidos">
+            <search string="Matches">
                 <field name="player_name"/>
                 <field name="opponent_name"/>
                 <field name="partner_id"/>
                 <field name="difficulty"/>
-                <filter name="filter_solo" string="Contra la máquina" domain="[('mode','=','solo')]"/>
+                <filter name="filter_solo" string="Against the Machine" domain="[('mode','=','solo')]"/>
                 <filter name="filter_online" string="Online 1v1" domain="[('mode','=','online')]"/>
                 <separator/>
-                <filter name="filter_won" string="Victorias" domain="[('won','=',True)]"/>
-                <filter name="filter_lost" string="Derrotas" domain="[('won','=',False)]"/>
+                <filter name="filter_won" string="Wins" domain="[('won','=',True)]"/>
+                <filter name="filter_lost" string="Losses" domain="[('won','=',False)]"/>
                 <separator/>
-                <filter name="filter_registered" string="Jugadores registrados" domain="[('partner_id','!=',False)]"/>
+                <filter name="filter_registered" string="Registered Players" domain="[('partner_id','!=',False)]"/>
                 <group>
-                    <filter name="group_mode" string="Modo" context="{'group_by': 'mode'}"/>
-                    <filter name="group_difficulty" string="Dificultad" context="{'group_by': 'difficulty'}"/>
-                    <filter name="group_partner" string="Jugador" context="{'group_by': 'partner_id'}"/>
-                    <filter name="group_date" string="Fecha" context="{'group_by': 'create_date:day'}"/>
+                    <filter name="group_mode" string="Mode" context="{'group_by': 'mode'}"/>
+                    <filter name="group_difficulty" string="Difficulty" context="{'group_by': 'difficulty'}"/>
+                    <filter name="group_partner" string="Player" context="{'group_by': 'partner_id'}"/>
+                    <filter name="group_date" string="Date" context="{'group_by': 'create_date:day'}"/>
                 </group>
             </search>
         </field>
     </record>
 
     <record id="pingpong_match_action" model="ir.actions.act_window">
-        <field name="name">Partidos</field>
+        <field name="name">Matches</field>
         <field name="res_model">pingpong.match</field>
         <field name="view_mode">list,form,graph</field>
         <field name="help" type="html">
-            <p class="o_view_nocontent_smiling_face">Todavía no hay partidos</p>
-            <p>Abre /pingpong y juega uno: el resultado aparecerá aquí.</p>
+            <p class="o_view_nocontent_smiling_face">No matches yet</p>
+            <p>Open /pingpong and play one: the result will show up here.</p>
         </field>
     </record>
 
     <record id="pingpong_play_action" model="ir.actions.act_url">
-        <field name="name">Jugar</field>
+        <field name="name">Play</field>
         <field name="url">/pingpong</field>
         <field name="target">new</field>
     </record>
