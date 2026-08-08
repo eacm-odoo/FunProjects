@@ -38,11 +38,25 @@ Python, view or security changes: `-u neon_strike`.
 
 ## How to play
 
-Drag (or move the mouse) to fly your ship — fire is automatic. Capsules dropped
-by downed enemies give **T** triple shot, **S** shield, **B** bomb and **+** an
-extra life. In co-op, fly next to a downed ally to revive them. A boss shows up
-every 4 waves. The **Ships and enemies** button in the menu opens a glossary of
-every ship, enemy, boss, asteroid and capsule.
+Drag (or move the mouse) to fly your ship — fire is automatic. Press **Space**
+to dash: a short burst towards the cursor during which nothing can touch you.
+Keys **1** to **4** trigger the active perks you picked up, in that order.
+
+Capsules dropped by downed enemies give **T** triple shot, **S** shield, **B**
+bomb and **+** an extra life. In co-op, fly next to a downed ally to revive them.
+
+Every **5 cleared waves** the run pauses and each player is offered **3 of the 50
+permanent perks** and keeps 1 — passives, situational bonuses and active powers
+on a cooldown. They stack for the rest of the run and are wiped when you start a
+new one. A boss shows up every 4 waves and a **colossal boss every 10**: those do
+not fit the arena, so the camera pulls back and your ship looks tiny next to the
+hull. The playable field **widens** for the fight (the purple frame shows how far
+you can fly), and supply capsules keep falling while a boss is up — on a timer
+and every time you chip a quarter off its health — so you are not stuck with the
+plain shot for the whole fight.
+
+The **Ships, enemies and powers** button in the menu opens a glossary of every
+ship, enemy, boss, colossus, capsule and perk.
 
 To play together: one player hits **Create match** and shares the room code; the
 others paste it and hit **Join**. The host starts the match.
@@ -51,9 +65,11 @@ others paste it and hit **Join**. The host starts the match.
 
 | Piece | Where | What it does |
 |---|---|---|
-| Game engine | `static/src/js/game_engine.js` | `NeonStrikeEngine`: physics, 6 enemy types, boss, asteroids, power-ups, combos, particles, synthesised audio (Web Audio). Roles `solo`/`host`/`guest` |
-| Sprite bank | `static/src/js/sprites.js` | Pixel art as character grids, re-tinted at draw time and cached. 19 sprites |
-| Glossary | `static/src/js/glossary.js` | Data-only catalogue feeding the in-menu "Ships and enemies" panel |
+| Game engine | `static/src/js/game_engine.js` | `NeonStrikeEngine`: physics, 6 enemy types, boss, colossal bosses, asteroids, power-ups, perks, dash, combos, particles, synthesised audio (Web Audio). Roles `solo`/`host`/`guest` |
+| Perks | `static/src/js/perks.js` | The 50 permanent perks (30 passive, 10 conditional, 10 active) as data: modifiers, flags and cooldowns |
+| Colossal bosses | `static/src/js/colossi.js` | The 5 colossi: art, size, camera zoom, hit points and behaviour blurbs |
+| Sprite bank | `static/src/js/sprites.js` | Pixel art as character grids, re-tinted at draw time and cached. 24 sprites |
+| Glossary | `static/src/js/glossary.js` | Data-only catalogue feeding the in-menu "Ships, enemies and powers" panel |
 | Menu backdrop | `static/src/js/menu_backdrop.js` | Decorative "attract mode" behind the start menu |
 | OWL component | `static/src/js/neon_strike_game.js` | `NeonStrikeGame`, mounted as a standalone OWL app on the public page |
 | Templates | `static/src/xml/neon_strike_templates.xml` | Toolbar, menu, lobby, glossary and leaderboard |
@@ -74,7 +90,13 @@ The match is **host-authoritative**: one browser simulates everything and
 broadcasts a compact snapshot ~15 Hz through the Odoo bus; the guests render what
 they receive and forward their pointer ~20 Hz. The simulation runs in a fixed
 680×540 logical space so coordinates match on every machine, and the render is
-scaled with letterboxing.
+scaled with letterboxing. The camera zoom used by colossal bosses is a render
+concern only: the guest derives it from the boss in the snapshot, so nobody has
+to agree on a camera over the wire.
+
+One-shot inputs (dash, active perks and the upgrade you pick between waves)
+travel through the same `/neon/input` route as the pointer, in an `action`
+field; the host validates them again before applying anything.
 
 Identity is a **session token plus a nickname**, not `res.users` — the page is
 public and everyone is the Odoo public user. The bus channel is

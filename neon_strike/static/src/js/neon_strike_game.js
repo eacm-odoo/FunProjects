@@ -9,7 +9,27 @@ import { getTemplate } from "@web/core/templates";
 import { NeonStrikeEngine } from "./game_engine";
 import { MenuBackdrop } from "./menu_backdrop";
 import { GLOSSARY } from "./glossary";
+import { PERKS } from "./perks";
 import { sprite } from "./sprites";
+
+// Perk families shown in the glossary, in reading order.
+const PERK_SECTIONS = [
+    {
+        kind: "passive",
+        title: "PERMANENT PERKS · PASSIVE",
+        note: "Always on. Every 5 cleared waves you are offered 3 and keep 1, for the rest of the run.",
+    },
+    {
+        kind: "conditional",
+        title: "PERMANENT PERKS · CONDITIONAL",
+        note: "They only pay off in the right situation: low on lives, without a shield, up close, on a high combo…",
+    },
+    {
+        kind: "active",
+        title: "PERMANENT PERKS · ACTIVE",
+        note: "Triggered by hand with the 1-4 keys, in the order you picked them up. Each one has its own cooldown.",
+    },
+];
 
 // Network cadences (host broadcasts state, guest forwards its pointer).
 const BROADCAST_MS = 66; // ~15 Hz
@@ -88,7 +108,7 @@ export class NeonStrikeGame extends Component {
     }
 
     /* ------------------------------------------------------------------ */
-    /* Glosario                                                            */
+    /* Glossary                                                            */
     /* ------------------------------------------------------------------ */
 
     /**
@@ -109,6 +129,21 @@ export class NeonStrikeGame extends Component {
         return this._glossary;
     }
 
+    /**
+     * The 50 perks grouped by family for the glossary. They carry no sprite,
+     * so they are rendered as text cards tinted with the perk colour.
+     */
+    get perkGroups() {
+        return PERK_SECTIONS.map((section) => ({
+            ...section,
+            items: PERKS.filter((p) => p.kind === section.kind).map((p) => ({
+                ...p,
+                cdLabel: p.cd ? Math.round(p.cd / 60) + " s cooldown" : "",
+                coop: p.req === "coop",
+            })),
+        }));
+    }
+
     toggleGlossary() {
         this.state.glossary = !this.state.glossary;
     }
@@ -121,7 +156,7 @@ export class NeonStrikeGame extends Component {
     }
 
     /* ------------------------------------------------------------------ */
-    /* Marcadores                                                          */
+    /* Leaderboard                                                         */
     /* ------------------------------------------------------------------ */
 
     async loadScores() {
@@ -153,7 +188,7 @@ export class NeonStrikeGame extends Component {
     }
 
     /* ------------------------------------------------------------------ */
-    /* Motor                                                               */
+    /* Engine                                                              */
     /* ------------------------------------------------------------------ */
 
     _namesBySlot(participants) {
@@ -179,6 +214,7 @@ export class NeonStrikeGame extends Component {
             names: match ? this._namesBySlot(match.participants) : null,
             onGameOver: (res) => this.onGameOver(res),
             onLocalInput: (x, y) => this._queueInput(x, y),
+            onAction: (action) => this._sendAction(action),
         });
         this.engine.setMuted(this.state.muted);
         this.engine.start();
@@ -246,7 +282,24 @@ export class NeonStrikeGame extends Component {
         try {
             await rpc("/neon/input", { match_id: this.state.match.id, x: payload.x, y: payload.y });
         } catch (e) {
-            /* transitorio */
+            /* transient */
+        }
+    }
+
+    /**
+     * Guest one-shot input (dash, active perk, upgrade picked). It does not go
+     * through `_pendingInput`: that queue keeps only the last pointer and would
+     * drop actions.
+     */
+    async _sendAction(action) {
+        if (!this.state.match) {
+            return;
+        }
+        try {
+            // x/y are ignored by the host when `action` travels (see _onInput).
+            await rpc("/neon/input", { match_id: this.state.match.id, x: 0, y: 0, action });
+        } catch (e) {
+            /* transient: the player can press again */
         }
     }
 
@@ -283,7 +336,13 @@ export class NeonStrikeGame extends Component {
     }
 
     _onInput(payload) {
-        if (this.state.role === "host" && this.engine && payload) {
+        if (this.state.role !== "host" || !this.engine || !payload) {
+            return;
+        }
+        if (payload.a) {
+            // One-shot action: it carries no usable pointer.
+            this.engine.setRemoteAction(payload.slot, payload.a);
+        } else {
             this.engine.setRemoteInput(payload.slot, payload.x, payload.y);
         }
     }
