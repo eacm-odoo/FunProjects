@@ -53,7 +53,11 @@ to a downed ally to revive them.
 Every **5 cleared waves** the run pauses and each player is offered **3 of the 50
 permanent perks** and keeps 1 — passives, situational bonuses and active powers
 on a cooldown. They stack for the rest of the run and are wiped when you start a
-new one. A boss shows up every 4 waves and a **colossal boss every 10**: those do
+new one. A boss shows up every 4 waves — five of them rotate, so it is never the same
+fight: **DREADNOUGHT** sweeps and shoots, **WARDEN** hides behind armour between
+windows, **LANCER** charges a lance beam and dives, **HIVE** floods the arena
+with interceptors and **PRISM** blinks around spinning a spiral. A **colossal
+boss lands every 10 waves**: those do
 not fit the arena, so the camera pulls back until the whole hull fits and your
 ship looks tiny next to it. The playable field **widens** for the fight and the
 zoom is picked so that field fills your screen (the purple frame shows how far
@@ -73,6 +77,7 @@ others paste it and hit **Join**. The host starts the match.
 |---|---|---|
 | Game engine | `static/src/js/game_engine.js` | `NeonStrikeEngine`: physics, 6 enemy types, boss, colossal bosses, asteroids, power-ups, perks, dash, combos, particles, synthesised audio (Web Audio). Roles `solo`/`host`/`guest` |
 | Perks | `static/src/js/perks.js` | The 50 permanent perks (30 passive, 10 conditional, 10 active) as data: modifiers, flags and cooldowns |
+| Bosses | `static/src/js/bosses.js` | The 5 regular bosses: art, radius, hull and payout multipliers, and the rotation that skips the waves a colossus takes |
 | Colossal bosses | `static/src/js/colossi.js` | The 5 colossi: art, size, camera zoom, hit points and behaviour blurbs |
 | Sprite bank | `static/src/js/sprites.js` | Pixel art as character grids, re-tinted at draw time and cached. 24 sprites |
 | Glossary | `static/src/js/glossary.js` | Data-only catalogue feeding the in-menu "Ships, enemies and powers" panel |
