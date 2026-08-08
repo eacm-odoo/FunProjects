@@ -10,6 +10,11 @@
                 <button class="btn btn-sm ns_btn me-2" t-on-click="toggleMute">
                     <i t-attf-class="fa {{ state.muted ? 'fa-volume-off' : 'fa-volume-up' }} me-1" role="img" aria-label="Sound"/>Sound
                 </button>
+                <button class="btn btn-sm ns_btn me-2" t-on-click="togglePause">
+                    <i t-attf-class="fa {{ state.paused ? 'fa-play' : 'fa-pause' }} me-1" role="img" aria-label="Pause"/>
+                    <t t-out="state.paused ? 'Resume' : 'Pause'"/>
+                    <span class="ns_kbd ms-1">Esc</span>
+                </button>
                 <button class="btn btn-sm ns_btn me-2" t-if="state.role !== 'guest'" t-on-click="restart">
                     <i class="fa fa-refresh me-1" role="img" aria-label="Restart"/>Restart
                 </button>
