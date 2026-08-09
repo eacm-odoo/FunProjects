@@ -168,8 +168,8 @@ export class NeonStrikeGame extends Component {
         }
     }
 
-    async onGameOver({ score, wave }) {
-        this.state.last = { score, wave };
+    async onGameOver({ score, wave, seconds }) {
+        this.state.last = { score, wave, seconds };
         if (this.state.role === "guest") {
             return;
         }
@@ -178,9 +178,9 @@ export class NeonStrikeGame extends Component {
         }
         try {
             if (this.state.role === "host" && this.state.match) {
-                await rpc("/neon/score", { match_id: this.state.match.id, score, wave });
+                await rpc("/neon/score", { match_id: this.state.match.id, score, wave, seconds });
             } else {
-                await rpc("/neon/solo_score", { nickname: this.state.nickname, score, wave });
+                await rpc("/neon/solo_score", { nickname: this.state.nickname, score, wave, seconds });
             }
             await this.loadScores();
         } catch (e) {
@@ -518,6 +518,11 @@ export class NeonStrikeGame extends Component {
 
     fmt(n) {
         return (n || 0).toLocaleString("en-US");
+    }
+
+    /** Leaderboard cell: the stored duration is in hours, shown as m:ss. */
+    fmtTime(hours) {
+        return NeonStrikeEngine.formatTime((hours || 0) * 3600);
     }
 
     get isHost() {

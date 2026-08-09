@@ -36,11 +36,30 @@ class NeonStrikeScore(models.Model):
         required=True,
     )
     player_count = fields.Integer(string="Players", default=1)
+    duration = fields.Float(
+        string="Duration",
+        help="How long the run lasted, in hours (shown as h:mm with the "
+             "float_time widget). Only the time actually played counts: the "
+             "pause and the upgrade screen do not.",
+    )
+    play_time = fields.Float(
+        string="Play Time",
+        compute="_compute_play_time",
+        store=True,
+        help="Duration multiplied by the number of players, so summing this "
+             "column over every record gives the total time people have spent "
+             "playing (a 10 min co-op run for 4 counts as 40 min).",
+    )
     match_id = fields.Many2one(
         "neon.strike.match",
         string="Match",
         ondelete="set null",
     )
+
+    @api.depends("duration", "player_count")
+    def _compute_play_time(self):
+        for score in self:
+            score.play_time = score.duration * max(1, score.player_count)
 
     @api.depends("nickname", "user_id.name")
     def _compute_player_name(self):

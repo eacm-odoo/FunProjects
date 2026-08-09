@@ -142,6 +142,12 @@ export class NeonStrikeEngine {
 
         this.frame = 0;
         this.slowMo = 0;
+        // How long this run has actually been played, in ms of wall clock. It
+        // only advances while `playing` and not paused, so the pause screen and
+        // the upgrade screen do not inflate it. Frames would be wrong here: a
+        // 30 fps machine would report half the time of a 60 fps one.
+        this.playMs = 0;
+        this._clock = 0;
 
         this.ships = [];
         this.bullets = [];
@@ -231,6 +237,39 @@ export class NeonStrikeEngine {
                 /* AudioContext already closed */
             }
         }
+    }
+
+    /**
+     * Advance the play clock from the wall clock. Gaps longer than a frame or
+     * two (tab in the background, a stall) are clamped, otherwise leaving the
+     * page open would count as play time.
+     */
+    _tickClock() {
+        const now = typeof performance !== "undefined" && performance.now
+            ? performance.now()
+            : Date.now();
+        const dt = this._clock ? now - this._clock : 0;
+        this._clock = now;
+        if (this.state === "playing" && !this.paused && dt > 0) {
+            this.playMs += Math.min(dt, 100);
+        }
+    }
+
+    /** Length of the current run in whole seconds. */
+    playSeconds() {
+        return Math.round(this.playMs / 1000);
+    }
+
+    /** m:ss for the HUD (h:mm:ss once a run goes past the hour). */
+    static formatTime(seconds) {
+        const s = Math.max(0, Math.round(seconds || 0));
+        const parts = [Math.floor(s / 60) % 60, s % 60];
+        if (s >= 3600) {
+            parts.unshift(Math.floor(s / 3600));
+        }
+        return parts
+            .map((v, i) => (i === 0 ? String(v) : String(v).padStart(2, "0")))
+            .join(":");
     }
 
     setMuted(muted) {
@@ -373,6 +412,7 @@ export class NeonStrikeEngine {
 
     _loopFn() {
         this.frame++;
+        this._tickClock();
         const ts = this.slowMo > 0 ? 0.35 : 1;
         if (this.slowMo > 0) {
             this.slowMo--;
@@ -1218,7 +1258,12 @@ export class NeonStrikeEngine {
                 this.state = "over";
                 this.best = Math.max(this.best, this.score);
                 if (this.cb.onGameOver) {
-                    this.cb.onGameOver({ score: this.score, wave: this.wave, best: this.best });
+                    this.cb.onGameOver({
+                        score: this.score,
+                        wave: this.wave,
+                        best: this.best,
+                        seconds: this.playSeconds(),
+                    });
                 }
             }
         } else {
@@ -1228,6 +1273,8 @@ export class NeonStrikeEngine {
 
     reset() {
         this.score = 0;
+        this.playMs = 0;
+        this._clock = 0;
         this.wave = 0;
         this.combo = 1;
         this.comboT = 0;
@@ -3792,7 +3839,10 @@ export class NeonStrikeEngine {
             g.textAlign = "center";
             g.fillStyle = "rgba(180,210,255,0.7)";
             g.font = "500 13px system-ui,sans-serif";
-            g.fillText("Wave " + this.wave, W / 2, 22);
+            g.fillText(
+                "Wave " + this.wave + "  ·  " + NeonStrikeEngine.formatTime(this.playSeconds()),
+                W / 2, 22
+            );
             // Per-player panel (top right).
             let py = 16;
             g.textAlign = "right";
@@ -3876,7 +3926,11 @@ export class NeonStrikeEngine {
             g.fillText("Score: " + this.score.toLocaleString(), W / 2, H / 2 - 12);
             g.fillStyle = "rgba(180,210,255,0.85)";
             g.font = "400 15px system-ui,sans-serif";
-            g.fillText("Best: " + this.best.toLocaleString() + " · Wave " + this.wave, W / 2, H / 2 + 16);
+            g.fillText(
+                "Best: " + this.best.toLocaleString() + " · Wave " + this.wave +
+                " · " + NeonStrikeEngine.formatTime(this.playSeconds()),
+                W / 2, H / 2 + 16
+            );
             const pul = 0.7 + Math.sin(this.frame * 0.08) * 0.3;
             if (this.role !== "guest") {
                 g.fillStyle = "rgba(255,255,255," + pul + ")";

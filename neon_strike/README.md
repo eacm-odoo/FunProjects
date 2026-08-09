@@ -87,11 +87,11 @@ others paste it and hit **Join**. The host starts the match.
 | Styles | `static/src/scss/neon_strike.scss` | Odoo purple chrome with neon accents; animations respect `prefers-reduced-motion` |
 | Page | `views/neon_strike_page.xml` | QWeb template behind `/neon`, full screen, no header/footer |
 | Controllers | `controllers/main.py` | `GET /neon` plus the public JSON API (`/neon/create`, `join`, `start`, `input`, `state`, `score`, `solo_score`, `leave`, `scores`) |
-| Models | `models/neon_strike_score.py` | `neon.strike.score`: score, wave, mode (solo/co-op), player count |
+| Models | `models/neon_strike_score.py` | `neon.strike.score`: score, wave, mode (solo/co-op), player count, run duration and play time |
 | | `models/neon_strike_match.py` | `neon.strike.match`: room code, access token, state, participants |
 | | `models/neon_strike_participant.py` | `neon.strike.participant`: session token, nickname, slot, colour |
 | | `models/ir_websocket.py` | Authorizes the match bus channel by capability |
-| Views/menus | `views/neon_strike_views.xml` | Backend menu (Play / Leaderboard) and the score list |
+| Views/menus | `views/neon_strike_views.xml` | Backend menus (Play / Leaderboard / Time Played), the score list with its totals, the search filters and the play-time pivot |
 | | `views/website_menu.xml` | "Neon Strike" entry in the public site navigation |
 | Security | `security/ir.model.access.csv` | Internal users read scores; `base.group_system` manages everything |
 

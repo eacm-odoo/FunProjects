@@ -185,6 +185,7 @@
                 <th>Player</th>
                 <th class="text-end">Points</th>
                 <th class="text-end">Wave</th>
+                <th class="text-end">Time</th>
             </tr>
         </thead>
         <tbody>
@@ -197,10 +198,11 @@
                     </td>
                     <td class="text-end" t-out="fmt(s.score)"/>
                     <td class="text-end" t-out="s.wave"/>
+                    <td class="text-end ns_time" t-out="fmtTime(s.duration)"/>
                 </tr>
             </t>
             <tr t-if="!state.scores.length">
-                <td colspan="4" class="text-muted">No scores yet. Be the first!</td>
+                <td colspan="5" class="text-muted">No scores yet. Be the first!</td>
             </tr>
         </tbody>
     </table>
