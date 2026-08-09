@@ -276,6 +276,12 @@ $ns-magenta: #ff2fd0;
         margin: 0;
     }
 
+    // Run length in the leaderboard: secondary to the score.
+    .ns_time {
+        color: rgba(180, 210, 255, 0.6);
+        font-variant-numeric: tabular-nums;
+    }
+
     // Key hint inside a toolbar button (the Esc chip on Pause).
     .ns_kbd {
         display: inline-block;
