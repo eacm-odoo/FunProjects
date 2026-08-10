@@ -3,20 +3,25 @@
 # UI palette follows Odoo brand assets: https://www.odoo.com/page/brand-assets
 {
     "name": "Neon Strike",
-    "version": "19.0.6.0.1",
+    "version": "19.0.7.0.0",
     "category": "Productivity",
-    "summary": "Co-op neon space shooter, playable without a login on a public page",
+    "summary": "Neon arcade space shooter, playable without a login on a public page",
     "description": """
 Neon Strike
 ===========
 Arcade game (2D canvas + OWL 2) served from a public Odoo 19 page (``/neon``),
 playable **without an account**: pick a nickname and go.
 
-* Remote co-op for up to 4 players over the Odoo bus (room by code)
 * No sign-up: identity is a session token + nickname (anonymous players)
-* Individual lives per player, with the option to revive a downed ally
+* Pick your hull before the run: 4 pixel-art ships, cosmetic only
+* 26 places to fight in, one per wave: deep space, a black hole with real
+  gravity on its dust, nebulae, a supernova, ringed giants, planet surfaces
+  (lava, ice, ocean, jungle, desert, storms), a wormhole and more
 * 6 enemy types with distinct AI, asteroids, and a rotating family of 5 bosses
   every 4 waves (dreadnought, warden, lancer, hive, prism)
+* Remote co-op for up to 4 players over the Odoo bus (room by code), currently
+  hidden in the UI while the netcode lag is worked on
+* Individual lives per player, with the option to revive a downed ally
 * Custom pixel art: one hull per player slot and enemy chassis variants
 * In-menu glossary covering every ship, enemy, boss, capsule and perk
 * 100% synthesised audio with the Web Audio API (no sound files)
@@ -50,9 +55,11 @@ Built with Odoo. Brand guide: https://www.odoo.com/page/brand-assets
     "assets": {
         "web.assets_frontend": [
             "neon_strike/static/src/js/sprites.js",
+            "neon_strike/static/src/js/ships.js",
             "neon_strike/static/src/js/perks.js",
             "neon_strike/static/src/js/bosses.js",
             "neon_strike/static/src/js/colossi.js",
+            "neon_strike/static/src/js/backgrounds.js",
             "neon_strike/static/src/js/menu_backdrop.js",
             "neon_strike/static/src/js/glossary.js",
             "neon_strike/static/src/js/game_engine.js",

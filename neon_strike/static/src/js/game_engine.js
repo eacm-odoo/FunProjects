@@ -19,8 +19,8 @@ import { drawSprite, pxFor, spriteSize } from "./sprites";
 import { MAX_ACTIVES, PERKS, PERK_INDEX, rollOffers } from "./perks";
 import { BOSSES, bossForWave } from "./bosses";
 import { COLOSSI, colossusForWave } from "./colossi";
-
-const SHIP_COLORS = ["#5ee1ff", "#ff8fb3", "#7bffb0", "#ffd166"];
+import { SHIPS, SHIP_COLORS } from "./ships";
+import { Backdrop, backgroundForWave } from "./backgrounds";
 const REVIVE_FRAMES = 120;
 const COMBO_MAX = 25;
 
@@ -85,6 +85,7 @@ export class NeonStrikeEngine {
      * @param {number} [callbacks.players=1] - number of ships
      * @param {number} [callbacks.localSlot=0] - locally controlled slot
      * @param {string[]} [callbacks.names] - name per slot
+     * @param {number[]} [callbacks.hulls] - chosen hull index per slot (SHIPS)
      * @param {boolean} [callbacks.hotseat=false] - second ship on keyboard (WASD)
      */
     constructor(canvas, callbacks = {}) {
@@ -99,6 +100,8 @@ export class NeonStrikeEngine {
         this.players = Math.max(1, callbacks.players || (this.slots ? this.slots.length : 1));
         this.localSlot = callbacks.localSlot || 0;
         this.names = callbacks.names || null;
+        // Hull picked by each player. Cosmetic only: every hull flies the same.
+        this.hulls = callbacks.hulls || null;
         this.hotseat = !!callbacks.hotseat;
 
         this.state = "start";
@@ -158,6 +161,9 @@ export class NeonStrikeEngine {
         this.pops = [];
         this.pups = [];
         this.stars = [];
+        // Scenery behind the star field. Derived from the wave (see
+        // `_syncBackground`), never simulated and never sent over the bus.
+        this.bg = null;
         this._events = [];
         // Entities created by perks (dash trails, turrets, singularities, decoys).
         this.trails = [];
@@ -538,6 +544,23 @@ export class NeonStrikeEngine {
         }
     }
 
+    /**
+     * Point the backdrop at the place this wave is fought in. Cheap to call on
+     * every frame: it only rebuilds when the wave moves to another place, which
+     * is what lets the guest drive it straight off the snapshot.
+     */
+    _syncBackground() {
+        const def = backgroundForWave(this.wave || 1);
+        if (this.bg && this.bg.def === def) {
+            return;
+        }
+        const first = !this.bg;
+        this.bg = new Backdrop(def, this.W, this.H);
+        if (!first && this.wave >= 1 && this.state === "playing") {
+            this.pop(this.W / 2, 74, def.name, def.tint, 15, 90);
+        }
+    }
+
     pop(x, y, txt, color, size, life) {
         this.pops.push({
             x, y, txt, color,
@@ -595,11 +618,27 @@ export class NeonStrikeEngine {
     /* Ships                                                               */
     /* ------------------------------------------------------------------ */
 
+    /**
+     * Hull the player flies. Cosmetic: it changes the sprite, never the stats.
+     * The colour follows the hull when you are alone, but goes back to the slot
+     * palette in co-op, where the colour is what tells four ships apart.
+     */
+    _hullFor(slot) {
+        const h = this.hulls && this.hulls[slot];
+        return Math.max(0, Math.min(SHIPS.length - 1, h | 0));
+    }
+
+    _tintFor(slot, hull) {
+        return this.players > 1 ? SHIP_COLORS[slot % SHIP_COLORS.length] : SHIPS[hull].tint;
+    }
+
     mkShip(slot) {
+        const hull = this._hullFor(slot);
         return {
             slot,
+            hull,
             name: (this.names && this.names[slot]) || "J" + (slot + 1),
-            color: SHIP_COLORS[slot % SHIP_COLORS.length],
+            color: this._tintFor(slot, hull),
             x: 0, y: 0, tx: 0, ty: 0,
             inv: 0, shield: 0,
             weapon: "single", weaponT: 0, fireT: 0,
@@ -929,6 +968,7 @@ export class NeonStrikeEngine {
         this.wave++;
         this.sWave();
         this._ev({ k: "wave" });
+        this._syncBackground();
         // Last Stand recharges once per wave.
         for (const sp of this.ships) {
             sp.standT = 0;
@@ -1310,6 +1350,7 @@ export class NeonStrikeEngine {
         this.waveAge = 0;
         this.escortT = 0;
         this._applyField();
+        this._syncBackground();
         this._initShips();
         for (const sp of this.ships) {
             sp.inv = 90;
@@ -2048,6 +2089,11 @@ export class NeonStrikeEngine {
     }
 
     _updateStars(ts) {
+        // The scenery ticks with the star field: both are pure decoration and
+        // both run on the host and on the guest.
+        if (this.bg) {
+            this.bg.update(ts);
+        }
         const mx = this.W * 0.55;
         const my = this.H * 0.55;
         for (const s of this.stars) {
@@ -2999,7 +3045,7 @@ export class NeonStrikeEngine {
             fz: this.freezeT > 0 ? 1 : 0,
             wp2: this.warpT > 0 ? 1 : 0,
             ships: this.ships.map((s) => ({
-                s: s.slot, n: s.name, c: s.color,
+                s: s.slot, n: s.name, c: s.color, hl: s.hull,
                 x: Math.round(s.x), y: Math.round(s.y),
                 iv: s.inv > 0 ? 1 : 0, sd: s.shield,
                 dn: s.down ? 1 : 0, rp: Math.round(s.reviveProgress),
@@ -3056,6 +3102,9 @@ export class NeonStrikeEngine {
         this.state = snap.st;
         this.score = snap.sc;
         this.wave = snap.wv;
+        // Derived from the wave, so the guest paints the same sky as the host
+        // without a single byte of it travelling.
+        this._syncBackground();
         this.combo = snap.cb;
         this.comboT = snap.ct;
         this.shake = snap.sk;
@@ -3079,6 +3128,8 @@ export class NeonStrikeEngine {
             }
             sp.name = s.n;
             sp.color = s.c;
+            // The hull is the host's: a guest cannot know what everyone picked.
+            sp.hull = s.hl != null ? Math.max(0, Math.min(SHIPS.length - 1, s.hl)) : sp.hull;
             sp.tx = s.x;
             sp.ty = s.y;
             sp.inv = s.iv ? 8 : 0;
@@ -3226,7 +3277,7 @@ export class NeonStrikeEngine {
             const sp = this._shipBySlot(d.sl);
             g.save();
             g.globalAlpha = 0.35 + Math.sin(this.frame * 0.2) * 0.15;
-            drawSprite(g, "ship" + ((sp ? sp.slot : 0) % 4), d.x, d.y, {
+            drawSprite(g, SHIPS[sp ? sp.hull : 0].sprite, d.x, d.y, {
                 tint: "#8be9ff",
                 px: SHIP_PX,
             });
@@ -3272,7 +3323,7 @@ export class NeonStrikeEngine {
         g.fill();
         g.globalCompositeOperation = "source-over";
         // Each slot has its own hull; the sprite is tinted with sp.color.
-        drawSprite(g, "ship" + (sp.slot % 4), 0, 0, { tint: sp.color, px: SHIP_PX });
+        drawSprite(g, SHIPS[sp.hull].sprite, 0, 0, { tint: sp.color, px: SHIP_PX });
         if (sp.shield > 0) {
             g.strokeStyle = "rgba(123,255,176," + (0.5 + Math.sin(this.frame * 0.15) * 0.3) + ")";
             g.lineWidth = 2;
@@ -3454,6 +3505,10 @@ export class NeonStrikeEngine {
         g.fillRect(-mx, -my, W + mx * 2, H + my * 2);
         if (this.shake > 0.5) {
             g.translate((Math.random() - 0.5) * this.shake, (Math.random() - 0.5) * this.shake);
+        }
+        // Scenery first, star field on top of it: the stars are the near layer.
+        if (this.bg) {
+            this.bg.draw(g);
         }
         for (const s of this.stars) {
             g.fillStyle = "rgba(200,220,255," + (0.25 + s.z * 0.25) + ")";

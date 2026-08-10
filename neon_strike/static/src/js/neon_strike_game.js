@@ -10,7 +10,20 @@ import { NeonStrikeEngine } from "./game_engine";
 import { MenuBackdrop } from "./menu_backdrop";
 import { GLOSSARY } from "./glossary";
 import { PERKS } from "./perks";
+import { SHIPS, hullIndex } from "./ships";
 import { sprite } from "./sprites";
+
+/**
+ * Remote co-op is **hidden, not removed**: the netcode is a snapshot broadcast
+ * over the bus and it lags badly on a real connection. Everything (controllers,
+ * models, bus channels, the host/guest engine roles) stays in place; this flag
+ * only decides whether the UI offers it. Flip it back to `true` once the lag is
+ * sorted out. See the "Multiplayer, temporarily hidden" note in CLAUDE.md.
+ */
+const MULTIPLAYER_ENABLED = false;
+
+// Where the chosen hull is remembered between runs.
+const HULL_KEY = "neon_strike_hull";
 
 // Perk families shown in the glossary, in reading order.
 const PERK_SECTIONS = [
@@ -56,6 +69,7 @@ export class NeonStrikeGame extends Component {
             screen: "menu", // menu | lobby | game
             role: "solo", // solo | host | guest
             nickname: "",
+            ship: this._savedHull(), // hull id, see ships.js
             joinCode: "",
             error: "",
             connecting: false,
@@ -83,7 +97,8 @@ export class NeonStrikeGame extends Component {
         this._pendingInput = null;
         this._broadcasting = false;
 
-        // Bus handlers (registered once, removed on unmount).
+        // Bus handlers (registered once, removed on unmount). With co-op hidden
+        // nothing can ever reach a room, so there is nothing to listen to.
         this._handlers = {
             ns_lobby: (p) => this._onLobby(p),
             ns_start: (p) => this._onStart(p),
@@ -91,8 +106,10 @@ export class NeonStrikeGame extends Component {
             ns_input: (p) => this._onInput(p),
             ns_end: (p) => this._onEnd(p),
         };
-        for (const [type, cb] of Object.entries(this._handlers)) {
-            this.bus.subscribe(type, cb);
+        if (MULTIPLAYER_ENABLED) {
+            for (const [type, cb] of Object.entries(this._handlers)) {
+                this.bus.subscribe(type, cb);
+            }
         }
 
         // Create/destroy the engine when entering/leaving the game screen.
@@ -121,6 +138,40 @@ export class NeonStrikeGame extends Component {
 
         onMounted(() => this.loadScores());
         onWillUnmount(() => this._cleanup());
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Hull picker                                                         */
+    /* ------------------------------------------------------------------ */
+
+    /** Hull chosen last time, or the first one. localStorage may be blocked. */
+    _savedHull() {
+        try {
+            const id = window.localStorage.getItem(HULL_KEY);
+            return SHIPS[hullIndex(id)].id;
+        } catch (e) {
+            return SHIPS[0].id;
+        }
+    }
+
+    /** The picker cards, rasterized once (same reason as `glossaryGroups`). */
+    get shipCards() {
+        if (!this._shipCards) {
+            this._shipCards = SHIPS.map((s) => ({
+                ...s,
+                src: sprite(s.sprite, s.tint, 6, false).toDataURL(),
+            }));
+        }
+        return this._shipCards;
+    }
+
+    pickShip(id) {
+        this.state.ship = id;
+        try {
+            window.localStorage.setItem(HULL_KEY, id);
+        } catch (e) {
+            /* private browsing: the choice just does not survive the session */
+        }
     }
 
     /* ------------------------------------------------------------------ */
@@ -370,12 +421,18 @@ export class NeonStrikeGame extends Component {
         const role = this.state.role;
         const match = this.state.match;
         const slots = match ? match.participants.map((p) => p.slot) : null;
+        // Only the local player's hull is known here. In co-op the others would
+        // have to travel through the lobby; while multiplayer is hidden they
+        // simply fall back to the default hull.
+        const hulls = [];
+        hulls[match ? match.slot : 0] = hullIndex(this.state.ship);
         this.engine = new NeonStrikeEngine(this.canvasRef.el, {
             role,
             players: slots ? slots.length : 1,
             slots,
             localSlot: match ? match.slot : 0,
             names: match ? this._namesBySlot(match.participants) : null,
+            hulls,
             onGameOver: (res) => this.onGameOver(res),
             onLocalInput: (x, y) => this._queueInput(x, y),
             onAction: (action) => this._sendAction(action),
@@ -645,8 +702,10 @@ export class NeonStrikeGame extends Component {
     _cleanup() {
         this._stopEngine();
         this._stopBackdrop();
-        for (const [type, cb] of Object.entries(this._handlers || {})) {
-            this.bus.unsubscribe(type, cb);
+        if (MULTIPLAYER_ENABLED) {
+            for (const [type, cb] of Object.entries(this._handlers || {})) {
+                this.bus.unsubscribe(type, cb);
+            }
         }
         const match = this.state.match;
         if (match) {
@@ -691,6 +750,11 @@ export class NeonStrikeGame extends Component {
     /** The only rows the leaderboard template iterates: the best MAX_SCORES. */
     get topScores() {
         return this.state.scores.slice(0, MAX_SCORES);
+    }
+
+    /** False while co-op is hidden: every multiplayer control keys off this. */
+    get multiplayer() {
+        return MULTIPLAYER_ENABLED;
     }
 
     get isHost() {

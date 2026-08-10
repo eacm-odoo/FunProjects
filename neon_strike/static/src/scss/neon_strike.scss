@@ -502,6 +502,60 @@ $ns-magenta: #ff2fd0;
         margin-bottom: 0.25rem;
     }
 
+    // Hull picker: four cards, the chosen one lit in its own colour. The tint
+    // comes from `ships.js` through the `--ns-hull` custom property, so adding
+    // a hull needs no CSS at all.
+    .ns_hull_row {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0.4rem;
+    }
+
+    .ns_hull {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        padding: 0.45rem 0.2rem;
+        background: #0c0e1a;
+        border: 1px solid #2a2d44;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+
+        img {
+            height: 34px;
+            image-rendering: pixelated;
+        }
+
+        &:hover {
+            border-color: var(--ns-hull);
+        }
+
+        &.ns_hull_on {
+            background: #131629;
+            border-color: var(--ns-hull);
+            box-shadow: 0 0 12px -2px var(--ns-hull), inset 0 0 10px -6px var(--ns-hull);
+        }
+    }
+
+    .ns_hull_name {
+        font-size: 10px;
+        letter-spacing: 1px;
+        color: var(--ns-hull);
+    }
+
+    .ns_hull_sub {
+        font-size: 9px;
+        color: #5b608a;
+    }
+
+    .ns_hull_hint {
+        margin-top: 0.35rem;
+        font-size: 11px;
+        color: #5b608a;
+    }
+
     .ns_input_nick {
         background: #0c0e1a;
         border: 1px solid #2a2d44;

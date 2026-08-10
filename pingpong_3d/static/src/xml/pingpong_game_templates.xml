@@ -45,7 +45,7 @@
                     <kbd>C</kbd> camera
                 </div>
 
-                <div class="o_pp_net" t-if="state.mode === 'online'"
+                <div class="o_pp_net" t-if="multiplayer and state.mode === 'online'"
                      t-att-title="'Total to opponent: ' + state.rtt + ' ms · round trip to myself: '
                                   + state.selfRtt + ' ms · HTTP only: ' + state.httpRtt
                                   + ' ms · in flight: ' + state.inFlight
@@ -75,7 +75,8 @@
             <div class="o_pp_screen" t-if="state.screen === 'menu'">
                 <div class="o_pp_card">
                     <div class="o_pp_brand"><span class="dot"/>Ping Pong 3D</div>
-                    <h1>Play against the machine<br/>or against someone else</h1>
+                    <h1 t-if="multiplayer">Play against the machine<br/>or against someone else</h1>
+                    <h1 t-else="">Play against the machine</h1>
                     <p>Real physics: gravity, air drag and the Magnus effect. Topspin dips the ball,
                         backspin slows it and side spin curves it. First to <t t-out="matchPoint"/> points wins.</p>
 
@@ -94,9 +95,9 @@
                         </button>
                     </div>
 
-                    <div class="o_pp_sep"><span>or play online 1 on 1</span></div>
+                    <div class="o_pp_sep" t-if="multiplayer"><span>or play online 1 on 1</span></div>
 
-                    <div class="o_pp_online">
+                    <div class="o_pp_online" t-if="multiplayer">
                         <input type="text" class="o_pp_input" placeholder="Your name"
                                maxlength="24" t-model="state.nickname"/>
                         <div class="o_pp_row">
@@ -114,7 +115,7 @@
             </div>
 
             <!-- lobby -->
-            <div class="o_pp_screen" t-if="state.screen === 'lobby' and state.room">
+            <div class="o_pp_screen" t-if="multiplayer and state.screen === 'lobby' and state.room">
                 <div class="o_pp_card">
                     <div class="o_pp_brand"><span class="dot"/>Room</div>
                     <h1 class="o_pp_code" t-on-click="copyCode" title="Copy"
@@ -169,7 +170,7 @@
             </div>
 
             <!-- opponent walked away -->
-            <div class="o_pp_screen" t-if="state.opponentGone and state.screen === 'playing'">
+            <div class="o_pp_screen" t-if="multiplayer and state.opponentGone and state.screen === 'playing'">
                 <div class="o_pp_card">
                     <div class="o_pp_brand"><span class="dot"/>Match interrupted</div>
                     <h1>You are on your own</h1>

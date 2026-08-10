@@ -17,33 +17,17 @@
 
 import { BOSSES } from "./bosses";
 import { COLOSSI } from "./colossi";
+import { SHIPS } from "./ships";
 
 export const GLOSSARY = [
     {
         title: "PLAYER SHIPS",
-        note: "One hull per slot. They change the look and colour, not the stats: they all fly and shoot the same.",
-        items: [
-            {
-                sprite: "ship0", tint: "#5ee1ff", px: 8,
-                label: "NEEDLE", sub: "interceptor · slot 1",
-                desc: "Sharp hull with a swept wing.",
-            },
-            {
-                sprite: "ship1", tint: "#ff8fb3", px: 8,
-                label: "HAMMER", sub: "gunship · slot 2",
-                desc: "Heavy chassis with twin forward cannons.",
-            },
-            {
-                sprite: "ship2", tint: "#7bffb0", px: 8,
-                label: "WRAITH", sub: "stealth · slot 3",
-                desc: "Long fuselage with canards and rear fins.",
-            },
-            {
-                sprite: "ship3", tint: "#ffd166", px: 8,
-                label: "CORAL", sub: "rings · slot 4",
-                desc: "Round hull with side thruster rings.",
-            },
-        ],
+        note: "Pick yours in the menu. They change the look and colour, not the stats: they all fly and shoot the same.",
+        // Straight from the same catalogue the picker and the engine read.
+        items: SHIPS.map((s) => ({
+            sprite: s.sprite, tint: s.tint, px: 8,
+            label: s.label, sub: s.sub, desc: s.desc,
+        })),
     },
     {
         title: "ENEMIES",

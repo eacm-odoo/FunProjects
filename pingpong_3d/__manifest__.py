@@ -13,13 +13,15 @@ Ping Pong 3D
 * Mouse control: the position places the paddle and the gesture speed
   define potencia y efecto (liftado, cortado, lateral).
 * Every match result is stored and can be reviewed from the backend.
+* Online 1 on 1 (bus + WebRTC) is in the code but hidden in the UI while the
+  lag is being worked on: see MULTIPLAYER_ENABLED in pingpong_game.js.
 
 Public page: /pingpong
 """,
     "author": "Odoo Development Services",
     "website": "https://github.com/odoo/odoo",
     "category": "Extra Tools",
-    "version": "19.0.3.0.0",
+    "version": "19.0.3.1.0",
     "license": "LGPL-3",
     # mail comes in through website anyway, but the online mode reads
     # mail.ice.server for its STUN/TURN configuration, so it is declared.
