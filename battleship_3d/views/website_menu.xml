@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Entry in the public website menu, same as pingpong_3d and neon_strike:
+         the game stops being a URL you have to know about and becomes reachable
+         from the site navigation. -->
+    <record id="website_menu_battleship" model="website.menu">
+        <field name="name">Battleship</field>
+        <field name="url">/battleship</field>
+        <field name="parent_id" ref="website.main_menu"/>
+        <field name="sequence">92</field>
+    </record>
+</odoo>

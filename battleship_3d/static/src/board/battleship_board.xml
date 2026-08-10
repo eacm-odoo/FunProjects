@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+<t t-name="battleship_3d.Board">
+    <div class="o_battleship" t-if="game">
+
+        <div class="o_bs_bar o_bs_bar_top">
+            <div class="o_bs_panel o_bs_brand">
+                <h1>Battleship<span class="o_bs_dot"/></h1>
+                <div class="o_bs_seg">
+                    <button t-attf-class="{{ game.mode === 'cpu' ? 'active' : '' }}"
+                            t-on-click="() => this.newGame('cpu')">vs CPU</button>
+                    <button t-attf-class="{{ game.mode === 'hotseat' ? 'active' : '' }}"
+                            t-on-click="() => this.newGame('hotseat')">2 players</button>
+                </div>
+                <span class="o_bs_status" t-esc="statusText"/>
+            </div>
+
+            <div class="o_bs_panel">
+                <div class="o_bs_sect">Record</div>
+                <div class="o_bs_score">
+                    <div><b t-esc="game.record.wins"/>Wins</div>
+                    <div><b t-esc="game.record.losses"/>Losses</div>
+                </div>
+            </div>
+
+            <div class="o_bs_panel o_bs_log">
+                <div class="o_bs_sect">Shot log</div>
+                <t t-foreach="game.log.slice(0, 3)" t-as="entry" t-key="entry_index">
+                    <div>
+                        <t t-esc="sideLabel(entry.shooter)"/> →
+                        <b t-esc="entry.coord"/>:
+                        <t t-esc="entry.result === 'sunk' ? 'sank ' + entry.ship_name : entry.result"/>
+                    </div>
+                </t>
+            </div>
+        </div>
+
+        <div class="o_bs_canvas" t-ref="canvas">
+            <div class="o_bs_hint">Drag to orbit · scroll to zoom · R rotates the ship</div>
+        </div>
+
+        <div class="o_bs_bar o_bs_bar_bottom">
+            <div class="o_bs_panel">
+                <div class="o_bs_sect">
+                    <t t-esc="game.mode === 'cpu' ? 'Your fleet' : 'Player 1 waters'"/>
+                    <span class="o_bs_turn" t-if="game.state === 'battle' and game.current_player === 'a'">• to fire</span>
+                </div>
+                <div class="o_bs_row">
+                    <div class="o_bs_fleet">
+                        <t t-foreach="fleetOf('a')" t-as="ship" t-key="ship_index">
+                            <div t-attf-class="o_bs_ship {{ ship.sunk ? 'sunk' : '' }} {{ game.state === 'setup' and game.setup_for === 'a' and ship_index === ui.selected ? 'sel' : '' }}"
+                                 t-on-click="() => this.selectShip(ship_index)">
+                                <span t-esc="ship.name"/>
+                                <span class="o_bs_pips">
+                                    <t t-foreach="Array(ship.size).fill(0)" t-as="pip" t-key="pip_index">
+                                        <span t-attf-class="o_bs_pip {{ pip_index &lt; ship.hits ? 'on' : '' }}"/>
+                                    </t>
+                                </span>
+                            </div>
+                        </t>
+                    </div>
+                    <div class="o_bs_btns" t-if="game.state === 'setup'">
+                        <button t-on-click="rotate">Rotate (R)</button>
+                        <button t-on-click="randomFleet">Random</button>
+                        <button class="primary" t-on-click="ready">
+                            <t t-esc="game.mode === 'hotseat' and game.setup_for === 'a' ? 'Lock in fleet' : 'Start battle'"/>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="o_bs_panel">
+                <div class="o_bs_sect">
+                    <t t-esc="game.mode === 'cpu' ? 'CPU fleet' : 'Player 2 waters'"/>
+                    <span class="o_bs_turn" t-if="game.state === 'battle' and game.current_player === 'b'">• to fire</span>
+                </div>
+                <div class="o_bs_row">
+                    <div class="o_bs_fleet">
+                        <t t-foreach="fleetOf('b')" t-as="ship" t-key="ship_index">
+                            <div t-attf-class="o_bs_ship {{ ship.sunk ? 'sunk' : '' }}">
+                                <span t-esc="ship.name"/>
+                                <span class="o_bs_pips">
+                                    <t t-foreach="Array(ship.size).fill(0)" t-as="pip" t-key="pip_index">
+                                        <span t-attf-class="o_bs_pip {{ pip_index &lt; ship.hits ? 'on' : '' }}"/>
+                                    </t>
+                                </span>
+                            </div>
+                        </t>
+                    </div>
+                    <div class="o_bs_btns">
+                        <button t-attf-class="{{ ui.soundOn ? 'on' : '' }}" t-on-click="toggleSound">
+                            <t t-esc="ui.soundOn ? 'Sound on' : 'Sound off'"/>
+                        </button>
+                        <button t-on-click="() => this.newGame()">New game</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="o_bs_over" t-if="ui.pass">
+            <div class="o_bs_panel o_bs_card">
+                <h2 t-esc="ui.pass.title"/>
+                <p t-esc="ui.pass.text"/>
+                <button class="primary" t-on-click="continuePass">I'm ready</button>
+            </div>
+        </div>
+
+        <div class="o_bs_over" t-if="game.state === 'done'">
+            <div class="o_bs_panel o_bs_card">
+                <h2 t-esc="statusText"/>
+                <p>Fleet destroyed.</p>
+                <button class="primary" t-on-click="() => this.newGame()">Play again</button>
+            </div>
+        </div>
+    </div>
+</t>
+
+</templates>

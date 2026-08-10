@@ -1,0 +1,14 @@
+// Loaded on every frontend page, so it holds only what the game page needs
+// before its bundle arrives: the backdrop, so the canvas does not flash white
+// while three.js downloads, and the full-screen box the board is mounted in.
+// `owl-component` is an unknown element, hence the explicit display.
+body.o_battleship_page {
+    overflow: hidden;
+    background: #0b1418;
+}
+
+.o_battleship_root {
+    display: block;
+    position: fixed;
+    inset: 0;
+}

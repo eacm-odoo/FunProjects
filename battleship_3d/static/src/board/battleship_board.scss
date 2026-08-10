@@ -1,0 +1,120 @@
+.o_battleship {
+    --bs-purple: #714B67;
+    --bs-purple-700: #5b3c53;
+    --bs-teal: #017E84;
+    --bs-hit: #C4472F;
+    --bs-paper: #F4F1F3;
+
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    background: #0b1418;
+    color: var(--bs-paper);
+    overflow: hidden;
+
+    h1, h2 { letter-spacing: -0.02em; }
+
+    .o_bs_bar {
+        flex: none;
+        display: flex;
+        gap: 12px;
+        align-items: stretch;
+
+        &.o_bs_bar_top { padding: 14px 20px 0; justify-content: space-between; }
+        &.o_bs_bar_bottom { padding: 0 20px 14px; }
+        &.o_bs_bar_bottom .o_bs_panel { flex: 1 1 0; min-width: 0; }
+    }
+
+    .o_bs_panel {
+        background: rgba(18, 24, 28, 0.84);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        padding: 10px 14px;
+    }
+
+    .o_bs_brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+
+        h1 { font-size: 17px; font-weight: 800; white-space: nowrap; margin: 0; }
+    }
+    .o_bs_dot {
+        display: inline-block;
+        width: 7px; height: 7px;
+        border-radius: 50%;
+        background: var(--bs-teal);
+        margin-left: 4px;
+    }
+    .o_bs_status { font-size: 13px; color: rgba(244, 241, 243, 0.74); }
+
+    .o_bs_sect {
+        display: flex; gap: 8px; align-items: center;
+        font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
+        color: rgba(244, 241, 243, 0.42);
+        margin-bottom: 7px;
+    }
+    .o_bs_turn { color: var(--bs-teal); }
+
+    .o_bs_score {
+        display: flex; gap: 14px; font-size: 12px; color: rgba(244, 241, 243, 0.6);
+        b { display: block; font-size: 15px; font-weight: 800; color: var(--bs-paper); }
+    }
+    .o_bs_log { font-size: 12px; text-align: right; min-width: 180px; color: rgba(244, 241, 243, 0.6); }
+
+    .o_bs_row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .o_bs_fleet { display: flex; gap: 5px; flex-wrap: wrap; }
+    .o_bs_ship {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 11.5px; padding: 4px 8px; border-radius: 20px;
+        border: 1px solid transparent;
+        background: rgba(255, 255, 255, 0.06);
+        white-space: nowrap;
+
+        &.sel { border-color: var(--bs-purple); background: rgba(113, 75, 103, 0.45); }
+        &.sunk { color: rgba(244, 241, 243, 0.36); text-decoration: line-through; }
+    }
+    .o_bs_pips { display: flex; gap: 3px; }
+    .o_bs_pip {
+        width: 7px; height: 7px; border-radius: 2px;
+        background: rgba(255, 255, 255, 0.22);
+        &.on { background: var(--bs-hit); }
+    }
+
+    .o_bs_btns { display: flex; gap: 7px; flex-wrap: wrap; }
+    button {
+        font-size: 12.5px; font-weight: 600; padding: 6px 13px; border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--bs-paper);
+        &:hover:not(:disabled) { background: rgba(255, 255, 255, 0.14); }
+        &.primary { background: var(--bs-purple); border-color: var(--bs-purple); }
+        &.primary:hover { background: var(--bs-purple-700); }
+        &.on { background: var(--bs-teal); border-color: var(--bs-teal); }
+    }
+    .o_bs_seg {
+        display: flex; overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 20px;
+        background: rgba(255, 255, 255, 0.06);
+        button { border: 0; border-radius: 0; background: transparent; }
+        button.active { background: var(--bs-purple); }
+    }
+
+    .o_bs_canvas { position: relative; flex: 1; min-height: 0; overflow: hidden; canvas { position: absolute; inset: 0; } }
+    .o_bs_hint {
+        position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%);
+        font-size: 11.5px; color: rgba(244, 241, 243, 0.34);
+    }
+
+    .o_bs_over {
+        position: absolute; inset: 0; z-index: 5;
+        display: flex; align-items: center; justify-content: center;
+        background: rgba(8, 14, 17, 0.96);
+    }
+    .o_bs_card {
+        text-align: center; padding: 38px 46px;
+        h2 { font-size: 32px; font-weight: 800; margin-bottom: 8px; }
+        p { color: rgba(244, 241, 243, 0.65); font-size: 14px; margin-bottom: 20px; }
+    }
+}

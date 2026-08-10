@@ -3,7 +3,7 @@
 # UI palette follows Odoo brand assets: https://www.odoo.com/page/brand-assets
 {
     "name": "Neon Strike",
-    "version": "19.0.7.0.0",
+    "version": "19.0.8.0.0",
     "category": "Productivity",
     "summary": "Neon arcade space shooter, playable without a login on a public page",
     "description": """
@@ -12,6 +12,8 @@ Neon Strike
 Arcade game (2D canvas + OWL 2) served from a public Odoo 19 page (``/neon``),
 playable **without an account**: pick a nickname and go.
 
+* The arena is shaped like the window: a wide screen becomes playable room
+  instead of black bars, with the classic 680x540 box as the floor
 * No sign-up: identity is a session token + nickname (anonymous players)
 * Pick your hull before the run: 4 pixel-art ships, cosmetic only
 * 26 places to fight in, one per wave: deep space, a black hole with real
