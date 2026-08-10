@@ -24,6 +24,19 @@ import { Backdrop, backgroundForWave } from "./backgrounds";
 const REVIVE_FRAMES = 120;
 const COMBO_MAX = 25;
 
+// Arena. The logical space is still fixed *per match* (everything is simulated
+// in it, and in co-op the host's one travels in the snapshot), but it is sized
+// to the window instead of always being 680x540 and letterboxed: a wide screen
+// gets room on the sides rather than black bars. It never goes below the
+// classic box, so no window can make the playable area smaller than it was.
+const BASE_W = 680;
+const BASE_H = 540;
+// Beyond these the arena stops following the window: on an ultrawide the ships
+// would end up as specks, and the vertical travel time (which is the actual
+// difficulty knob) would drift too far from what the waves are tuned for.
+const MIN_ASPECT = 0.85;
+const MAX_ASPECT = 2.1;
+
 // Perk phase: every PERK_WAVES cleared waves each ship keeps 1 of 3 perks.
 const PERK_WAVES = 5;
 const PERK_OPTIONS = 3;
@@ -109,9 +122,10 @@ export class NeonStrikeEngine {
         this.muted = false;
         this.AC = null;
 
-        // Fixed logical space (independent of the window size).
-        this.W = 680;
-        this.H = 540;
+        // Logical space. Sized to the window by `_fitArena` (on the guest, by
+        // the host's snapshot) and constant from there on.
+        this.W = BASE_W;
+        this.H = BASE_H;
         this.dpr = 1;
         this.scale = 1;
         this.ox = 0;
@@ -327,10 +341,51 @@ export class NeonStrikeEngine {
         this.cv.height = ch * this.dpr;
         this.cssW = cw;
         this.cssH = ch;
+        // A guest renders the host's arena, which arrives in the snapshot: it
+        // must never size its own, or the two would simulate different worlds.
+        if (this.role !== "guest" && this._fitArena(cw, ch)) {
+            this._onArenaResized();
+        }
         this.scale = Math.min(cw / this.W, ch / this.H);
         this._applyCamera();
         // The zoom is derived from the canvas: snap it to the new fit.
         this._updateCamera(1000);
+    }
+
+    /**
+     * Shape the logical arena like the window, so the game fills the screen
+     * instead of sitting inside black bars. Only one side grows: the short one
+     * keeps its base size, which is what stops a wide window from also making
+     * everything smaller once the render is scaled.
+     *
+     * @returns {boolean} true if the arena actually changed size
+     */
+    _fitArena(cw, ch) {
+        const a = Math.min(MAX_ASPECT, Math.max(MIN_ASPECT, cw / ch));
+        const w = a >= BASE_W / BASE_H ? Math.round(BASE_H * a) : BASE_W;
+        const h = a >= BASE_W / BASE_H ? BASE_H : Math.round(BASE_W / a);
+        if (w === this.W && h === this.H) {
+            return false;
+        }
+        this.W = w;
+        this.H = h;
+        return true;
+    }
+
+    /**
+     * Everything derived from the arena size, rebuilt after it changes: field
+     * bounds, star field, backdrop, and the ships pulled back inside the walls
+     * (a window that gets narrower can leave them outside).
+     */
+    _onArenaResized() {
+        this._applyField();
+        this.initStars();
+        this.bg = null;
+        this._syncBackground();
+        for (const sp of this.ships) {
+            sp.x = sp.tx = Math.max(this.fx0 + 20, Math.min(this.fx1 - 20, sp.x));
+            sp.y = sp.ty = Math.max(this.fy0 + 20, Math.min(this.fy1 - 20, sp.y));
+        }
     }
 
     /**
@@ -534,7 +589,9 @@ export class NeonStrikeEngine {
         // a colossus, the space around the arena must not be empty.
         const mx = this.W * 0.55;
         const my = this.H * 0.55;
-        for (let i = 0; i < 190; i++) {
+        // Density, not a fixed count: a wider arena must not look emptier.
+        const n = Math.round((190 * this.W * this.H) / (BASE_W * BASE_H));
+        for (let i = 0; i < n; i++) {
             this.stars.push({
                 x: -mx + Math.random() * (this.W + mx * 2),
                 y: -my + Math.random() * (this.H + my * 2),
@@ -3037,6 +3094,10 @@ export class NeonStrikeEngine {
             st: this.state,
             sc: this.score,
             wv: this.wave,
+            // The arena is sized to the host's window: it is the world every
+            // client simulates and renders, whatever their own screen is.
+            aw: this.W,
+            ah: this.H,
             cb: this.combo,
             ct: this.comboT,
             sk: Math.round(this.shake),
@@ -3099,6 +3160,15 @@ export class NeonStrikeEngine {
 
     /** Guest: apply a received snapshot. */
     applySnapshot(snap) {
+        // Adopt the host's arena before anything else: every coordinate below
+        // is expressed in it. It only ever changes when the host resizes.
+        if (snap.aw && (snap.aw !== this.W || snap.ah !== this.H)) {
+            this.W = snap.aw;
+            this.H = snap.ah;
+            this._onArenaResized();
+            this.scale = Math.min((this.cssW || this.W) / this.W, (this.cssH || this.H) / this.H);
+            this._applyCamera();
+        }
         this.state = snap.st;
         this.score = snap.sc;
         this.wave = snap.wv;

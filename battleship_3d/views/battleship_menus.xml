@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <menuitem id="menu_battleship_root" name="Battleship" web_icon="battleship_3d,static/description/icon.png" sequence="90"/>
+    <menuitem id="menu_battleship_play" name="Play" parent="menu_battleship_root"
+              action="battleship_board_action" sequence="10"/>
+    <menuitem id="menu_battleship_games" name="Games" parent="menu_battleship_root"
+              action="battleship_game_action" sequence="20"/>
+</odoo>

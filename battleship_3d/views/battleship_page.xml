@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Public page serving the board without requiring a login, same shape as
+         pingpong_3d and neon_strike. `web.frontend_layout` brings the frontend
+         assets and the session info the canonical way; with website installed
+         it inherits `website.layout`, which needs `website` in the context, so
+         the route declares `website=True` (see controllers/main.py).
+
+         The board is an `owl-component`: the frontend interaction service picks
+         those up and mounts them in the page's own OWL app, which is what gives
+         the board the services (notifications above all) it also has in the
+         backend. The component behind the name is a stub that pulls
+         `battleship_3d.assets_game` on mount, so three.js is not part of the
+         frontend bundle. -->
+    <template id="page" name="Battleship 3D">
+        <t t-call="web.frontend_layout">
+            <t t-set="title">Battleship 3D</t>
+            <!-- The board fills the window: no header, no footer. -->
+            <t t-set="no_header" t-value="True"/>
+            <t t-set="no_footer" t-value="True"/>
+            <t t-set="body_classname" t-value="'o_battleship_page'"/>
+            <t t-set="head">
+                <meta name="generator" content="Odoo"/>
+                <meta name="author" content="Odoo"/>
+            </t>
+
+            <owl-component name="battleship_3d.board" class="o_battleship_root"/>
+        </t>
+    </template>
+
+</odoo>
