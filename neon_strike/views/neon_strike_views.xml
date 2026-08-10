@@ -33,7 +33,9 @@
                 <filter name="filter_coop" string="Co-op" domain="[('mode', '=', 'coop')]"/>
                 <separator/>
                 <filter name="filter_today" string="Today" domain="[('create_date', '&gt;=', 'today')]"/>
-                <group expand="0" string="Group By">
+                <!-- Odoo 19: the group-by block is a bare <group>; `string`
+                     and `expand` are not valid attributes any more. -->
+                <group>
                     <filter name="group_mode" string="Mode" context="{'group_by': 'mode'}"/>
                     <filter name="group_players" string="Players" context="{'group_by': 'player_count'}"/>
                     <filter name="group_date" string="Date" context="{'group_by': 'create_date:day'}"/>

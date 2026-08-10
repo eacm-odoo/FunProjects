@@ -3,7 +3,7 @@
 # UI palette follows Odoo brand assets: https://www.odoo.com/page/brand-assets
 {
     "name": "Neon Strike",
-    "version": "19.0.5.4.0",
+    "version": "19.0.6.0.0",
     "category": "Productivity",
     "summary": "Co-op neon space shooter, playable without a login on a public page",
     "description": """
@@ -26,6 +26,8 @@ playable **without an account**: pick a nickname and go.
 * Free dash on the Space bar plus active perks bound to the 1-4 keys
 * 5 colossal bosses that do not fit the arena: the camera pulls back to frame them
 * Combo system up to x25, particles, screen shake and slow motion
+* In-game feedback panel: players report bugs or ideas with a screenshot, and
+  it all lands in a backend menu with the wave and build they were on
 * Single global leaderboard (solo and team) in ``neon.strike.score``
 * Run timer stored with every score, and a Time Played pivot adding up how
   much time everyone has spent playing
@@ -42,6 +44,7 @@ Built with Odoo. Brand guide: https://www.odoo.com/page/brand-assets
         "security/ir.model.access.csv",
         "views/neon_strike_page.xml",
         "views/neon_strike_views.xml",
+        "views/neon_strike_feedback_views.xml",
         "views/website_menu.xml",
     ],
     "assets": {

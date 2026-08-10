@@ -56,6 +56,16 @@ export class NeonStrikeGame extends Component {
             connecting: false,
             glossary: false, // ships and enemies panel over the menu
             paused: false,
+            // Feedback panel (bug reports and ideas), layered like the glossary.
+            feedback: false,
+            fb: {
+                kind: "bug",
+                message: "",
+                image: null,      // data URL, already downscaled
+                sending: false,
+                error: "",
+                sent: false,
+            },
             match: null, // {id, code, is_host, slot, channel, participants, max_players, state}
         });
 
@@ -143,6 +153,154 @@ export class NeonStrikeGame extends Component {
                 coop: p.req === "coop",
             })),
         }));
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Feedback                                                            */
+    /* ------------------------------------------------------------------ */
+
+    openFeedback() {
+        Object.assign(this.state.fb, { error: "", sent: false });
+        this.state.feedback = true;
+        // Solo: freeze the run while they type, nobody wants to die writing a
+        // bug report. In co-op we leave it alone: one player's panel must not
+        // pause the whole room.
+        if (this.state.screen === "game" && this.state.role === "solo" && this.engine && !this.engine.paused) {
+            this.engine.togglePause();
+            this._fbPaused = true;
+        }
+    }
+
+    closeFeedback() {
+        this.state.feedback = false;
+        if (this._fbPaused && this.engine && this.engine.paused) {
+            this.engine.togglePause();
+        }
+        this._fbPaused = false;
+    }
+
+    onFeedbackBackdrop(ev) {
+        if (ev.target === ev.currentTarget) {
+            this.closeFeedback();
+        }
+    }
+
+    setFeedbackKind(kind) {
+        this.state.fb.kind = kind;
+    }
+
+    /**
+     * Downscale a data URL so a 4K screenshot does not travel (and does not sit
+     * in the filestore) at full size. JPEG at 0.82 is plenty for a bug report.
+     */
+    _shrinkImage(dataURL, maxSide = 1280) {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+                if (scale === 1 && dataURL.length < 900000) {
+                    resolve(dataURL);
+                    return;
+                }
+                const cv = document.createElement("canvas");
+                cv.width = Math.round(img.width * scale);
+                cv.height = Math.round(img.height * scale);
+                cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+                resolve(cv.toDataURL("image/jpeg", 0.82));
+            };
+            img.onerror = () => resolve(null);
+            img.src = dataURL;
+        });
+    }
+
+    async onFeedbackFile(ev) {
+        const file = ev.target.files && ev.target.files[0];
+        ev.target.value = "";  // let the same file be picked again after a remove
+        if (!file) {
+            return;
+        }
+        if (!/^image\//.test(file.type)) {
+            this.state.fb.error = "That file is not an image.";
+            return;
+        }
+        if (file.size > 12 * 1024 * 1024) {
+            this.state.fb.error = "That image is too big.";
+            return;
+        }
+        const dataURL = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(file);
+        });
+        const shrunk = dataURL && (await this._shrinkImage(dataURL));
+        if (!shrunk) {
+            this.state.fb.error = "That image could not be read.";
+            return;
+        }
+        this.state.fb.image = shrunk;
+        this.state.fb.error = "";
+    }
+
+    /** Grab what is on the game canvas right now: the point of a bug report. */
+    async attachScreenshot() {
+        const canvas = this.canvasRef.el;
+        if (!canvas) {
+            return;
+        }
+        try {
+            this.state.fb.image = await this._shrinkImage(canvas.toDataURL("image/png"));
+            this.state.fb.error = "";
+        } catch (e) {
+            this.state.fb.error = "The screenshot could not be taken.";
+        }
+    }
+
+    clearFeedbackImage() {
+        this.state.fb.image = null;
+    }
+
+    get canScreenshot() {
+        return this.state.screen === "game" && !!this.canvasRef.el;
+    }
+
+    async sendFeedback() {
+        const fb = this.state.fb;
+        if (fb.sending) {
+            return;
+        }
+        if (!fb.message.trim()) {
+            fb.error = "Write something before sending.";
+            return;
+        }
+        fb.sending = true;
+        fb.error = "";
+        // Context of the run: a report without it is hard to act on.
+        const engine = this.engine;
+        const ship = engine && engine.ships ? engine.ships.find((s) => s.slot === engine.localSlot) : null;
+        try {
+            const res = await rpc("/neon/feedback", {
+                kind: fb.kind,
+                message: fb.message.trim(),
+                image: fb.image || false,
+                nickname: this.state.nickname,
+                wave: engine ? engine.wave : 0,
+                score: engine ? engine.score : 0,
+                mode: this.state.screen === "game" ? (this.state.match ? "coop" : "solo") : "menu",
+                perks: ship ? ship.perks.join(", ") : "",
+            });
+            if (res && res.error) {
+                fb.error = res.error;
+            } else {
+                fb.sent = true;
+                fb.message = "";
+                fb.image = null;
+            }
+        } catch (e) {
+            fb.error = this._errMsg(e);
+        } finally {
+            fb.sending = false;
+        }
     }
 
     toggleGlossary() {

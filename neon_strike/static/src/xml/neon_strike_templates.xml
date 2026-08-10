@@ -18,8 +18,11 @@
                 <button class="btn btn-sm ns_btn me-2" t-if="state.role !== 'guest'" t-on-click="restart">
                     <i class="fa fa-refresh me-1" role="img" aria-label="Restart"/>Restart
                 </button>
-                <button class="btn btn-sm ns_btn" t-on-click="backToMenu">
+                <button class="btn btn-sm ns_btn me-2" t-on-click="backToMenu">
                     <i class="fa fa-sign-out me-1" role="img" aria-label="Menu"/>Menu
+                </button>
+                <button class="btn btn-sm ns_btn" t-on-click="openFeedback">
+                    <i class="fa fa-bug me-1" role="img" aria-label="Feedback"/>Feedback
                 </button>
                 <span class="ns_room ms-3" t-if="state.match">
                     Room <b t-out="state.match.code"/>
@@ -57,6 +60,9 @@
                 <p t-if="state.error" class="ns_error mb-0" t-out="state.error"/>
                 <button class="btn ns_btn ns_glossary_open w-100 mt-2" t-on-click="toggleGlossary">
                     <i class="fa fa-book me-2" role="img" aria-label="Glossary"/>Ships, enemies and powers
+                </button>
+                <button class="btn ns_btn w-100 mt-2" t-on-click="openFeedback">
+                    <i class="fa fa-comment me-2" role="img" aria-label="Feedback"/>Report a bug or an idea
                 </button>
                 <hr class="ns_hr"/>
                 <t t-call="neon_strike.Leaderboard"/>
@@ -110,6 +116,82 @@
                     Capsules: T triple · S shield · B bomb · + life. Fly next to a downed ally to revive them.
                 </p>
             </aside>
+        </div>
+        <t t-if="state.feedback">
+            <t t-call="neon_strike.Feedback"/>
+        </t>
+    </div>
+</t>
+
+<!-- Feedback panel: overlays any screen, so a bug can be reported mid-run. -->
+<t t-name="neon_strike.Feedback">
+    <div class="ns_glossary ns_feedback" role="dialog" aria-label="Send feedback"
+         t-on-click="onFeedbackBackdrop">
+        <div class="ns_glossary_panel ns_feedback_panel">
+            <div class="ns_glossary_head d-flex align-items-center">
+                <h4 class="ns_glossary_title mb-0">REPORT A BUG OR AN IDEA</h4>
+                <button class="btn btn-sm ns_btn ms-auto" t-on-click="closeFeedback">
+                    <i class="fa fa-times me-1" role="img" aria-label="Close"/>Close
+                </button>
+            </div>
+            <div class="ns_glossary_body">
+                <t t-if="state.fb.sent">
+                    <div class="ns_fb_sent">
+                        <i class="fa fa-check-circle me-2" role="img" aria-label="Sent"/>
+                        Thanks! It landed in the team's inbox.
+                    </div>
+                    <div class="d-flex gap-2 mt-3">
+                        <button class="btn ns_cta" t-on-click="closeFeedback">Back to the game</button>
+                        <button class="btn ns_btn" t-on-click="openFeedback">Send another</button>
+                    </div>
+                </t>
+                <t t-else="">
+                    <div class="ns_fb_kinds mb-3">
+                        <button t-foreach="[['bug','fa-bug','Bug'],['idea','fa-lightbulb-o','Idea'],['other','fa-comment-o','Other']]"
+                                t-as="opt" t-key="opt[0]"
+                                t-attf-class="btn ns_btn ns_fb_kind {{ state.fb.kind === opt[0] ? 'active' : '' }}"
+                                t-on-click="() => this.setFeedbackKind(opt[0])">
+                            <i t-attf-class="fa {{ opt[1] }} me-1" role="img" aria-hidden="true"/>
+                            <t t-out="opt[2]"/>
+                        </button>
+                    </div>
+                    <label class="ns_nick_label" for="ns_fb_message">
+                        What happened, or what would you add?
+                    </label>
+                    <textarea id="ns_fb_message" class="form-control ns_fb_text" rows="6"
+                              maxlength="4000"
+                              placeholder="The more precise, the better: what you were doing, what you expected, what happened instead."
+                              t-model="state.fb.message"/>
+                    <div class="ns_fb_tools d-flex flex-wrap align-items-center gap-2 mt-3">
+                        <label class="btn ns_btn mb-0">
+                            <i class="fa fa-picture-o me-1" role="img" aria-label="Image"/>Attach an image
+                            <input type="file" accept="image/png,image/jpeg,image/gif,image/webp"
+                                   class="d-none" t-on-change="onFeedbackFile"/>
+                        </label>
+                        <button t-if="canScreenshot" class="btn ns_btn" t-on-click="attachScreenshot">
+                            <i class="fa fa-camera me-1" role="img" aria-label="Screenshot"/>Use the current screen
+                        </button>
+                        <span class="ns_fb_hint">PNG, JPEG, GIF or WebP · shrunk before sending</span>
+                    </div>
+                    <div t-if="state.fb.image" class="ns_fb_preview mt-3">
+                        <img t-att-src="state.fb.image" alt="Attached screenshot"/>
+                        <button class="btn btn-sm ns_btn" t-on-click="clearFeedbackImage">
+                            <i class="fa fa-trash me-1" role="img" aria-label="Remove"/>Remove
+                        </button>
+                    </div>
+                    <p t-if="state.fb.error" class="ns_error mt-3 mb-0" t-out="state.fb.error"/>
+                    <div class="d-flex align-items-center gap-3 mt-3">
+                        <button class="btn ns_cta" t-on-click="sendFeedback"
+                                t-att-disabled="state.fb.sending">
+                            <i class="fa fa-paper-plane me-2" role="img" aria-label="Send"/>
+                            <t t-out="state.fb.sending ? 'Sending…' : 'Send'"/>
+                        </button>
+                        <span class="ns_fb_hint">
+                            Sent with your nickname and the wave you are on.
+                        </span>
+                    </div>
+                </t>
+            </div>
         </div>
     </div>
 </t>

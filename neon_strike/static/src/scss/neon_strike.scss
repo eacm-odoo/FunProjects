@@ -276,6 +276,60 @@ $ns-magenta: #ff2fd0;
         margin: 0;
     }
 
+    // --- Feedback panel (reuses the glossary shell) ------------------
+    .ns_feedback_panel {
+        max-width: 620px;
+    }
+
+    .ns_fb_kind {
+        &.active {
+            border-color: $ns-cyan;
+            color: $ns-cyan;
+            background: rgba(94, 225, 255, 0.12);
+        }
+    }
+
+    .ns_fb_text {
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba($ns-odoo-purple, 0.5);
+        color: #eaf6ff;
+        resize: vertical;
+
+        &:focus {
+            background: rgba(255, 255, 255, 0.06);
+            border-color: $ns-cyan;
+            box-shadow: none;
+            color: #eaf6ff;
+        }
+
+        &::placeholder {
+            color: rgba(180, 210, 255, 0.35);
+        }
+    }
+
+    .ns_fb_hint {
+        font-size: 11px;
+        color: rgba(180, 210, 255, 0.5);
+    }
+
+    .ns_fb_preview {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+
+        img {
+            max-width: 260px;
+            max-height: 170px;
+            border: 1px solid rgba($ns-odoo-purple, 0.5);
+            border-radius: 6px;
+        }
+    }
+
+    .ns_fb_sent {
+        font-size: 15px;
+        color: #7bffb0;
+    }
+
     // Run length in the leaderboard: secondary to the score.
     .ns_time {
         color: rgba(180, 210, 255, 0.6);

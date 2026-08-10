@@ -4006,6 +4006,13 @@ export class NeonStrikeEngine {
      * 1..3 pick a card. WASD only moves the second ship in hotseat.
      */
     _keyDown(e) {
+        // The listener is on `window`, so it also sees keys typed in the UI
+        // around the canvas (nickname, feedback...). Space would dash instead
+        // of typing a space, and preventDefault would swallow it.
+        const el = e.target;
+        if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) {
+            return;
+        }
         const k = (e.key || "").toLowerCase();
         this.keys[k] = true;
         const digit = parseInt(k, 10);
