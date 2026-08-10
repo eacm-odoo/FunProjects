@@ -35,6 +35,11 @@ const PERK_SECTIONS = [
 const BROADCAST_MS = 66; // ~15 Hz
 const INPUT_MS = 50; // ~20 Hz
 
+// Rows the leaderboard shows. `/neon/scores` already caps its query, but the
+// panel sits in a fixed-height column: keep the ceiling on this side too so a
+// wider payload can never push the game area out of the viewport.
+const MAX_SCORES = 10;
+
 export class NeonStrikeGame extends Component {
     static template = "neon_strike.Game";
     static props = { "*": true };
@@ -681,6 +686,11 @@ export class NeonStrikeGame extends Component {
     /** Leaderboard cell: the stored duration is in hours, shown as m:ss. */
     fmtTime(hours) {
         return NeonStrikeEngine.formatTime((hours || 0) * 3600);
+    }
+
+    /** The only rows the leaderboard template iterates: the best MAX_SCORES. */
+    get topScores() {
+        return this.state.scores.slice(0, MAX_SCORES);
     }
 
     get isHost() {
