@@ -26,6 +26,15 @@ const DIFF_BLURB = {
     experto: "Near-perfect reactions and heavy spin",
 };
 
+/**
+ * Online 1v1 is **hidden, not removed**: the match still lags too much over the
+ * bus (and the p2p link does not always come up). Controllers, models, the
+ * transports and the NetGame all stay where they are; this flag only decides
+ * whether the page offers any of it, including the `?net=loopback` bench. Flip
+ * it back to `true` once the lag is fixed.
+ */
+const MULTIPLAYER_ENABLED = false;
+
 const NICKNAME_KEY = "pingpong_nickname";
 const TOKEN_KEY = "pingpong_player_token";
 
@@ -91,6 +100,11 @@ export class PingPongGame extends Component {
 
         onMounted(() => {
             this._buildEngine("solo", 0);
+            if (!MULTIPLAYER_ENABLED) {
+                // Nothing can reach a room, so there is no bus to listen to and
+                // no room to leave on the way out.
+                return;
+            }
             this._subscribeBus();
             // A shared /pingpong?room=PONG-XXXX link fills the code in, so the
             // invitee only has to press Unirse.
@@ -105,7 +119,9 @@ export class PingPongGame extends Component {
         onWillUnmount(() => {
             clearTimeout(this.toastTimer);
             this._stopIdleProbe();
-            window.removeEventListener("pagehide", this._boundUnload);
+            if (this._boundUnload) {
+                window.removeEventListener("pagehide", this._boundUnload);
+            }
             this._leaveChannels();
             this._destroyEngine();
         });
@@ -127,6 +143,11 @@ export class PingPongGame extends Component {
 
     get opponentLabel() {
         return this.state.mode === "online" ? this.opponentName : "Machine";
+    }
+
+    /** False while online 1v1 is hidden: every online control keys off this. */
+    get multiplayer() {
+        return MULTIPLAYER_ENABLED;
     }
 
     get isHost() {
@@ -802,8 +823,10 @@ whenReady(async () => {
         return;
     }
     const env = await getFrontendEnv();
-    // `?net=loopback` swaps the game for the two-pane netcode bench.
-    const lab = new URLSearchParams(window.location.search).get("net") === "loopback";
+    // `?net=loopback` swaps the game for the two-pane netcode bench. It is part
+    // of the multiplayer work, so it is hidden with the rest of it.
+    const lab = MULTIPLAYER_ENABLED
+        && new URLSearchParams(window.location.search).get("net") === "loopback";
     const Root = lab ? LoopbackLab : PingPongGame;
     const app = new App(Root, {
         env,

@@ -24,7 +24,7 @@
                 <button class="btn btn-sm ns_btn" t-on-click="openFeedback">
                     <i class="fa fa-bug me-1" role="img" aria-label="Feedback"/>Feedback
                 </button>
-                <span class="ns_room ms-3" t-if="state.match">
+                <span class="ns_room ms-3" t-if="multiplayer and state.match">
                     Room <b t-out="state.match.code"/>
                 </span>
             </t>
@@ -38,21 +38,40 @@
             <canvas t-ref="menuCanvas" class="ns_menu_bg" aria-hidden="true"/>
             <div class="ns_menu_card m-auto p-4">
                 <h2 class="ns_title mb-1">NEON STRIKE</h2>
-                <p class="ns_sub mb-4">Co-op space shooter · up to 4 players · no sign-up</p>
+                <p class="ns_sub mb-4" t-if="multiplayer">Co-op space shooter · up to 4 players · no sign-up</p>
+                <p class="ns_sub mb-4" t-else="">Arcade space shooter · 50 perks · no sign-up</p>
                 <div class="ns_nick mb-3">
                     <label class="ns_nick_label" for="ns_nick_input">Your nickname</label>
                     <input id="ns_nick_input" type="text" class="form-control ns_input_nick"
                            placeholder="What should we call you?" maxlength="20" t-model="state.nickname"/>
                 </div>
+                <div class="ns_hulls mb-3">
+                    <span class="ns_nick_label">Your ship</span>
+                    <div class="ns_hull_row">
+                        <button t-foreach="shipCards" t-as="s" t-key="s.id"
+                                type="button"
+                                t-attf-class="ns_hull {{ state.ship === s.id ? 'ns_hull_on' : '' }}"
+                                t-att-aria-pressed="state.ship === s.id ? 'true' : 'false'"
+                                t-attf-style="--ns-hull: {{ s.tint }}"
+                                t-att-title="s.desc"
+                                t-on-click="() => this.pickShip(s.id)">
+                            <img t-att-src="s.src" t-att-alt="s.label"/>
+                            <span class="ns_hull_name" t-out="s.label"/>
+                            <span class="ns_hull_sub" t-out="s.sub"/>
+                        </button>
+                    </div>
+                    <p class="ns_hull_hint mb-0">They all fly the same: pick the one you like.</p>
+                </div>
                 <div class="d-grid gap-2 mb-3">
                     <button class="btn ns_cta" t-on-click="startSolo" t-att-disabled="state.connecting">
-                        <i class="fa fa-play me-2" role="img" aria-label="Play"/>Play solo
+                        <i class="fa fa-play me-2" role="img" aria-label="Play"/>
+                        <t t-out="multiplayer ? 'Play solo' : 'Play'"/>
                     </button>
-                    <button class="btn ns_cta ns_cta_alt" t-on-click="createMatch" t-att-disabled="state.connecting">
+                    <button t-if="multiplayer" class="btn ns_cta ns_cta_alt" t-on-click="createMatch" t-att-disabled="state.connecting">
                         <i class="fa fa-users me-2" role="img" aria-label="Create"/>Create match
                     </button>
                 </div>
-                <div class="ns_join input-group mb-2">
+                <div t-if="multiplayer" class="ns_join input-group mb-2">
                     <input type="text" class="form-control ns_input_code" placeholder="Room code (e.g. NEON-4F2)"
                            t-model="state.joinCode" t-on-keydown="onCodeKeydown"/>
                     <button class="btn ns_btn" t-on-click="joinMatch" t-att-disabled="state.connecting">Join</button>
@@ -74,7 +93,7 @@
 
         <!-- ============================ LOBBY =========================== -->
         <div t-elif="state.screen === 'lobby'" class="ns_menu flex-grow-1 d-flex">
-            <div class="ns_menu_card m-auto p-4" t-if="state.match">
+            <div class="ns_menu_card m-auto p-4" t-if="multiplayer and state.match">
                 <h2 class="ns_title mb-1">Waiting room</h2>
                 <p class="ns_sub mb-3">Share the code so your friends can join.</p>
                 <div class="ns_code_box mb-4">
@@ -113,7 +132,8 @@
                 <p class="ns_hint mb-0">
                     Drag to move · <b>Space</b> dashes (you are untouchable during it) · <b>1-4</b> fire your active perks.
                     Every 5 waves you keep 1 of 3 permanent upgrades; a colossal boss shows up every 10.
-                    Capsules: T triple · S shield · B bomb · + life. Fly next to a downed ally to revive them.
+                    Capsules: T triple · S shield · B bomb · + life.
+                    <t t-if="multiplayer">Fly next to a downed ally to revive them.</t>
                 </p>
             </aside>
         </div>
