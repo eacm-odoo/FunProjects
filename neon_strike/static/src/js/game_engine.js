@@ -3459,23 +3459,42 @@ export class NeonStrikeEngine {
             g.fillStyle = "rgba(200,220,255," + (0.25 + s.z * 0.25) + ")";
             g.fillRect(s.x, s.y, s.s, s.s + s.z * 2);
         }
-        // Zoomed out: mark where the (now wider) playable field ends. Outside
-        // it there is only the colossus and open space.
-        if (this.zoom < 0.985) {
-            const a = Math.min(1, (1 - this.zoom) * 4);
+        // Where the playable field ends: the wall the ships stop against. It is
+        // drawn on every frame, not only when zoomed out, because otherwise you
+        // have to bump into it to learn how far you can fly. While a colossus
+        // is alive the field is wider and the camera pulls back, so the outside
+        // (colossus and open space) is dimmed as well and the edge is brighter.
+        {
+            const zoomed = this.zoom < 0.985;
+            const a = zoomed ? Math.min(1, (1 - this.zoom) * 4) : 0;
             const fx = this.fx0;
             const fy = this.fy0;
             const fw = this.fx1 - this.fx0;
             const fh = this.fy1 - this.fy0;
             g.save();
-            g.fillStyle = "rgba(4,5,12,0.45)";
-            g.fillRect(-mx, -my, W + mx * 2, my + fy);
-            g.fillRect(-mx, this.fy1, W + mx * 2, my + (H - this.fy1));
-            g.fillRect(-mx, fy, mx + fx, fh);
-            g.fillRect(this.fx1, fy, mx + (W - this.fx1), fh);
+            if (zoomed) {
+                g.fillStyle = "rgba(4,5,12,0.45)";
+                g.fillRect(-mx, -my, W + mx * 2, my + fy);
+                g.fillRect(-mx, this.fy1, W + mx * 2, my + (H - this.fy1));
+                g.fillRect(-mx, fy, mx + fx, fh);
+                g.fillRect(this.fx1, fy, mx + (W - this.fx1), fh);
+            }
             g.strokeStyle = "rgba(113,75,103," + (0.35 + a * 0.4) + ")";
             g.lineWidth = 2 / this.zoom;
             g.strokeRect(fx, fy, fw, fh);
+            // Corner brackets in cyan: the frame alone reads as decoration at
+            // full zoom, the brackets read as a limit.
+            const c = Math.min(fw, fh) * 0.07;
+            g.strokeStyle = "rgba(94,225,255," + (0.3 + a * 0.35) + ")";
+            g.beginPath();
+            for (const [cx, sx] of [[fx, 1], [fx + fw, -1]]) {
+                for (const [cy, sy] of [[fy, 1], [fy + fh, -1]]) {
+                    g.moveTo(cx + sx * c, cy);
+                    g.lineTo(cx, cy);
+                    g.lineTo(cx, cy + sy * c);
+                }
+            }
+            g.stroke();
             g.restore();
         }
         g.globalCompositeOperation = "lighter";

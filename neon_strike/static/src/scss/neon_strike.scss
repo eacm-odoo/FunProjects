@@ -601,6 +601,9 @@ $ns-magenta: #ff2fd0;
 
     .ns_body {
         min-height: 0;
+        // Neither the stage nor the side panel may push the page past the
+        // toolbar + viewport height; each one handles its own overflow.
+        overflow: hidden;
     }
 
     .ns_stage {
@@ -622,6 +625,11 @@ $ns-magenta: #ff2fd0;
         background: $ns-panel;
         border-left: 2px solid $ns-odoo-purple;
         color: #e8ecff;
+        // The column is as tall as the stage, no taller: whatever does not fit
+        // (a full table plus the hints) scrolls here instead of spilling out of
+        // `.o_neon_strike_root`, which clips it and eats the canvas with it.
+        min-height: 0;
+        overflow-y: auto;
 
         h5 {
             color: $ns-cyan;

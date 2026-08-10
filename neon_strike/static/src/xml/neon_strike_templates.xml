@@ -271,7 +271,7 @@
             </tr>
         </thead>
         <tbody>
-            <t t-foreach="state.scores" t-as="s" t-key="s.id">
+            <t t-foreach="topScores" t-as="s" t-key="s.id">
                 <tr>
                     <td t-out="s_index + 1"/>
                     <td>
@@ -283,7 +283,7 @@
                     <td class="text-end ns_time" t-out="fmtTime(s.duration)"/>
                 </tr>
             </t>
-            <tr t-if="!state.scores.length">
+            <tr t-if="!topScores.length">
                 <td colspan="5" class="text-muted">No scores yet. Be the first!</td>
             </tr>
         </tbody>
