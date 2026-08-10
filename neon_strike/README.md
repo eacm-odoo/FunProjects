@@ -68,6 +68,13 @@ plain shot for the whole fight.
 The **Ships, enemies and powers** button in the menu opens a glossary of every
 ship, enemy, boss, colossus, capsule and perk.
 
+Found a bug or have an idea? The **Report a bug or an idea** button in the menu
+(and the **Feedback** button in the toolbar while playing) opens a panel where
+you pick bug/idea/other, write it down and attach an image — or grab the current
+screen with one click. In single player the run pauses while you type. Everything
+lands in the backend, under *Neon Strike → Feedback*, together with the wave,
+score and perks you were carrying.
+
 To play together: one player hits **Create match** and shares the room code; the
 others paste it and hit **Join**. The host starts the match.
 
@@ -86,8 +93,9 @@ others paste it and hit **Join**. The host starts the match.
 | Templates | `static/src/xml/neon_strike_templates.xml` | Toolbar, menu, lobby, glossary and leaderboard |
 | Styles | `static/src/scss/neon_strike.scss` | Odoo purple chrome with neon accents; animations respect `prefers-reduced-motion` |
 | Page | `views/neon_strike_page.xml` | QWeb template behind `/neon`, full screen, no header/footer |
-| Controllers | `controllers/main.py` | `GET /neon` plus the public JSON API (`/neon/create`, `join`, `start`, `input`, `state`, `score`, `solo_score`, `leave`, `scores`) |
-| Models | `models/neon_strike_score.py` | `neon.strike.score`: score, wave, mode (solo/co-op), player count, run duration and play time |
+| Controllers | `controllers/main.py` | `GET /neon` plus the public JSON API (`/neon/create`, `join`, `start`, `input`, `state`, `score`, `solo_score`, `leave`, `scores`, `feedback`) |
+| Models | `models/neon_strike_feedback.py` | `neon.strike.feedback`: player bug reports and ideas, with screenshot, run context and a triage status |
+| | `models/neon_strike_score.py` | `neon.strike.score`: score, wave, mode (solo/co-op), player count, run duration and play time |
 | | `models/neon_strike_match.py` | `neon.strike.match`: room code, access token, state, participants |
 | | `models/neon_strike_participant.py` | `neon.strike.participant`: session token, nickname, slot, colour |
 | | `models/ir_websocket.py` | Authorizes the match bus channel by capability |
