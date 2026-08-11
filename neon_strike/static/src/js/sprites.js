@@ -806,6 +806,74 @@ export function sprite(name, tint, px, flash) {
     return cv;
 }
 
+// Tilt frames: the angle the hull is turned around its own nose-to-tail axis
+// at each level, and how much nearer the raised wing reads.
+const BANK_ANGLES = [0, 0.38, 0.78];
+const BANK_PERSP = 0.26;
+const bankCache = new Map();
+
+/**
+ * Return a canvas with the sprite banked `level` steps (-2..2), i.e. rolled
+ * around the axis running from its nose to its tail.
+ *
+ * There are no tilt image files: the frame is built from the hull's own pixel
+ * grid, one logical pixel column at a time. Every column is compressed towards
+ * the centre (the hull turns away from us) and scaled vertically by how near
+ * that side now is, which is what makes a flat top-down sprite read as banked.
+ * The columns stay whole pixels wide, so the result is still pixel art.
+ *
+ * Cached like `sprite()`. Level 0 is the flat sprite, returned as-is.
+ *
+ * @param {string} name key in SPRITES
+ * @param {string} tint hex colour for indices 4/5/6
+ * @param {number} px logical pixel size
+ * @param {number} level -2..2, negative banking left
+ * @returns {HTMLCanvasElement|null}
+ */
+export function bankSprite(name, tint, px, level) {
+    const lvl = Math.max(-2, Math.min(2, Math.round(level || 0)));
+    if (!lvl) {
+        return sprite(name, tint, px, false);
+    }
+    const key = name + "|" + tint + "|" + px + "|b" + lvl;
+    let cv = bankCache.get(key);
+    if (cv) {
+        return cv;
+    }
+    const base = sprite(name, tint, px, false);
+    if (!base) {
+        return null;
+    }
+    const ang = BANK_ANGLES[Math.abs(lvl)];
+    const dir = lvl < 0 ? -1 : 1;
+    const cos = Math.cos(ang);
+    const persp = BANK_PERSP * Math.sin(ang);
+    const bw = base.width;
+    const bh = base.height;
+    cv = document.createElement("canvas");
+    cv.width = Math.max(1, Math.round(bw * cos));
+    cv.height = Math.max(1, Math.ceil(bh * (1 + persp)));
+    const g = cv.getContext("2d");
+    g.imageSmoothingEnabled = false;
+    const cx = cv.width / 2;
+    const cy = cv.height / 2;
+    const step = Math.max(1, Math.round(px));
+    for (let sx = 0; sx < bw; sx += step) {
+        const sw = Math.min(step, bw - sx);
+        // Map both edges of the column, so rounding cannot open a seam.
+        const u0 = (sx / bw) * 2 - 1;
+        const u1 = ((sx + sw) / bw) * 2 - 1;
+        const dx0 = Math.round(cx + u0 * cos * (bw / 2));
+        const dw = Math.max(1, Math.round(cx + u1 * cos * (bw / 2)) - dx0);
+        // The wing on the outside of the turn rises towards us and is drawn
+        // taller; the one on the inside dips away and shrinks.
+        const dh = Math.max(1, Math.round(bh * (1 - dir * ((u0 + u1) / 2) * persp)));
+        g.drawImage(base, sx, 0, sw, bh, dx0, Math.round(cy - dh / 2), dw, dh);
+    }
+    bankCache.set(key, cv);
+    return cv;
+}
+
 /**
  * Draw a sprite centred at (x, y) of the given context.
  * @param {CanvasRenderingContext2D} g
