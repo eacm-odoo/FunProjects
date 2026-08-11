@@ -251,6 +251,25 @@ export const SPRITES = {
         ".................11111",
     ] },
 
+    /* --- WARDEN armour plate (6x12) ---------------------------------------
+       Not mirrored: one plate, drawn on the left and flipped for the right by
+       `boss_animator.js`. It slides outward and dims as the armour drops, which
+       is the tell for the hurt window. Banded so the travel is readable. */
+    bossPlate: { rows: [
+        ".3333.",
+        "366663",
+        "366663",
+        "322223",
+        "322223",
+        "366663",
+        "366663",
+        "322223",
+        "322223",
+        "366663",
+        "366663",
+        ".3333.",
+    ] },
+
     /* --- Colossal bosses (they do not fit the arena: the camera pulls back) --
 
        One per milestone wave. Drafted with geometric primitives and frozen
