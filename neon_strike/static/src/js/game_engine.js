@@ -21,6 +21,7 @@ import { BOSSES, bossForWave } from "./bosses";
 import { COLOSSI, colossusForWave } from "./colossi";
 import { SHIPS, SHIP_COLORS } from "./ships";
 import { ShipFlight } from "./ship_flight";
+import { BossAnimator } from "./boss_animator";
 import { Backdrop, backgroundForWave } from "./backgrounds";
 const REVIVE_FRAMES = 120;
 const COMBO_MAX = 25;
@@ -183,6 +184,10 @@ export class NeonStrikeEngine {
         // `_syncBackground`), never simulated and never sent over the bus.
         this.bg = null;
         this._events = [];
+        // Boss animation state, keyed by boss index. It cannot live on the enemy
+        // object: a guest rebuilds `this.enemies` from every snapshot, which
+        // would reset the pose ~15 times a second.
+        this._bossAnims = new Map();
         // Entities created by perks (dash trails, turrets, singularities, decoys).
         this.trails = [];
         this.turrets = [];
@@ -675,6 +680,15 @@ export class NeonStrikeEngine {
             this.sBigBoom();
         } else if (ev.k === "zap") {
             this.zaps.push({ x1: ev.x, y1: ev.y, x2: ev.x2, y2: ev.y2, life: 8 });
+        } else if (ev.k === "bfx") {
+            // Boss cosmetic cue. Created on demand, because the event can arrive
+            // in the same snapshot that first introduces the boss.
+            let anim = this._bossAnims.get(ev.bk);
+            if (!anim) {
+                anim = new BossAnimator(ev.bk, (BOSSES[ev.bk] || BOSSES[0]).tint);
+                this._bossAnims.set(ev.bk, anim);
+            }
+            anim.emit(ev.n, ev);
         }
     }
 
@@ -1399,6 +1413,7 @@ export class NeonStrikeEngine {
         this.decoys = [];
         this.zaps = [];
         this.beams = [];
+        this._bossAnims.clear();
         this.freezeT = 0;
         this.warpT = 0;
         this.shake = 0;
@@ -1574,6 +1589,8 @@ export class NeonStrikeEngine {
         this._updateSpawns(ts);
         this._updateSupply(ts);
         this._updateBeams(ts);
+        // After the beams: the LANCER charge glow reads their `warn` frames.
+        this._updateBossAnims(ts);
         this._updateTrails(ts);
         this._updateTurrets(ts);
         this._updateHoles(ts);
@@ -2239,6 +2256,12 @@ export class NeonStrikeEngine {
         this._eb(x, y, Math.cos(a) * speed, Math.sin(a) * speed);
     }
 
+    /** The angle `_ebAimed` fires at, reused by the muzzle flash cosmetics. */
+    _aimAngle(x, y) {
+        const tgt = this.decoys.length ? this._target(x, y) : this._aimShip();
+        return tgt ? Math.atan2(tgt.y - y, tgt.x - x) : Math.PI / 2;
+    }
+
     /**
      * Beams: telegraphed first (`warn` frames of a thin sight line), then live.
      * `src` anchors them to a hull so they follow it, `spin` sweeps them.
@@ -2459,6 +2482,70 @@ export class NeonStrikeEngine {
      * They all fit the arena and leave the camera alone; what changes is how
      * they ask you to move.
      */
+    /**
+     * Tick the boss animations.
+     *
+     * Render-only, so it runs the same on host, solo and guest: everything it
+     * reads either travels in the snapshot (position, hp, armour, beams) or is
+     * derived from observed motion. It lives in the simulation rather than the
+     * draw, so a paused game freezes the pose along with everything else.
+     */
+    _updateBossAnims(ts) {
+        if (!this._bossAnims.size && !this.enemies.some((e) => e.type === "boss")) {
+            return;
+        }
+        const dt = ts * FRAME_SECONDS;
+        const alive = new Set();
+        for (const e of this.enemies) {
+            if (e.type !== "boss") {
+                continue;
+            }
+            const k = e.k || 0;
+            alive.add(k);
+            let anim = this._bossAnims.get(k);
+            if (!anim) {
+                anim = new BossAnimator(k, e.c);
+                this._bossAnims.set(k, anim);
+            }
+            // LANCER: the telegraph is the engine's own beam. A guest loses the
+            // `src` id in the snapshot but still gets the beam's origin and warn
+            // frames, so proximity is what both sides can agree on.
+            let charging = false;
+            if (k === 2) {
+                for (const b of this.beams) {
+                    if (b.warn > 0 && Math.abs(b.x - e.x) < e.r * 2
+                            && Math.abs(b.y - e.y) < e.r * 3) {
+                        charging = true;
+                        break;
+                    }
+                }
+            }
+            anim.observe(dt, {
+                x: e.x,
+                y: e.y,
+                hp01: e.mhp ? e.hp / e.mhp : 1,
+                armor: !!e.armor,
+                charging,
+            });
+        }
+        // Forget a boss that is gone, so the next one of the same kind starts
+        // clean instead of inheriting a half-finished blink.
+        for (const k of Array.from(this._bossAnims.keys())) {
+            if (!alive.has(k)) {
+                this._bossAnims.delete(k);
+            }
+        }
+    }
+
+    /** Cosmetic cue for a boss, mirrored to the guests over the `ev` channel. */
+    _bossCue(e, name, data) {
+        const anim = this._bossAnims.get(e.k || 0);
+        if (anim) {
+            anim.emit(name, data);
+        }
+        this._ev(Object.assign({ k: "bfx", bk: e.k || 0, n: name }, data || {}));
+    }
+
     _updateBoss(e, mv) {
         const W = this.W;
         if (e.k === 2) {
@@ -2493,12 +2580,14 @@ export class NeonStrikeEngine {
                 this._eb(e.x, e.y, Math.cos(a) * 2.3, Math.sin(a) * 2.3);
             }
             this.sTick();
+            this._bossCue(e, "burst");
         }
         if (Math.floor(e.t) % 55 === 27) {
             for (let k = -1; k <= 1; k++) {
                 this._ebAimed(e.x, e.y, 3, k * 0.22);
             }
             this.sTick();
+            this._bossCue(e, "salvo", { a: Math.round(this._aimAngle(e.x, e.y) * 100) / 100 });
         }
     }
 
@@ -2534,6 +2623,7 @@ export class NeonStrikeEngine {
                 this._ebAimed(e.x, e.y, 3.4, k * 0.17);
             }
             this.sTick();
+            this._bossCue(e, "salvo", { a: Math.round(this._aimAngle(e.x, e.y) * 100) / 100 });
         }
     }
 
@@ -2609,6 +2699,8 @@ export class NeonStrikeEngine {
             for (const off of bays) {
                 const type = brood[Math.floor(Math.random() * brood.length)];
                 this.enemies.push(this.mkEnemy(type, e.x + off, e.y + e.r * 0.5));
+                // The door that opened, as a fraction of the half-width.
+                this._bossCue(e, "launch", { c: Math.round((off / e.r) * 100) / 100 });
             }
             this.burst(e.x, e.y + e.r * 0.5, e.c, 10, 3);
             this.sTick();
@@ -2641,6 +2733,9 @@ export class NeonStrikeEngine {
             }
             this.burst(e.x, e.y, e.c, 26, 5);
             this._ev({ k: "boom", x: e.x, y: e.y, c: e.c, b: 0 });
+            // Shockwave ring stays behind at the departure point. The collapse
+            // itself needs no cue: the animator sees the teleport.
+            this._bossCue(e, "blink", { x: Math.round(e.x), y: Math.round(e.y) });
             e.x = this.fx0 + 90 + Math.random() * (this.fx1 - this.fx0 - 180);
             e.y = 110 + Math.random() * 90;
             this.burst(e.x, e.y, "#ffffff", 20, 4);
@@ -3067,6 +3162,9 @@ export class NeonStrikeEngine {
             // nothing about the pose has to travel over the bus.
             sp.flight.observe(sp.x, sp.y, ts * FRAME_SECONDS);
         }
+        // Bosses are not simulated here, but their animation is derived from the
+        // snapshot positions, so it ticks on a guest exactly as on the host.
+        this._updateBossAnims(ts);
         this._updateFx(ts);
         if (this.shake > 0) {
             this.shake *= 0.88;
@@ -3512,13 +3610,15 @@ export class NeonStrikeEngine {
             return;
         }
         if (e.type === "boss") {
-            // The dreadnought breathes: gentle pulse around its centre.
-            const p = 1 + Math.sin(e.t * 0.08) * 0.04;
-            g.save();
-            g.translate(e.x, e.y);
-            g.scale(p, p);
-            drawSprite(g, name, 0, 0, { tint: e.c, px: pxFor(name, e.r * 2), flash });
-            g.restore();
+            // Per-boss animation: lean, breathing, plates, curtain, blink and
+            // the rest (see `boss_animator.js`). The pose was computed in the
+            // simulation, so this only reads it.
+            const anim = this._bossAnims.get(e.k || 0);
+            if (anim) {
+                anim.draw(g, { sprite: name, px: pxFor(name, e.r * 2), x: e.x, y: e.y, flash });
+            } else {
+                drawSprite(g, name, e.x, e.y, { tint: e.c, px: pxFor(name, e.r * 2), flash });
+            }
         } else {
             drawSprite(g, name, e.x, e.y, {
                 tint: e.c,
@@ -3527,8 +3627,10 @@ export class NeonStrikeEngine {
                 rot: e.type === "kami" ? e.rot || 0 : 0,
             });
         }
-        if (e.armor) {
-            // WARDEN with the shield up: hits barely scratch it.
+        if (e.armor && e.type !== "boss") {
+            // Hits barely scratch it. A boss gets the animator's sliding plates
+            // and gapped curtain instead of this ring: both at once reads as two
+            // concentric circles and hides which one is the way in.
             g.save();
             g.globalCompositeOperation = "lighter";
             g.strokeStyle = "rgba(77,227,193," + (0.45 + Math.sin(this.frame * 0.12) * 0.25) + ")";
