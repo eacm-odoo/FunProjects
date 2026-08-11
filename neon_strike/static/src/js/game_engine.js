@@ -20,6 +20,7 @@ import { MAX_ACTIVES, PERKS, PERK_INDEX, rollOffers } from "./perks";
 import { BOSSES, bossForWave } from "./bosses";
 import { COLOSSI, colossusForWave } from "./colossi";
 import { SHIPS, SHIP_COLORS } from "./ships";
+import { ShipFlight } from "./ship_flight";
 import { Backdrop, backgroundForWave } from "./backgrounds";
 const REVIVE_FRAMES = 120;
 const COMBO_MAX = 25;
@@ -87,6 +88,9 @@ const BUFF_KEYS = ["R", "V", "P", "H", "D", "G"];
 // Ship pixel size: a 16 px grid -> ~32 logical px wide.
 const SHIP_PX = pxFor("ship0", 30);
 const PUP_PX = pxFor("pupT", 30);
+// The simulation ticks in 60 fps frames (`ts`); the flight animation wants
+// seconds, and going through `ts` is what makes it slow down with slow motion.
+const FRAME_SECONDS = 1 / 60;
 
 export class NeonStrikeEngine {
     /**
@@ -385,6 +389,9 @@ export class NeonStrikeEngine {
         for (const sp of this.ships) {
             sp.x = sp.tx = Math.max(this.fx0 + 20, Math.min(this.fx1 - 20, sp.x));
             sp.y = sp.ty = Math.max(this.fy0 + 20, Math.min(this.fy1 - 20, sp.y));
+            // Being clamped back inside is not flying: drop the current pose so
+            // a resize does not read as a full-speed turn.
+            sp.flight.reset(sp.x, sp.y);
         }
     }
 
@@ -697,6 +704,10 @@ export class NeonStrikeEngine {
             name: (this.names && this.names[slot]) || "J" + (slot + 1),
             color: this._tintFor(slot, hull),
             x: 0, y: 0, tx: 0, ty: 0,
+            // Flight animation (bank, flame, retro, barrel roll). Render only:
+            // it watches the motion below, never causes it, and never travels
+            // in the snapshot.
+            flight: new ShipFlight(),
             inv: 0, shield: 0,
             weapon: "single", weaponT: 0, fireT: 0,
             lives: 3, down: false, reviveProgress: 0,
@@ -1740,6 +1751,9 @@ export class NeonStrikeEngine {
                 ml: 16,
             });
         }
+        // Feed the animation the motion this frame produced. It happens here,
+        // in the simulation, so a paused game freezes the pose too.
+        sp.flight.observe(sp.x, sp.y, ts * FRAME_SECONDS);
     }
 
     /** Space: burst towards the cursor, intangible while it lasts. */
@@ -1763,6 +1777,9 @@ export class NeonStrikeEngine {
         sp.dashVy = dy;
         sp.dash = DASH_FRAMES;
         sp.dashCharges--;
+        // A dash is exactly the brusque move the barrel roll is for, but it is
+        // too short for the speed trigger to catch it on its own.
+        sp.flight.kickRoll(dx || sp.flight.bank);
         if (sp.dashCd <= 0) {
             sp.dashCd = this._dashCd(sp);
         }
@@ -3046,6 +3063,9 @@ export class NeonStrikeEngine {
                     ml: 16,
                 });
             }
+            // Same animation as the host, driven by the interpolated position:
+            // nothing about the pose has to travel over the bus.
+            sp.flight.observe(sp.x, sp.y, ts * FRAME_SECONDS);
         }
         this._updateFx(ts);
         if (this.shake > 0) {
@@ -3376,24 +3396,20 @@ export class NeonStrikeEngine {
             g.fill();
             g.globalCompositeOperation = "source-over";
         }
-        const tilt = Math.max(-0.35, Math.min(0.35, (sp.tx - sp.x) * 0.02));
-        g.rotate(tilt);
         g.globalCompositeOperation = "lighter";
         g.fillStyle = this.glow(sp.color, 0.12);
         g.beginPath();
         g.arc(0, 0, 26, 0, 6.2832);
         g.fill();
-        const fl = 10 + Math.random() * 8;
-        g.fillStyle = "rgba(255,170,70,0.85)";
-        g.beginPath();
-        g.moveTo(-5, 14);
-        g.lineTo(0, 14 + fl);
-        g.lineTo(5, 14);
-        g.closePath();
-        g.fill();
         g.globalCompositeOperation = "source-over";
-        // Each slot has its own hull; the sprite is tinted with sp.color.
-        drawSprite(g, SHIPS[sp.hull].sprite, 0, 0, { tint: sp.color, px: SHIP_PX });
+        // Banked hull, engine flame and retro-thrusters. Each slot has its own
+        // hull and the frames are tinted with sp.color, same as the flat
+        // sprite was; the pose comes from the motion `_moveShip` produced.
+        sp.flight.draw(g, {
+            sprite: SHIPS[sp.hull].sprite,
+            tint: sp.color,
+            px: SHIP_PX,
+        });
         if (sp.shield > 0) {
             g.strokeStyle = "rgba(123,255,176," + (0.5 + Math.sin(this.frame * 0.15) * 0.3) + ")";
             g.lineWidth = 2;

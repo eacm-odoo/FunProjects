@@ -3,7 +3,7 @@
 # UI palette follows Odoo brand assets: https://www.odoo.com/page/brand-assets
 {
     "name": "Neon Strike",
-    "version": "19.0.8.0.0",
+    "version": "19.0.9.0.0",
     "category": "Productivity",
     "summary": "Neon arcade space shooter, playable without a login on a public page",
     "description": """
@@ -16,6 +16,9 @@ playable **without an account**: pick a nickname and go.
   instead of black bars, with the classic 680x540 box as the floor
 * No sign-up: identity is a session token + nickname (anonymous players)
 * Pick your hull before the run: 4 pixel-art ships, cosmetic only
+* Arcade flight animation: the hull banks through 5 tilt frames, the engine
+  flame grows with the throttle, retro-thrusters fire when you brake and a hard
+  change of direction (or a dash) throws in a barrel roll
 * 26 places to fight in, one per wave: deep space, a black hole with real
   gravity on its dust, nebulae, a supernova, ringed giants, planet surfaces
   (lava, ice, ocean, jungle, desert, storms), a wormhole and more
@@ -58,6 +61,7 @@ Built with Odoo. Brand guide: https://www.odoo.com/page/brand-assets
         "web.assets_frontend": [
             "neon_strike/static/src/js/sprites.js",
             "neon_strike/static/src/js/ships.js",
+            "neon_strike/static/src/js/ship_flight.js",
             "neon_strike/static/src/js/perks.js",
             "neon_strike/static/src/js/bosses.js",
             "neon_strike/static/src/js/colossi.js",
