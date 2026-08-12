@@ -1,3 +1,5 @@
+import json
+import re
 import uuid
 
 from odoo import http
@@ -10,6 +12,7 @@ SIDES = ("a", "b")
 DIRECTIONS = ("h", "v")
 SIZE = 10
 FLEET_SIZE = 5
+CODE_RE = re.compile(r"^[A-Z0-9-]{1,16}$")
 
 
 class BattleshipController(http.Controller):
@@ -100,11 +103,33 @@ class BattleshipController(http.Controller):
     # once the website module is installed and fails without it.
     @http.route("/battleship", type="http", auth="public", website=True, sitemap=True)
     def battleship_page(self, **kwargs):
+        return self._render_board()
+
+    # The invitation an opponent is sent: the whole handshake is opening it.
+    # The code travels in the path rather than in a query string because this
+    # link is meant to be pasted into a chat, where a bare path survives being
+    # shortened, quoted or read out loud.
+    @http.route(
+        "/battleship/join/<string:code>", type="http", auth="public", website=True, sitemap=False
+    )
+    def battleship_join_page(self, code, **kwargs):
+        return self._render_board(room_code=code)
+
+    def _render_board(self, room_code=None):
+        """The page, told which room to sit down in (if any).
+
+        Joining is left to the board itself, through the same route the code
+        field uses: a link that points at a room which is full, gone or already
+        playing has to end up in front of the player as the room panel and its
+        error, not as a 404.
+        """
         # Make sure the session (and its token) exists before the first game is
         # created, so the game can be bound to this browser.
         if self._is_public():
             self._token()
-        return request.render("battleship_3d.page", {})
+        code = (room_code or "").strip().upper()
+        props = {"roomCode": code} if CODE_RE.match(code) else {}
+        return request.render("battleship_3d.page", {"board_props": json.dumps(props)})
 
     # ------------------------------------------------------------------ #
     # Board                                                               #
@@ -175,3 +200,23 @@ class BattleshipController(http.Controller):
     def rematch(self, game_id=None, **kwargs):
         game = self._game(game_id)
         return game.action_rematch(self._side(game))
+
+    # ------------------------------------------------------------------ #
+    # Feedback                                                            #
+    # ------------------------------------------------------------------ #
+
+    @http.route("/battleship/feedback", type="jsonrpc", auth="public")
+    def feedback(self, kind=None, subject=None, description=None, game_id=None, **kwargs):
+        """Bug reports and ideas, from the board and from anybody at it.
+
+        The game is attached only if the caller is allowed to be playing it:
+        `_game` is the same check every move goes through, so a report cannot be
+        used to point at somebody else's board.
+        """
+        game = self._game(game_id) if game_id else None
+        return request.env["battleship.feedback"].sudo().action_report(
+            kind, subject, description,
+            game_id=game.id if game else None,
+            token=self._token(),
+            uid=False if self._is_public() else request.env.uid,
+        )

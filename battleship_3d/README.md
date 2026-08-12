@@ -26,17 +26,20 @@ each player sits at their own machine.
 battleship_3d/
 ├── models/battleship_game.py   game state, placement, firing, CPU AI, read_state()
 ├── models/battleship_shot.py   immutable shot history (one record per shot)
+├── models/battleship_feedback.py  bugs and ideas sent from the board
 ├── models/ir_websocket.py      room channel authorised by access_token
 ├── controllers/main.py         /battleship page + the routes the board calls
+├── migrations/                 back-fills date_end on games finished before 4.0
 ├── security/                   ir.model.access.csv (base.group_user)
-├── views/                      list/form for games, menus, public page, site menu
+├── views/                      list/form for games and feedback, menus, public page
 └── static/src/
     ├── backend/battleship_action.js stub client action, loads the game bundle
     ├── boot/battleship_public.js    same stub as an `owl-component` for /battleship
     ├── board/battleship_board.js    the board itself (registry "lazy_components")
     ├── board/api.js                 every server call the board makes
     ├── board/battleship_board.xml   QWeb template
-    ├── board/battleship_board.scss  styling (Odoo purple #714B67 / teal #017E84)
+    ├── board/battleship_board.scss  the chrome: steel plates and signals paper
+    ├── board/fonts.js               pulls the four faces the chrome is set in
     ├── board/scene.js               three.js layer — no game rules
     ├── board/ships.js               the five hulls, built from shared parts
     ├── board/water.js               the sea: one wave field, in GLSL and in JS
@@ -60,6 +63,10 @@ tolerate being registered once.
 
 ## Routes
 
+`/battleship` serves the page, and `/battleship/join/<code>` serves the same page
+pointed at a room: the code reaches the board as the `roomCode` prop and it joins
+on start. `/battleship/feedback` takes bug reports and ideas from either place.
+
 The board never calls `call_kw`: a visitor has no rights on `battleship.game`,
 so every action goes through `/battleship/{new,state,place,random,ready,fire}`
 and `/battleship/room/{create,join,leave,rematch}` (`auth="public"`). The
@@ -69,10 +76,17 @@ games run in `sudo()`. A game id alone is never enough to act on a game.
 
 ## Online mode
 
-One player opens a room and gets a code (`BSHP-XXXX`); the other types it in.
-From there both place their fleet at the same time, and the battle starts once
-the second one locks in.
+One player opens a room and gets a code (`BSHP-XXXX`) and an invitation link;
+the other opens the link, or types the code. From there both place their fleet at
+the same time, and the battle starts once the second one locks in.
 
+* **Invitation.** The link is `<base url>/battleship/join/<code>`, and opening it
+  is the whole handshake: the visitor lands on the board, takes the free seat
+  under the name their browser last played with, and never sees a form. It is
+  worth exactly what the code is worth — it opens a room while it is empty, and
+  a link to a room that is full, finished or gone drops the visitor on the room
+  panel with the error, not on a 404. The seat itself is still the browser
+  token, so a link that leaks cannot take a seat somebody is sitting in.
 * **Seats.** A room has `token_a` / `token_b`, and each holds the browser token
   the session already carries. The client never sends an identity, so nothing it
   could forge would sit it down on the other side of the board. Every rule that
@@ -91,6 +105,37 @@ the second one locks in.
 * **Rematch.** A finished game is never reset — it is what the win/loss tally
   counts. "Rematch" opens a fresh room that inherits both seats, and the old
   channel is where the other tab hears about it (`rematch_id`).
+* **Whose turn.** Two players means waiting for somebody, so the turn is said in
+  four places at once: a banner over the water, the panel of the side being
+  waited on, a pulsing `FIRE HERE` / `INCOMING` plate on the grid the next shot
+  belongs to (`scene.setTurn`), and the crosshair, which only appears while a
+  click would really fire. None of it is state of its own — every one of them
+  reads `current_player` against the seat this screen holds.
+
+## Interface
+
+North Atlantic, 1943. Everything a player reads is one of two materials, and the
+two are never mixed on the same surface: **painted steel** carries live state —
+orders, fleets, buttons — and **signals paper** carries what has already
+happened — the radio log, the service record, the final dispatch. That is why
+the game-over card is paper and the room panel is not.
+
+The board opens on a **start screen** rather than straight on a grid: the title,
+the three ways to play, and the commander's file with the win/loss tally on it.
+It sits over a game the server has already created, so picking a mode is a door
+and not a wait. The final dispatch has a **Menu** button back to it, and Esc
+closes it once there is a board worth going back to.
+
+Across the bridge: the wordmark and the mode switch, the **orders** strip (the
+one line that has to be read the moment it changes, so nothing else in that row
+is allowed to grow into it), the record, and the radio log. Under the water, one
+plate per grid — ours lists ships by name, the other lists radar contacts,
+which is exactly what the server sends (`isMine`).
+
+`fonts.js` pulls Big Shoulders Display, Special Elite and the two IBM Plex faces
+at runtime instead of shipping them: the board is the only screen that uses
+them, and every rule names a fallback stack, so a browser that never reaches
+Google Fonts gets a plainer board and not a broken one.
 
 ## Ships and water
 
@@ -139,7 +184,7 @@ one already on the grid, which moves it — and **R** turns it 90°, redrawing t
 preview where it stands. During a battle the cell under the pointer lights up,
 but only when it is one you may actually fire at.
 
-**Ships** opens the fleet glossary: the five classes, one at a time, on a
+**Glossary** opens the fleet glossary: the five classes, one at a time, on a
 turntable you can orbit, floating on the same swell as the board. It is the real
 mesh, not a picture of one — `ship_viewer.js` builds a second small scene with
 the same three lights and calls the same `shipMesh()`. One renderer for the
@@ -161,9 +206,27 @@ the canvas).
 | `action_fire(cell, side)` | resolve a shot; in CPU mode the CPU answers in the same call |
 | `action_leave(side)` / `action_rematch(side)` | give up a room / play again in a new one |
 | `read_state(viewer)` | full client payload, cut for that seat — enemy positions filtered out |
-| `read_record(session_token)` | win/loss tally of a user, or of a browser session |
+| `read_record(session_token)` | wins, losses, games played and seconds at the board, for a user or a browser session |
+| `battleship.feedback.action_report(kind, subject, description, ...)` | file a bug or an idea |
 
 Cells are `row * 10 + col`, 0-based, `A1` = 0.
+
+## Counters and feedback
+
+A game stamps `date_end` the moment it is declared over — `write()` does it, so
+the three places that end a game cannot forget — and `duration` (hours, stored,
+summable) follows from `create_date`. Both counters read finished games only, in
+the backend list footer and in the board's own Record panel: a game still on the
+table has not been played yet, and a room left open forever was never played at
+all. Grouping the list by mode, player or month splits count and time without a
+report of its own.
+
+"Report" on the board writes a `battleship.feedback` record — bug or idea, with
+the game attached, under the Battleship menu. The route is `auth="public"`, so
+it is deliberately narrow: an 80 character subject, a 2000 character body, and
+five reports per browser per hour. The game only travels with the report if the
+sender is allowed to be playing it, which is the same check every move goes
+through.
 
 ## Known gaps (prototype)
 

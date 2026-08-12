@@ -118,6 +118,10 @@ export class BattleshipScene {
         this.renderer.setAnimationLoop(null);
         for (const side of ["a", "b"]) {
             this.boards[side].water.dispose();
+            // The plates hold a canvas texture each: dropping the mesh is not
+            // enough, so they go out the way they came in.
+            this._plate(this.boards[side], "title", "", {});
+            this._plate(this.boards[side], "turn", "", {});
         }
         this.controls.dispose();
         this.renderer.dispose();
@@ -214,14 +218,54 @@ export class BattleshipScene {
         return { side, group, fx, pick, water, ships: [], pegs: [], pending: new Set() };
     }
 
-    setTitle(side, text, color) {
-        const board = this.boards[side];
-        if (board.title) {
-            board.group.remove(board.title);
+    /**
+     * Write a line of text on the water in front of a board.
+     *
+     * Each plate is a texture of its own, so they are rebuilt only when the
+     * words change: `render()` runs on every payload, and half of those say
+     * nothing new about who the board belongs to or whose shot it expects.
+     */
+    _plate(board, slot, text, options) {
+        if (board[slot]?.userData.text === text) {
+            return;
         }
-        board.title = textPlane(text, { width: 6.4, w: 1024, px: 128, font: 800, size: 70, color });
-        board.title.position.set(0, 0.02, SIZE / 2 + 1);
-        board.group.add(board.title);
+        if (board[slot]) {
+            board.group.remove(board[slot]);
+            board[slot].geometry.dispose();
+            board[slot].material.map.dispose();
+            board[slot].material.dispose();
+            board[slot] = null;
+        }
+        if (!text) {
+            return;
+        }
+        const { z, ...rest } = options;
+        const mesh = textPlane(text, rest);
+        mesh.userData.text = text;
+        mesh.position.set(0, 0.02, z);
+        board[slot] = mesh;
+        board.group.add(mesh);
+    }
+
+    setTitle(side, text, color) {
+        this._plate(this.boards[side], "title", text, {
+            width: 6.4, w: 1024, px: 128, font: 800, size: 70, color, z: SIZE / 2 + 1,
+        });
+    }
+
+    /**
+     * Mark the grid the next shot belongs to, and only that one.
+     *
+     * The plate sits in front of the board it points at and breathes (see
+     * `_tick`), because a player who looks up from the fleet panel should find
+     * their turn on the board itself rather than in a line of status text.
+     */
+    setTurn(side, text, color) {
+        for (const key of ["a", "b"]) {
+            this._plate(this.boards[key], "turn", key === side ? text : "", {
+                width: 4.2, w: 640, px: 128, font: 800, size: 66, color, z: SIZE / 2 + 2.05,
+            });
+        }
     }
 
     /** Rebuild ships + pegs from a read_state() payload. */
@@ -287,6 +331,18 @@ export class BattleshipScene {
         };
         this.setTitle("a", title("a"), "#b98fad");
         this.setTitle("b", title("b"), "#63c6cb");
+
+        // And which of the two the next shot belongs to, from where this screen
+        // sits: the hot-seat device is always in front of the player whose turn
+        // it is, and online the seat is the one the payload was cut for.
+        const you = state.mode === "hotseat" ? state.current_player : state.you || "a";
+        if (state.state !== "battle") {
+            this.setTurn(null);
+        } else if (state.current_player === you) {
+            this.setTurn(you === "a" ? "b" : "a", "FIRE HERE", "#f2c14e");
+        } else {
+            this.setTurn(you, "INCOMING", "#e0805f");
+        }
     }
 
     _isHit(state, side, cell) {
@@ -567,6 +623,10 @@ export class BattleshipScene {
             }
             for (const peg of board.pegs) {
                 board.water.bob(peg, peg.userData.rest);
+            }
+            if (board.turn) {
+                // Slow enough to read as breathing rather than as a blink.
+                board.turn.material.opacity = 0.55 + 0.45 * Math.sin(now / 420);
             }
             if (this.ghost?.side === side) {
                 board.water.float(this.ghost.mesh);

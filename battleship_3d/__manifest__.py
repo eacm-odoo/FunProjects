@@ -14,14 +14,19 @@ three.js board rendered as an OWL component.
 * a live sea shaded on the GPU, with the grid drawn on the surface: five WWII
   ship models ride the swell, and a shell arcs in and raises a ring the whole
   fleet rolls on
+* a 1943 signals room around the board: an opening screen with the service
+  record on a paper file, orders and a radio log across the bridge, fleets on
+  painted steel plates, and a typed dispatch at the end of a game
 * a glossary that shows each class on a 3D turntable
 * manual or random fleet placement, ships can be re-picked and turned 90°
 * full shot history per game
-* win/loss record per player
+* win/loss record, games played and time at the board, per player
+* an invitation link that seats whoever opens it: no account, no code to type
+* bugs and ideas reported from the board, collected in the backend
 * playable from the backend menu, and from the public page /battleship without
   an account (the game is bound to the browser session)
 """,
-    "version": "19.0.3.0.0",
+    "version": "19.0.5.0.0",
     "category": "Tools/Games",
     "license": "LGPL-3",
     "author": "Odoo Development Services",
@@ -34,6 +39,7 @@ three.js board rendered as an OWL component.
     "data": [
         "security/ir.model.access.csv",
         "views/battleship_game_views.xml",
+        "views/battleship_feedback_views.xml",
         "views/battleship_menus.xml",
         "views/battleship_page.xml",
         "views/website_menu.xml",

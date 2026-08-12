@@ -23,6 +23,11 @@ export const api = {
     ready: (gameId) => rpc("/battleship/ready", { game_id: gameId }),
     fire: (gameId, cell) => rpc("/battleship/fire", { game_id: gameId, cell }),
 
+    feedback: (kind, subject, description, gameId) =>
+        rpc("/battleship/feedback", {
+            kind, subject, description, game_id: gameId,
+        }),
+
     createRoom: (nickname) => rpc("/battleship/room/create", { nickname }),
     joinRoom: (code, nickname) => rpc("/battleship/room/join", { code, nickname }),
     leaveRoom: (gameId) => rpc("/battleship/room/leave", { game_id: gameId }),

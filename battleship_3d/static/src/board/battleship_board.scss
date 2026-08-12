@@ -1,225 +1,1204 @@
+// ---------------------------------------------------------------------------
+// North Atlantic, 1943.
+//
+// The chrome around the board, and only the chrome: the sea, the hulls and the
+// shells are three.js and nothing here touches them. Everything a player reads
+// is one of two materials — a steel plate lit from above, or a sheet of paper
+// off the signals desk — and the two are never mixed on the same surface.
+//
+// Steel carries the live state: fleets, orders, buttons. Paper carries what has
+// already happened: the radio log, the service record, the final dispatch. That
+// is the whole rule, and it is why the game-over card is paper and the room
+// panel is not.
+// ---------------------------------------------------------------------------
+
+$bs-display: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif;
+$bs-typed: "Special Elite", "Courier New", monospace;
+$bs-sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+$bs-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+
+// A plate of painted steel: the light comes from the top edge, so the top
+// border is the highlight and the drop shadow sits under it.
+@mixin bs-plate {
+    background: linear-gradient(180deg, #1d272c, #141c20);
+    border: 1px solid #2c383f;
+    border-top-color: #42525a;
+    border-radius: 2px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 18px rgba(0, 0, 0, 0.45);
+}
+
+// Signals paper, faintly warm, always slightly off-square on the screen.
+@mixin bs-paper {
+    background: linear-gradient(180deg, #E8DFC8, #D5C9AC);
+    border: 1px solid #b5a98c;
+    color: #22302f;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.5);
+}
+
+// A label: small, spaced out, stencilled. Used for every caption on the screen.
+@mixin bs-stencil($size: 10px, $color: #6f7d7a) {
+    font-family: $bs-mono;
+    font-size: $size;
+    font-weight: 600;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: $color;
+}
+
 .o_battleship {
     --bs-purple: #714B67;
-    --bs-purple-700: #5b3c53;
     --bs-teal: #017E84;
+    --bs-brass: #B08A3E;
     --bs-hit: #C4472F;
-    --bs-paper: #F4F1F3;
+    --bs-ink: #E3DAC4;
+    --bs-ink-bright: #EDE4CE;
+    --bs-ink-dim: #8b9793;
+    --bs-ink-faint: #6f7d7a;
 
     position: absolute;
     inset: 0;
     display: flex;
     flex-direction: column;
-    background: #0b1418;
-    color: var(--bs-paper);
+    background: #0b1216;
+    color: var(--bs-ink);
+    font-family: $bs-sans;
     overflow: hidden;
 
-    h1, h2 { letter-spacing: -0.02em; }
-
+    // ------------------------------------------------------------ the bars
     .o_bs_bar {
         flex: none;
         display: flex;
         gap: 12px;
         align-items: stretch;
+        // Narrow enough and the bridge stacks rather than crushing the plates:
+        // the canvas gives up the height, which it has and they do not.
+        flex-wrap: wrap;
 
-        &.o_bs_bar_top { padding: 14px 20px 0; justify-content: space-between; }
-        &.o_bs_bar_bottom { padding: 0 20px 14px; }
-        &.o_bs_bar_bottom .o_bs_panel { flex: 1 1 0; min-width: 0; }
+        &.o_bs_bar_top { padding: 14px 18px 0; }
+        &.o_bs_bar_bottom { padding: 0 18px 16px; }
     }
 
     .o_bs_panel {
-        background: rgba(18, 24, 28, 0.84);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 10px;
+        @include bs-plate;
         padding: 10px 14px;
     }
 
+    // The side the board is waiting on. Teal is "you" everywhere on this
+    // screen, so the opponent's turn is a pale frame and never a light.
+    .o_bs_panel.o_bs_active {
+        border-color: rgba(1, 126, 132, 0.75);
+        border-top-color: rgba(1, 126, 132, 0.95);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 2px rgba(1, 126, 132, 0.14);
+    }
+    .o_bs_panel.o_bs_waiting { border-color: rgba(227, 218, 196, 0.3); }
+
+    // ---------------------------------------------------------- the brand
     .o_bs_brand {
+        flex: none;
         display: flex;
-        align-items: center;
+        align-items: stretch;
         gap: 14px;
-
-        h1 { font-size: 17px; font-weight: 800; white-space: nowrap; margin: 0; }
+        padding: 10px 14px;
     }
-    .o_bs_dot {
-        display: inline-block;
-        width: 7px; height: 7px;
-        border-radius: 50%;
-        background: var(--bs-teal);
-        margin-left: 4px;
-    }
-    .o_bs_status { font-size: 13px; color: rgba(244, 241, 243, 0.74); }
-    .o_bs_code {
-        font-size: 12.5px; font-weight: 700; letter-spacing: 0.08em;
-        padding: 3px 9px; border-radius: 20px;
-        background: rgba(1, 126, 132, 0.28);
-        border: 1px solid rgba(1, 126, 132, 0.55);
-        white-space: nowrap;
-    }
+    .o_bs_wordmark {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 1px;
+        padding-right: 14px;
+        border-right: 1px solid #2c383f;
 
-    .o_bs_sect {
-        display: flex; gap: 8px; align-items: center;
-        font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
-        color: rgba(244, 241, 243, 0.42);
-        margin-bottom: 7px;
-    }
-    .o_bs_turn { color: var(--bs-teal); }
-
-    .o_bs_score {
-        display: flex; gap: 14px; font-size: 12px; color: rgba(244, 241, 243, 0.6);
-        b { display: block; font-size: 15px; font-weight: 800; color: var(--bs-paper); }
-    }
-    .o_bs_log { font-size: 12px; text-align: right; min-width: 180px; color: rgba(244, 241, 243, 0.6); }
-
-    .o_bs_row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-    .o_bs_fleet { display: flex; gap: 5px; flex-wrap: wrap; }
-    .o_bs_ship {
-        display: flex; align-items: center; gap: 6px;
-        font-size: 11.5px; padding: 4px 8px; border-radius: 20px;
-        border: 1px solid transparent;
-        background: rgba(255, 255, 255, 0.06);
-        white-space: nowrap;
-
-        &.sel { border-color: var(--bs-purple); background: rgba(113, 75, 103, 0.45); }
-        // Already on the grid: still selectable, to move it somewhere else.
-        &.done { color: rgba(244, 241, 243, 0.5); }
-        &.sunk { color: rgba(244, 241, 243, 0.36); text-decoration: line-through; }
-        &[role="button"] { cursor: pointer; }
-    }
-    .o_bs_pips { display: flex; gap: 3px; }
-    .o_bs_pip {
-        width: 7px; height: 7px; border-radius: 2px;
-        background: rgba(255, 255, 255, 0.22);
-        &.on { background: var(--bs-hit); }
-    }
-
-    .o_bs_btns { display: flex; gap: 7px; flex-wrap: wrap; }
-    button {
-        font-size: 12.5px; font-weight: 600; padding: 6px 13px; border-radius: 20px;
-        border: 1px solid rgba(255, 255, 255, 0.16);
-        background: rgba(255, 255, 255, 0.06);
-        color: var(--bs-paper);
-        &:hover:not(:disabled) { background: rgba(255, 255, 255, 0.14); }
-        &.primary { background: var(--bs-purple); border-color: var(--bs-purple); }
-        &.primary:hover { background: var(--bs-purple-700); }
-        &.on { background: var(--bs-teal); border-color: var(--bs-teal); }
-    }
-    .o_bs_seg {
-        display: flex; overflow: hidden;
-        border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 20px;
-        background: rgba(255, 255, 255, 0.06);
-        button { border: 0; border-radius: 0; background: transparent; }
-        button.active { background: var(--bs-purple); }
-    }
-
-    .o_bs_canvas { position: relative; flex: 1; min-height: 0; overflow: hidden; canvas { position: absolute; inset: 0; } }
-    .o_bs_hint {
-        position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%);
-        font-size: 11.5px; color: rgba(244, 241, 243, 0.34);
-    }
-
-    .o_bs_over {
-        position: absolute; inset: 0; z-index: 5;
-        display: flex; align-items: center; justify-content: center;
-        background: rgba(8, 14, 17, 0.96);
-    }
-    .o_bs_card {
-        text-align: center; padding: 38px 46px;
-        h2 { font-size: 32px; font-weight: 800; margin-bottom: 8px; }
-        p { color: rgba(244, 241, 243, 0.65); font-size: 14px; margin-bottom: 20px; }
-        button + button { margin-left: 8px; }
-    }
-
-    // Room panel: opening or joining an online game.
-    .o_bs_room {
-        display: flex; flex-direction: column; align-items: stretch;
-        // Not `min(420px, 86vw)`: Sass claims that call and cannot compare the
-        // two units, so the bundle fails to compile.
-        gap: 10px; width: 420px; max-width: 86vw;
-
-        h2 { letter-spacing: 0.06em; }
-        p { margin-bottom: 4px; }
-        button + button { margin-left: 0; }
-
-        input {
-            width: 100%;
-            font-size: 14px; text-align: center;
-            padding: 9px 12px; border-radius: 20px;
-            border: 1px solid rgba(255, 255, 255, 0.16);
-            background: rgba(255, 255, 255, 0.06);
-            color: var(--bs-paper);
-
-            &::placeholder { color: rgba(244, 241, 243, 0.34); }
-            &:focus { outline: none; border-color: var(--bs-purple); }
+        h1 {
+            margin: 0;
+            font-family: $bs-display;
+            font-size: 24px;
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            line-height: 1;
+            text-transform: uppercase;
+            white-space: nowrap;
+            color: var(--bs-ink-bright);
         }
     }
+    .o_bs_hull { @include bs-stencil(9.5px, var(--bs-brass)); letter-spacing: 0.28em; }
+
+    // The three modes, cut into the plate rather than sitting on it.
+    .o_bs_seg {
+        display: flex;
+        align-items: center;
+        padding: 3px;
+        background: #0d1418;
+        border: 1px solid #2c383f;
+        box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.6);
+
+        button {
+            padding: 8px 12px;
+            border: 1px solid transparent;
+            border-radius: 0;
+            background: transparent;
+            box-shadow: none;
+            font-family: $bs-display;
+            font-size: 16px;
+            font-weight: 800;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--bs-ink-dim);
+
+            &:hover:not(:disabled) {
+                background: rgba(255, 255, 255, 0.05);
+                border-color: transparent;
+                color: var(--bs-ink-bright);
+            }
+            &.active,
+            &.active:hover:not(:disabled) {
+                border-color: #7d5a72;
+                background: linear-gradient(180deg, #7e5573, #5d3d54);
+                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 2px 0 #2a1c26;
+                color: #F4F1F3;
+            }
+            &:active:not(:disabled) { transform: none; }
+        }
+    }
+
+    .o_bs_code {
+        align-self: center;
+        padding: 4px 9px;
+        border: 1px solid rgba(1, 126, 132, 0.55);
+        background: rgba(1, 126, 132, 0.22);
+        @include bs-stencil(10.5px, #4fb3b8);
+        letter-spacing: 0.18em;
+        white-space: nowrap;
+    }
+
+    // ------------------------------------------------------- orders strip
+    // The one line that has to be read the moment it changes, given the width
+    // of the screen and a red tab so the eye finds it without looking.
+    .o_bs_orders {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        padding: 10px 12px;
+    }
+    .o_bs_orders_tag {
+        flex: none;
+        padding: 4px 8px;
+        background: var(--bs-hit);
+        color: #fff;
+        @include bs-stencil(10px, #fff);
+        letter-spacing: 0.2em;
+    }
+    .o_bs_status {
+        flex: 1;
+        min-width: 0;
+        font-family: $bs-typed;
+        font-size: 14px;
+        color: var(--bs-ink);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+
+        &.hot { color: #6fe0e6; }
+    }
+    .o_bs_salvo {
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        @include bs-stencil(10.5px, var(--bs-brass));
+        letter-spacing: 0.18em;
+        white-space: nowrap;
+
+        &::before {
+            content: "";
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--bs-brass);
+            box-shadow: 0 0 8px var(--bs-brass);
+        }
+    }
+
+    // ------------------------------------------------------------- record
+    .o_bs_record {
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 6px;
+    }
+    .o_bs_sect {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        @include bs-stencil(9.5px);
+    }
+    .o_bs_score {
+        display: flex;
+        gap: 12px;
+        white-space: nowrap;
+
+        > div {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+            padding-left: 8px;
+            border-left: 3px solid #4a565c;
+            @include bs-stencil(9px);
+            letter-spacing: 0.18em;
+        }
+        > div.won { border-left-color: var(--bs-teal); }
+        > div.lost { border-left-color: var(--bs-hit); }
+
+        b {
+            font-family: $bs-display;
+            font-size: 24px;
+            font-weight: 800;
+            line-height: 1;
+            letter-spacing: 0;
+            color: var(--bs-ink-bright);
+        }
+    }
+
+    // ---------------------------------------------------------- radio log
+    // Paper, because every line on it has already happened.
+    .o_bs_log {
+        flex: none;
+        width: 240px;
+        max-width: 100%;
+        padding: 10px 14px;
+        @include bs-paper;
+    }
+    .o_bs_log_head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-bottom: 5px;
+        margin-bottom: 7px;
+        border-bottom: 1px solid #a9a086;
+
+        span:first-child { @include bs-stencil(9.5px, #5c6559); letter-spacing: 0.26em; }
+        span:last-child { @include bs-stencil(9.5px, #8a8470); letter-spacing: 0.14em; font-weight: 400; }
+    }
+    .o_bs_log_rows {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-family: $bs-typed;
+        font-size: 12.5px;
+        line-height: 1.35;
+    }
+    .o_bs_log_row {
+        display: flex;
+        gap: 8px;
+
+        .o_bs_log_from { color: #8a8470; }
+        .o_bs_log_cell { color: #1d2a29; font-weight: 700; }
+        .o_bs_log_res {
+            margin-left: auto;
+            @include bs-stencil(10px, #6a736b);
+            letter-spacing: 0.1em;
+
+            &.hit { color: var(--bs-teal); }
+            &.sunk { color: var(--bs-hit); }
+        }
+    }
+    .o_bs_log_empty { font-family: $bs-typed; font-size: 12.5px; color: #8a8470; }
+
+    // ------------------------------------------------------------- canvas
+    .o_bs_canvas {
+        position: relative;
+        flex: 1;
+        min-height: 0;
+        margin: 14px 18px;
+        overflow: hidden;
+        border: 1px solid #212c31;
+
+        canvas { position: absolute; inset: 0; }
+        // A crosshair only while a click of ours would really fire.
+        &.o_bs_aim canvas { cursor: crosshair; }
+    }
+    .o_bs_hint {
+        position: absolute;
+        bottom: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        @include bs-stencil(10px, #3f4d52);
+        letter-spacing: 0.2em;
+        pointer-events: none;
+    }
+
+    // Whose move it is, over the water. Sits under the overlays (z-index 5).
+    .o_bs_turnbar {
+        position: absolute;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 18px;
+        white-space: nowrap;
+        pointer-events: none;
+        border: 1px solid #2c383f;
+        border-top-color: #42525a;
+        background: rgba(13, 20, 24, 0.92);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 18px rgba(0, 0, 0, 0.5);
+
+        b {
+            font-family: $bs-display;
+            font-size: 20px;
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+        &.mine {
+            border-color: rgba(1, 126, 132, 0.75);
+            border-top-color: rgba(1, 126, 132, 0.95);
+        }
+        &.mine b { color: #6fe0e6; }
+        &.mine .o_bs_turnbar_dot {
+            background: var(--bs-teal);
+            animation: o_bs_pulse 1.5s ease-in-out infinite;
+        }
+        &.theirs { opacity: 0.82; }
+    }
+    .o_bs_turnbar_dot {
+        flex: none;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: rgba(227, 218, 196, 0.38);
+    }
+    .o_bs_turnbar_sub { font-family: $bs-typed; font-size: 13px; color: var(--bs-ink-dim); }
+
+    // -------------------------------------------------------- fleet plates
+    .o_bs_bar_bottom .o_bs_panel { flex: 1 1 0; min-width: 0; padding: 12px 14px; }
+
+    .o_bs_fleet_head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 10px;
+    }
+    .o_bs_fleet_title {
+        font-family: $bs-display;
+        font-size: 19px;
+        font-weight: 800;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--bs-ink-bright);
+    }
+    // "Your turn" next to the title of the fleet it is waiting on.
+    .o_bs_turn {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 3px 8px;
+        border: 1px solid #0a5f64;
+        background: rgba(1, 126, 132, 0.18);
+        @include bs-stencil(9.5px, #4fb3b8);
+        letter-spacing: 0.2em;
+
+        &::before {
+            content: "";
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--bs-teal);
+        }
+        &.muted {
+            border-color: #3d4a50;
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--bs-ink-faint);
+            &::before { background: var(--bs-ink-faint); }
+        }
+    }
+    .o_bs_afloat { margin-left: auto; @include bs-stencil(10px); letter-spacing: 0.18em; }
+
+    .o_bs_fleet { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    // One ship, one plate. The name reads as a name on our own fleet and as a
+    // radar contact on the enemy's, which is exactly what the server sends.
+    .o_bs_ship {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 9px 12px;
+        background: linear-gradient(180deg, #26323a, #1a2328);
+        border: 1px solid #33424a;
+        border-left: 3px solid var(--bs-teal);
+
+        .o_bs_ship_name {
+            font-family: $bs-display;
+            font-size: 16px;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--bs-ink);
+        }
+
+        &[role="button"] { cursor: pointer; }
+        &[role="button"]:hover { border-color: #4c5f68; border-left-color: var(--bs-teal); }
+
+        // Being placed right now.
+        &.sel {
+            border-color: #7d5a72;
+            border-left-color: var(--bs-purple);
+            background: linear-gradient(180deg, #3a2c37, #241a22);
+        }
+        // Already on the grid: still selectable, to move it somewhere else.
+        &.done .o_bs_ship_name { color: var(--bs-ink-dim); }
+        &.sunk {
+            opacity: 0.62;
+            background: linear-gradient(180deg, #1a2024, #141a1d);
+            border-color: #2a3238;
+            border-left-color: var(--bs-hit);
+            .o_bs_ship_name { color: var(--bs-ink-dim); text-decoration: line-through; }
+        }
+    }
+    // The enemy fleet: hulls without names until one of them goes down.
+    .o_bs_enemy .o_bs_ship {
+        background: linear-gradient(180deg, #22292e, #171d21);
+        border-color: #2c353b;
+        border-left-color: #4a565c;
+
+        .o_bs_ship_name {
+            font-family: $bs-mono;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.16em;
+            color: var(--bs-ink-dim);
+        }
+        &.sunk { border-left-color: var(--bs-hit); }
+    }
+
+    .o_bs_pips { display: flex; gap: 3px; }
+    .o_bs_pip {
+        width: 13px;
+        height: 7px;
+        background: #5c6d73;
+
+        &.on { background: var(--bs-hit); }
+    }
+    // Nothing is known about an enemy hull but its length: hollow cells.
+    .o_bs_enemy .o_bs_pip {
+        background: transparent;
+        border: 1px solid #3d4a50;
+
+        &.on { background: var(--bs-hit); border-color: var(--bs-hit); }
+    }
+
+    .o_bs_btns { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    // The row of orders under the enemy fleet, ruled off from it.
+    .o_bs_actions {
+        margin-top: 11px;
+        padding-top: 11px;
+        border-top: 1px solid #2c383f;
+
+        .o_bs_spacer { margin-left: auto; }
+    }
+
+    // ------------------------------------------------------------ buttons
+    // Painted steel with a lip: hover lifts the paint, pressing drops the plate
+    // onto its own shadow.
+    button {
+        padding: 11px 18px;
+        border: 1px solid #33424a;
+        border-top-color: #4c5f68;
+        border-radius: 2px;
+        background: linear-gradient(180deg, #2b373d, #1a2328);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 3px 0 #0c1114;
+        color: var(--bs-ink);
+        cursor: pointer;
+        font-family: $bs-mono;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+
+        &:hover:not(:disabled) {
+            background: linear-gradient(180deg, #35434a, #212c31);
+            border-color: #3d4d56;
+            border-top-color: #5b7080;
+            color: #F4F1F3;
+        }
+        &:active:not(:disabled) {
+            transform: translateY(2px);
+            box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.55);
+        }
+        &:disabled {
+            border-color: #232c31;
+            border-top-color: #232c31;
+            background: #171e22;
+            box-shadow: none;
+            color: #495459;
+            cursor: not-allowed;
+        }
+
+        &.primary {
+            border-color: #714B67;
+            border-top-color: #9a7590;
+            background: linear-gradient(180deg, #7e5573, #523749);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 3px 0 #2a1c26;
+            color: #F4F1F3;
+            font-weight: 700;
+
+            &:hover:not(:disabled) {
+                background: linear-gradient(180deg, #8d6180, #5b3e52);
+                border-color: #8a5c7e;
+                border-top-color: #ad86a2;
+            }
+        }
+        // A switch that is currently on, not an action.
+        &.on {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-color: #0a5f64;
+            border-top-color: #0f8c92;
+            background: linear-gradient(180deg, #0a6e73, #04494e);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 3px 0 #032b2e;
+            color: #dff2f1;
+            font-weight: 700;
+
+            &::before {
+                content: "";
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background: #8ff0f0;
+                box-shadow: 0 0 8px #8ff0f0;
+            }
+            &:hover:not(:disabled) {
+                background: linear-gradient(180deg, #0d8188, #065a60);
+                border-color: #0d7f85;
+                border-top-color: #13a3aa;
+            }
+        }
+        // Walking out on somebody who is sitting in front of a live board.
+        &.danger {
+            border-color: #9a3823;
+            border-top-color: #d0553a;
+            background: linear-gradient(180deg, #b8422c, #7d2c1c);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 3px 0 #40160e;
+            color: #fff;
+            font-weight: 700;
+
+            &:hover:not(:disabled) {
+                background: linear-gradient(180deg, #c94c34, #8d3320);
+                border-color: #b04128;
+                border-top-color: #e06744;
+            }
+        }
+    }
+    .o_bs_link {
+        border-color: transparent;
+        border-top-color: transparent;
+        background: transparent;
+        box-shadow: none;
+        color: var(--bs-ink-faint);
+        font-size: 10.5px;
+        letter-spacing: 0.2em;
+
+        &:hover:not(:disabled) {
+            background: transparent;
+            border-color: transparent;
+            border-top-color: transparent;
+            color: var(--bs-ink);
+        }
+        &:active:not(:disabled) { box-shadow: none; }
+    }
+
+    // ----------------------------------------------------------- overlays
+    .o_bs_over {
+        position: absolute;
+        inset: 0;
+        z-index: 5;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(70% 60% at 50% 40%, rgba(22, 35, 42, 0.97), rgba(7, 12, 15, 0.98));
+    }
+    // The scan lines and the vignette that make the screen a screen. Purely
+    // decorative, and never in the way of a click.
+    .o_bs_grain,
+    .o_bs_vignette {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+    }
+    .o_bs_grain {
+        background-image: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.028) 0 1px, transparent 1px 3px);
+    }
+    .o_bs_vignette {
+        background: radial-gradient(80% 60% at 50% 45%, transparent 30%, rgba(0, 0, 0, 0.72) 100%);
+    }
+
+    .o_bs_card {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        width: 430px;
+        max-width: 90vw;
+        padding: 26px;
+        @include bs-plate;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 20px 46px rgba(0, 0, 0, 0.6);
+
+        h2 {
+            margin: 0;
+            font-family: $bs-display;
+            font-size: 38px;
+            font-weight: 800;
+            letter-spacing: 0.1em;
+            line-height: 1;
+            text-transform: uppercase;
+            color: var(--bs-ink-bright);
+        }
+        p {
+            margin: 0;
+            font-family: $bs-typed;
+            font-size: 13.5px;
+            line-height: 1.55;
+            color: var(--bs-ink-dim);
+        }
+        input,
+        textarea {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 12px 14px;
+            background: #0d1418;
+            border: 1px solid #2c383f;
+            border-radius: 2px;
+            box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.6);
+            color: var(--bs-ink);
+            font-family: $bs-mono;
+            font-size: 13px;
+            letter-spacing: 0.14em;
+            text-align: center;
+
+            &::placeholder { color: #566067; }
+            &:focus { outline: none; border-color: var(--bs-teal); }
+        }
+        // A report is prose, not a code: left aligned, roomy, and in the hand
+        // the rest of the paper on this screen is typed in.
+        .o_bs_prose,
+        textarea {
+            resize: vertical;
+            font-family: $bs-typed;
+            font-size: 13.5px;
+            line-height: 1.5;
+            letter-spacing: 0;
+            text-align: left;
+        }
+        .o_bs_seg button { flex: 1; justify-content: center; }
+        .o_bs_link { align-self: center; }
+    }
+    .o_bs_card_head {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+
+        .o_bs_eyebrow { @include bs-stencil(10px, var(--bs-brass)); letter-spacing: 0.3em; }
+    }
     .o_bs_join {
-        display: flex; gap: 8px;
-        // The field takes the row, the button keeps its own width.
-        input { flex: 1; width: auto; min-width: 0; text-transform: uppercase; }
+        display: flex;
+        gap: 8px;
+
+        input { flex: 1; min-width: 0; letter-spacing: 0.2em; text-transform: uppercase; }
         button { flex: none; }
     }
     .o_bs_or {
-        display: flex; align-items: center; gap: 10px;
-        font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
-        color: rgba(244, 241, 243, 0.34);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        @include bs-stencil(9.5px, #5d6a67);
+        font-weight: 400;
 
-        &::before, &::after {
-            content: ""; flex: 1; height: 1px;
-            background: rgba(255, 255, 255, 0.12);
+        &::before,
+        &::after {
+            content: "";
+            flex: 1;
+            height: 1px;
+            background: #2c383f;
         }
     }
-    // Fleet glossary. Sits over every other overlay: it can be opened from the
-    // game-over screen too, and those share a stacking context.
+    // The invitation link: long enough that it has to fade out rather than push
+    // the card wider.
+    .o_bs_invite {
+        cursor: pointer;
+        font-size: 11.5px !important;
+        letter-spacing: 0.04em !important;
+        text-overflow: ellipsis;
+    }
+    .o_bs_err { margin: 0 !important; color: var(--bs-hit) !important; font-size: 13px; }
+
+    // ------------------------------------------------------ final dispatch
+    // The end of a game is paper: it is a report on something that is over.
+    .o_bs_dispatch_card {
+        position: relative;
+        z-index: 1;
+        width: 430px;
+        max-width: 90vw;
+        padding: 34px 34px 28px;
+        transform: rotate(-0.8deg);
+        @include bs-paper;
+        border: 0;
+        box-shadow: 0 22px 50px rgba(0, 0, 0, 0.6);
+
+        h2 {
+            margin: 6px 0 0;
+            font-family: $bs-display;
+            font-size: 66px;
+            font-weight: 800;
+            line-height: 0.9;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: #1d2a29;
+        }
+        p {
+            margin: 10px 0 0;
+            font-family: $bs-typed;
+            font-size: 14.5px;
+            line-height: 1.6;
+            color: #4d574f;
+        }
+        .o_bs_eyebrow { @include bs-stencil(10px, #6a736b); letter-spacing: 0.3em; }
+        .o_bs_btns { margin-top: 22px; }
+        // Steel buttons would be a hole in the paper: these are inked instead.
+        button {
+            flex: 1;
+            justify-content: center;
+            padding: 14px 18px;
+            font-family: $bs-display;
+            font-size: 20px;
+            font-weight: 800;
+            letter-spacing: 0.16em;
+        }
+        button.o_bs_ghost {
+            flex: none;
+            border: 1px solid #a9a086;
+            border-top-color: #a9a086;
+            background: transparent;
+            box-shadow: none;
+            color: #4d574f;
+            font-family: $bs-mono;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.18em;
+
+            &:hover:not(:disabled) {
+                background: rgba(34, 48, 47, 0.08);
+                border-color: #8b8570;
+                color: #22302f;
+            }
+        }
+    }
+    // Rubber-stamped across the bottom of a sheet, and never quite straight.
+    .o_bs_stamp {
+        display: flex;
+        justify-content: flex-end;
+        margin: 20px -8px 0;
+
+        span {
+            transform: rotate(-5deg);
+            padding: 8px 16px;
+            border: 4px double rgba(1, 126, 132, 0.7);
+            color: rgba(1, 126, 132, 0.8);
+            font-family: $bs-display;
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+        }
+        &.lost span {
+            border-color: rgba(196, 71, 47, 0.72);
+            color: rgba(196, 71, 47, 0.78);
+        }
+    }
+
+    // ------------------------------------------------------- start screen
+    .o_bs_start {
+        background: radial-gradient(120% 90% at 20% 0%, #16232a 0%, #0b1216 55%, #070c0f 100%);
+    }
+    .o_bs_start_grid {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 420px;
+        gap: 56px;
+        align-items: center;
+        width: 100%;
+        height: 100%;
+        max-width: 1440px;
+        padding: 56px 72px;
+        box-sizing: border-box;
+        overflow: auto;
+
+        // Under about a laptop width the file goes below the orders instead of
+        // beside them: the record is what a player reads second.
+        @media (max-width: 1100px) {
+            grid-template-columns: minmax(0, 1fr);
+            align-content: start;
+            gap: 28px;
+            padding: 32px 28px;
+        }
+    }
+    .o_bs_start_left { display: flex; flex-direction: column; gap: 34px; min-width: 0; }
+
+    .o_bs_eyebrow {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        @include bs-stencil(11px, var(--bs-brass));
+        letter-spacing: 0.42em;
+
+        &::before {
+            content: "";
+            width: 44px;
+            height: 2px;
+            background: var(--bs-brass);
+        }
+    }
+    .o_bs_title {
+        margin: 6px 0 0;
+        font-family: $bs-display;
+        font-size: clamp(72px, 10vw, 148px);
+        line-height: 0.82;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: var(--bs-ink-bright);
+        text-shadow: 0 6px 0 rgba(0, 0, 0, 0.45);
+    }
+    .o_bs_lede {
+        margin: 14px 0 0;
+        max-width: 520px;
+        font-family: $bs-typed;
+        font-size: 16px;
+        line-height: 1.7;
+        color: #9aa6a2;
+    }
+
+    .o_bs_start_btns { display: flex; flex-direction: column; gap: 12px; width: 520px; max-width: 100%; }
+
+    // The way in. Numbered like an order on a sheet, and the only thing on the
+    // screen at that weight.
+    .o_bs_main_btn {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 20px 26px;
+        border-color: #7d5a72;
+        border-top-color: #9a7590;
+        background: linear-gradient(180deg, #7e5573 0%, #6a4661 48%, #503548 100%);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 6px 0 #2a1c26, 0 14px 26px rgba(0, 0, 0, 0.5);
+        color: #F4F1F3;
+        text-align: left;
+        letter-spacing: normal;
+        text-transform: none;
+
+        &:hover:not(:disabled) {
+            background: linear-gradient(180deg, #8d6180 0%, #764e6c 48%, #573a4f 100%);
+            border-color: #8a5c7e;
+            border-top-color: #ad86a2;
+        }
+        &:active:not(:disabled) {
+            transform: translateY(4px);
+            box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5), 0 2px 0 #2a1c26;
+        }
+    }
+    .o_bs_main_no {
+        flex: none;
+        padding: 3px 7px;
+        border: 1px solid rgba(244, 241, 243, 0.3);
+        @include bs-stencil(11px, rgba(244, 241, 243, 0.55));
+        letter-spacing: 0.2em;
+    }
+    .o_bs_main_text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+    .o_bs_main_title {
+        font-family: $bs-display;
+        font-size: 30px;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        line-height: 1;
+    }
+    .o_bs_main_sub {
+        font-family: $bs-sans;
+        font-size: 12.5px;
+        font-weight: 400;
+        letter-spacing: 0.04em;
+        text-transform: none;
+        color: rgba(244, 241, 243, 0.62);
+    }
+    .o_bs_main_arrow { flex: none; font-size: 26px; letter-spacing: -0.08em; color: rgba(244, 241, 243, 0.7); }
+
+    .o_bs_start_pair { display: flex; gap: 12px; }
+    .o_bs_tile {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        padding: 16px 20px;
+        background: linear-gradient(180deg, #2b373d 0%, #1e282d 50%, #161e22 100%);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 5px 0 #0c1114, 0 12px 22px rgba(0, 0, 0, 0.45);
+        text-align: left;
+        letter-spacing: normal;
+        text-transform: none;
+
+        &:hover:not(:disabled) {
+            background: linear-gradient(180deg, #35434a 0%, #26333a 50%, #1b252a 100%);
+        }
+        &:active:not(:disabled) {
+            transform: translateY(4px);
+            box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.55), 0 1px 0 #0c1114;
+        }
+    }
+    .o_bs_tile_title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-family: $bs-display;
+        font-size: 24px;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        line-height: 1;
+        color: var(--bs-ink-bright);
+    }
+    .o_bs_tile_sub {
+        font-family: $bs-sans;
+        font-size: 12px;
+        font-weight: 400;
+        letter-spacing: 0.02em;
+        text-transform: none;
+        color: var(--bs-ink-dim);
+    }
+    .o_bs_dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--bs-teal);
+        box-shadow: 0 0 10px var(--bs-teal);
+    }
+
+    .o_bs_start_right { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+
+    // The service record, off the commander's file: paper, and pinned crooked.
+    .o_bs_dossier {
+        position: relative;
+        padding: 26px 24px 22px;
+        transform: rotate(1.1deg);
+        @include bs-paper;
+        border: 0;
+        box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+
+        // The torn corner, which is what says "file" and not "card".
+        &::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 0;
+            height: 0;
+            border-left: 34px solid #0b1216;
+            border-bottom: 34px solid transparent;
+            opacity: 0.9;
+        }
+    }
+    .o_bs_dossier_head {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding-bottom: 10px;
+        margin-bottom: 16px;
+        border-bottom: 2px solid #22302f;
+
+        .o_bs_eyebrow {
+            @include bs-stencil(10px, #6a736b);
+            letter-spacing: 0.3em;
+            &::before { content: none; }
+        }
+        b {
+            font-family: $bs-display;
+            font-size: 34px;
+            font-weight: 800;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            line-height: 1;
+        }
+    }
+    .o_bs_stats {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px 10px;
+    }
+    .o_bs_stat {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding-left: 10px;
+        border-left: 3px solid #6a736b;
+
+        b {
+            font-family: $bs-typed;
+            font-size: 34px;
+            font-weight: 400;
+            line-height: 1;
+            color: #1d2a29;
+        }
+        span { @include bs-stencil(10px, #6a736b); letter-spacing: 0.2em; }
+
+        &.won { border-left-color: var(--bs-purple); }
+        &.lost { border-left-color: var(--bs-hit); }
+        &.games { border-left-color: var(--bs-teal); }
+    }
+    // The file is stamped in the red the board uses for damage, not in the teal
+    // it uses for a fleet that came home: nothing on it has been won yet.
+    .o_bs_dossier .o_bs_stamp span {
+        border: 3px solid rgba(196, 71, 47, 0.72);
+        color: rgba(196, 71, 47, 0.78);
+        padding: 6px 14px;
+        font-size: 26px;
+        letter-spacing: 0.22em;
+        transform: rotate(-6deg);
+    }
+    .o_bs_dossier_note {
+        margin-top: 18px;
+        padding-top: 12px;
+        border-top: 1px dashed #9aa08f;
+        font-family: $bs-typed;
+        font-size: 12.5px;
+        line-height: 1.6;
+        color: #4d574f;
+
+        b { color: #22302f; }
+    }
+    .o_bs_hintbox {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 14px;
+        background: rgba(11, 18, 22, 0.7);
+        border: 1px solid #26333a;
+        @include bs-stencil(10.5px, #7d8a86);
+        letter-spacing: 0.1em;
+        font-weight: 400;
+        line-height: 1.5;
+
+        &::before {
+            content: "";
+            flex: none;
+            width: 8px;
+            height: 8px;
+            background: var(--bs-brass);
+        }
+    }
+
+    // ------------------------------------------------------------- codex
+    // Sits over every other overlay: it opens from the start screen and from
+    // the final dispatch, and those share a stacking context.
     .o_bs_over_top { z-index: 6; }
     .o_bs_codex {
-        display: flex; flex-direction: column; gap: 12px;
-        width: 940px; max-width: 92vw;
-        height: 560px; max-height: 88vh;
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        width: 940px;
+        max-width: 92vw;
+        height: 560px;
+        max-height: 88vh;
         padding: 16px 18px;
     }
     .o_bs_codex_head {
-        display: flex; align-items: center; justify-content: space-between;
-        .o_bs_sect { margin: 0; }
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
     }
     .o_bs_codex_body { display: flex; gap: 14px; flex: 1; min-height: 0; }
-
     .o_bs_codex_list {
-        display: flex; flex-direction: column; gap: 6px;
-        flex: none; width: 190px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        flex: none;
+        width: 190px;
+        overflow: auto;
     }
     .o_bs_codex_item {
-        display: flex; flex-direction: column; align-items: flex-start; gap: 5px;
-        text-align: left; border-radius: 8px; padding: 9px 12px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+        padding: 9px 12px;
+        text-align: left;
+        font-family: $bs-display;
+        font-size: 16px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
 
-        &.sel { border-color: var(--bs-purple); background: rgba(113, 75, 103, 0.45); }
+        &.sel {
+            border-color: #7d5a72;
+            border-top-color: #9a7590;
+            background: linear-gradient(180deg, #7e5573, #523749);
+            color: #F4F1F3;
+        }
         // Pips here count cells, they are not damage: never the hit colour.
-        &.sel .o_bs_pip { background: var(--bs-teal); }
+        .o_bs_pip { background: #5c6d73; }
+        &.sel .o_bs_pip { background: #dcd0e0; }
     }
-
     .o_bs_codex_view { display: flex; flex-direction: column; gap: 12px; flex: 1; min-width: 0; }
     .o_bs_codex_canvas {
-        position: relative; flex: 1; min-height: 0;
-        border-radius: 10px; overflow: hidden;
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        position: relative;
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        border: 1px solid #2c383f;
+        background: #0d1418;
+        box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.6);
+
         canvas { position: absolute; inset: 0; }
     }
     .o_bs_codex_info {
         flex: none;
-        h3 { font-size: 19px; font-weight: 800; margin: 0; }
-        p { font-size: 13px; line-height: 1.45; color: rgba(244, 241, 243, 0.7); margin: 6px 0 0; }
-    }
-    .o_bs_codex_sub {
-        font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
-        color: var(--bs-teal); margin-top: 3px;
-    }
-    .o_bs_codex_note {
-        flex: none; font-size: 12px; color: rgba(244, 241, 243, 0.42);
-        border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 10px;
-    }
 
-    .o_bs_err { color: var(--bs-hit); font-size: 13px; margin: 0; }
-    .o_bs_link {
-        border-color: transparent; background: transparent;
-        color: rgba(244, 241, 243, 0.5);
+        h3 {
+            margin: 0;
+            font-family: $bs-display;
+            font-size: 26px;
+            font-weight: 800;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--bs-ink-bright);
+        }
+        p {
+            margin: 6px 0 0;
+            font-family: $bs-typed;
+            font-size: 13px;
+            line-height: 1.55;
+            color: var(--bs-ink-dim);
+        }
     }
+    .o_bs_codex_sub { @include bs-stencil(10px, var(--bs-teal)); letter-spacing: 0.2em; margin-top: 4px; }
+    .o_bs_codex_note {
+        flex: none;
+        padding-top: 10px;
+        border-top: 1px solid #2c383f;
+        font-family: $bs-typed;
+        font-size: 12px;
+        color: var(--bs-ink-faint);
+    }
+}
+
+// Top level: a nested @keyframes would compile to a rule inside a selector,
+// which is not valid CSS.
+@keyframes o_bs_pulse {
+    0%, 100% { opacity: 0.4; transform: scale(0.8); }
+    50% { opacity: 1; transform: scale(1.2); }
 }

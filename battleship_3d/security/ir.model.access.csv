@@ -1,3 +1,4 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_battleship_game_user,battleship.game.user,model_battleship_game,base.group_user,1,1,1,1
 access_battleship_shot_user,battleship.shot.user,model_battleship_shot,base.group_user,1,1,1,1
+access_battleship_feedback_user,battleship.feedback.user,model_battleship_feedback,base.group_user,1,1,1,1
