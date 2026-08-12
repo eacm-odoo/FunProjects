@@ -6,18 +6,24 @@
  */
 import * as THREE from "@battleship_3d/lib/three.module";
 import { OrbitControls } from "@battleship_3d/lib/OrbitControls";
+import { shipMesh } from "./ships";
+import { WaveField } from "./water";
 
 export const SIZE = 10;
 const GAP = 6.4;
 const COLS = "ABCDEFGHIJ";
+// Vertices per side of a water sheet. The height field is sampled once per
+// vertex per frame, so this is the knob that decides what the sea costs.
+const WATER_SEGMENTS = 48;
 
 const MAT = {
-    waterA: new THREE.MeshStandardMaterial({ name: "waterA", color: "#123039", roughness: 0.28, metalness: 0.05 }),
-    waterB: new THREE.MeshStandardMaterial({ name: "waterB", color: "#141f2c", roughness: 0.28, metalness: 0.05 }),
+    waterA: new THREE.MeshStandardMaterial({ name: "waterA", color: "#15384a", roughness: 0.3, metalness: 0.14 }),
+    waterB: new THREE.MeshStandardMaterial({ name: "waterB", color: "#16283c", roughness: 0.3, metalness: 0.14 }),
+    // Under the surface: what a wave trough opens onto.
+    deepA: new THREE.MeshStandardMaterial({ name: "deepA", color: "#08202b", roughness: 0.9 }),
+    deepB: new THREE.MeshStandardMaterial({ name: "deepB", color: "#0a1622", roughness: 0.9 }),
     rimA: new THREE.MeshStandardMaterial({ name: "rimA", color: "#2a2028", roughness: 0.85 }),
     rimB: new THREE.MeshStandardMaterial({ name: "rimB", color: "#16282b", roughness: 0.85 }),
-    hull: new THREE.MeshStandardMaterial({ name: "hull", color: "#5c6a74", roughness: 0.55, metalness: 0.45 }),
-    deck: new THREE.MeshStandardMaterial({ name: "deck", color: "#8b949b", roughness: 0.7, metalness: 0.2 }),
     sunk: new THREE.MeshStandardMaterial({ name: "sunk", color: "#3b464e", roughness: 0.9, metalness: 0.1 }),
     ghostOk: new THREE.MeshStandardMaterial({ name: "ghostOk", color: "#714B67", transparent: true, opacity: 0.55 }),
     ghostNo: new THREE.MeshStandardMaterial({ name: "ghostNo", color: "#C4472F", transparent: true, opacity: 0.45 }),
@@ -48,66 +54,12 @@ function textPlane(text, { width = 0.62, px = 128, font = 700, size = 72, color 
     return mesh;
 }
 
-function shipMesh(size) {
-    const L = size - 0.18;
-    const W = 0.62;
-    const shape = new THREE.Shape();
-    shape.moveTo(-L / 2, -W / 2);
-    shape.lineTo(L / 2 - 0.45, -W / 2);
-    shape.quadraticCurveTo(L / 2 + 0.06, 0, L / 2 - 0.45, W / 2);
-    shape.lineTo(-L / 2, W / 2);
-    shape.quadraticCurveTo(-L / 2 - 0.14, 0, -L / 2, -W / 2);
-    const geo = new THREE.ExtrudeGeometry(shape, {
-        depth: 0.3, bevelEnabled: true, bevelSize: 0.05, bevelThickness: 0.05, bevelSegments: 2, curveSegments: 16,
-    });
-    geo.rotateX(-Math.PI / 2);
-    geo.translate(0, 0.3, 0);
-
-    const group = new THREE.Group();
-    const hull = new THREE.Mesh(geo, MAT.hull);
-    hull.name = "hull";
-    hull.castShadow = hull.receiveShadow = true;
-    group.add(hull);
-
-    const sup = new THREE.Mesh(new THREE.BoxGeometry(Math.min(1.1, L * 0.34), 0.26, 0.34), MAT.deck);
-    sup.position.set(-L * 0.06, 0.44, 0);
-    sup.name = "superstructure";
-    sup.castShadow = true;
-    group.add(sup);
-
-    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 0.42, 12), MAT.deck);
-    mast.position.set(-L * 0.06, 0.76, 0);
-    mast.name = "mast";
-    group.add(mast);
-
-    if (size >= 3) {
-        const funnel = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.3, 16), MAT.hull);
-        funnel.position.set(-L * 0.3, 0.46, 0);
-        funnel.name = "funnel";
-        funnel.castShadow = true;
-        group.add(funnel);
-    }
-    if (size >= 4) {
-        const turret = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.19, 0.16, 16), MAT.deck);
-        turret.position.set(L * 0.28, 0.38, 0);
-        turret.name = "turret";
-        turret.castShadow = true;
-        group.add(turret);
-        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.5, 10), MAT.deck);
-        barrel.rotation.z = Math.PI / 2;
-        barrel.position.set(L * 0.48, 0.42, 0);
-        barrel.name = "barrel";
-        group.add(barrel);
-    }
-    group.userData.size = size;
-    return group;
-}
-
 export class BattleshipScene {
     constructor(container, { onPick } = {}) {
         this.container = container;
         this.onPick = onPick || (() => {});
         this.effects = [];
+        this.waves = new WaveField();
         this.dir = "h";
         this.ghost = null;
         this.framed = false;
@@ -164,21 +116,33 @@ export class BattleshipScene {
         const S = SIZE;
 
         const base = new THREE.Mesh(new THREE.BoxGeometry(S + 1.2, 0.5, S + 1.2), side === "a" ? MAT.rimA : MAT.rimB);
-        base.position.y = -0.26;
+        base.position.y = -0.36;
         base.receiveShadow = true;
         base.name = "base";
         group.add(base);
 
-        const water = new THREE.Mesh(new THREE.BoxGeometry(S, 0.14, S), side === "a" ? MAT.waterA : MAT.waterB);
-        water.position.y = -0.07;
+        // Something has to be under the surface once it starts moving, or a
+        // trough shows the frame's background through the sea.
+        const deep = new THREE.Mesh(new THREE.BoxGeometry(S, 0.3, S), side === "a" ? MAT.deepA : MAT.deepB);
+        deep.position.y = -0.22;
+        deep.name = "deep";
+        group.add(deep);
+
+        // The surface is a plane the wave field deforms every frame; it keeps
+        // its flat vertices so the deformation is always applied to the rest
+        // shape and never accumulates.
+        const waterGeo = new THREE.PlaneGeometry(S, S, WATER_SEGMENTS, WATER_SEGMENTS);
+        waterGeo.rotateX(-Math.PI / 2);
+        const water = new THREE.Mesh(waterGeo, side === "a" ? MAT.waterA : MAT.waterB);
         water.receiveShadow = true;
         water.name = "water";
+        water.userData.base = Float32Array.from(waterGeo.attributes.position.array);
         group.add(water);
 
         const pts = [];
         for (let i = 0; i <= S; i++) {
             const p = -S / 2 + i;
-            pts.push(p, 0.005, -S / 2, p, 0.005, S / 2, -S / 2, 0.005, p, S / 2, 0.005, p);
+            pts.push(p, 0.075, -S / 2, p, 0.075, S / 2, -S / 2, 0.075, p, S / 2, 0.075, p);
         }
         const geo = new THREE.BufferGeometry();
         geo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
@@ -202,7 +166,8 @@ export class BattleshipScene {
 
         group.position.x = side === "a" ? -(S / 2 + GAP / 2) : S / 2 + GAP / 2;
         this.scene.add(group);
-        return { side, group, pick, dynamic: new THREE.Group() };
+        // `ships` is what the swell moves each frame: pegs and effects stay put.
+        return { side, group, pick, water, ships: [] };
     }
 
     setTitle(side, text, color) {
@@ -225,11 +190,12 @@ export class BattleshipScene {
                     board.group.remove(child);
                 }
             });
+            board.ships = [];
             for (const ship of state["fleet_" + side]) {
                 if (!ship.cells.length) {
                     continue;
                 }
-                const mesh = shipMesh(ship.size);
+                const mesh = shipMesh(ship);
                 mesh.userData.dynamic = true;
                 const first = Math.min(...ship.cells);
                 const horizontal = ship.cells.length < 2 || ship.cells[1] - ship.cells[0] === 1;
@@ -245,18 +211,32 @@ export class BattleshipScene {
                             o.material = MAT.sunk;
                         }
                     });
-                    mesh.rotation.z = 0.13;
-                    mesh.position.y = -0.1;
+                    // A wreck keeps riding the swell, only lower and listing:
+                    // both are read back by the float step every frame.
+                    mesh.userData.draft = -0.1;
+                    mesh.userData.list = 0.13;
                 }
                 board.group.add(mesh);
+                board.ships.push(mesh);
             }
             const hitCells = new Set(state["fleet_" + side].flatMap((s) => s.cells));
             for (const cell of state["shots_" + side]) {
                 this.peg(side, cell, hitCells.has(cell) || this._isHit(state, side, cell));
             }
         }
-        this.setTitle("a", state.mode === "cpu" ? "YOUR FLEET" : "PLAYER 1", "#b98fad");
-        this.setTitle("b", state.mode === "cpu" ? "ENEMY" : "PLAYER 2", "#63c6cb");
+        // The grids keep their place (A left, B right) whichever seat we hold:
+        // only the plate over them says which one is ours.
+        const title = (side) => {
+            if (state.mode === "cpu") {
+                return side === "a" ? "YOUR FLEET" : "ENEMY";
+            }
+            if (state.mode === "online") {
+                return side === state.you ? "YOUR WATERS" : "ENEMY";
+            }
+            return side === "a" ? "PLAYER 1" : "PLAYER 2";
+        };
+        this.setTitle("a", title("a"), "#b98fad");
+        this.setTitle("b", title("b"), "#63c6cb");
     }
 
     _isHit(state, side, cell) {
@@ -300,6 +280,8 @@ export class BattleshipScene {
             ring.position.set(cx(cell % SIZE), 0.06, cx(Math.floor(cell / SIZE)));
             ring.userData.dynamic = true;
             board.group.add(ring);
+            // The drawn ring is the foam; this is the water under it moving.
+            this.waves.splash(side, ring.position.x, ring.position.z, 0.07);
             this.effects.push({ mesh: ring, t0: performance.now(), dur: 700, kind: "ripple", board });
             return;
         }
@@ -317,12 +299,21 @@ export class BattleshipScene {
         }
         burst.position.set(cx(cell % SIZE), 0.4, cx(Math.floor(cell / SIZE)));
         board.group.add(burst);
+        this.waves.splash(side, burst.position.x, burst.position.z, 0.13);
         this.effects.push({ mesh: burst, t0: performance.now(), dur: 900, kind: "blast", board });
     }
 
-    showGhost(side, cell, size, valid) {
+    /**
+     * Preview of the selected ship where the pointer is.
+     *
+     * The ghost is the real model of that class, so what you line up is what
+     * you get. Its cell is remembered: rotating with R redraws it in place
+     * instead of waiting for the pointer to move again.
+     */
+    showGhost(side, cell, ship, valid) {
         this.clearGhost();
-        const mesh = shipMesh(size);
+        const size = typeof ship === "number" ? ship : ship.size;
+        const mesh = shipMesh(ship);
         mesh.traverse((o) => {
             if (o.isMesh) {
                 o.material = valid ? MAT.ghostOk : MAT.ghostNo;
@@ -338,7 +329,15 @@ export class BattleshipScene {
         );
         mesh.rotation.y = horizontal ? 0 : Math.PI / 2;
         this.boards[side].group.add(mesh);
-        this.ghost = { side, mesh };
+        this.ghost = { side, cell, ship, valid, mesh };
+    }
+
+    /** Draw the ghost again where it already is (after a rotation). */
+    redrawGhost() {
+        if (this.ghost) {
+            const { side, cell, ship, valid } = this.ghost;
+            this.showGhost(side, cell, ship, valid);
+        }
     }
 
     clearGhost() {
@@ -437,6 +436,17 @@ export class BattleshipScene {
         const now = performance.now();
         const dt = Math.min(0.05, (now - this.last) / 1000);
         this.last = now;
+        this.waves.advance(dt);
+        for (const side of ["a", "b"]) {
+            const board = this.boards[side];
+            this.waves.shape(side, board.water);
+            for (const ship of board.ships) {
+                this.waves.float(side, ship);
+            }
+            if (this.ghost?.side === side) {
+                this.waves.float(side, this.ghost.mesh);
+            }
+        }
         for (let i = this.effects.length - 1; i >= 0; i--) {
             const e = this.effects[i];
             const k = (now - e.t0) / e.dur;

@@ -48,6 +48,13 @@
         margin-left: 4px;
     }
     .o_bs_status { font-size: 13px; color: rgba(244, 241, 243, 0.74); }
+    .o_bs_code {
+        font-size: 12.5px; font-weight: 700; letter-spacing: 0.08em;
+        padding: 3px 9px; border-radius: 20px;
+        background: rgba(1, 126, 132, 0.28);
+        border: 1px solid rgba(1, 126, 132, 0.55);
+        white-space: nowrap;
+    }
 
     .o_bs_sect {
         display: flex; gap: 8px; align-items: center;
@@ -73,7 +80,10 @@
         white-space: nowrap;
 
         &.sel { border-color: var(--bs-purple); background: rgba(113, 75, 103, 0.45); }
+        // Already on the grid: still selectable, to move it somewhere else.
+        &.done { color: rgba(244, 241, 243, 0.5); }
         &.sunk { color: rgba(244, 241, 243, 0.36); text-decoration: line-through; }
+        &[role="button"] { cursor: pointer; }
     }
     .o_bs_pips { display: flex; gap: 3px; }
     .o_bs_pip {
@@ -116,5 +126,100 @@
         text-align: center; padding: 38px 46px;
         h2 { font-size: 32px; font-weight: 800; margin-bottom: 8px; }
         p { color: rgba(244, 241, 243, 0.65); font-size: 14px; margin-bottom: 20px; }
+        button + button { margin-left: 8px; }
+    }
+
+    // Room panel: opening or joining an online game.
+    .o_bs_room {
+        display: flex; flex-direction: column; align-items: stretch;
+        // Not `min(420px, 86vw)`: Sass claims that call and cannot compare the
+        // two units, so the bundle fails to compile.
+        gap: 10px; width: 420px; max-width: 86vw;
+
+        h2 { letter-spacing: 0.06em; }
+        p { margin-bottom: 4px; }
+        button + button { margin-left: 0; }
+
+        input {
+            width: 100%;
+            font-size: 14px; text-align: center;
+            padding: 9px 12px; border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--bs-paper);
+
+            &::placeholder { color: rgba(244, 241, 243, 0.34); }
+            &:focus { outline: none; border-color: var(--bs-purple); }
+        }
+    }
+    .o_bs_join {
+        display: flex; gap: 8px;
+        // The field takes the row, the button keeps its own width.
+        input { flex: 1; width: auto; min-width: 0; text-transform: uppercase; }
+        button { flex: none; }
+    }
+    .o_bs_or {
+        display: flex; align-items: center; gap: 10px;
+        font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
+        color: rgba(244, 241, 243, 0.34);
+
+        &::before, &::after {
+            content: ""; flex: 1; height: 1px;
+            background: rgba(255, 255, 255, 0.12);
+        }
+    }
+    // Fleet glossary. Sits over every other overlay: it can be opened from the
+    // game-over screen too, and those share a stacking context.
+    .o_bs_over_top { z-index: 6; }
+    .o_bs_codex {
+        display: flex; flex-direction: column; gap: 12px;
+        width: 940px; max-width: 92vw;
+        height: 560px; max-height: 88vh;
+        padding: 16px 18px;
+    }
+    .o_bs_codex_head {
+        display: flex; align-items: center; justify-content: space-between;
+        .o_bs_sect { margin: 0; }
+    }
+    .o_bs_codex_body { display: flex; gap: 14px; flex: 1; min-height: 0; }
+
+    .o_bs_codex_list {
+        display: flex; flex-direction: column; gap: 6px;
+        flex: none; width: 190px;
+    }
+    .o_bs_codex_item {
+        display: flex; flex-direction: column; align-items: flex-start; gap: 5px;
+        text-align: left; border-radius: 8px; padding: 9px 12px;
+
+        &.sel { border-color: var(--bs-purple); background: rgba(113, 75, 103, 0.45); }
+        // Pips here count cells, they are not damage: never the hit colour.
+        &.sel .o_bs_pip { background: var(--bs-teal); }
+    }
+
+    .o_bs_codex_view { display: flex; flex-direction: column; gap: 12px; flex: 1; min-width: 0; }
+    .o_bs_codex_canvas {
+        position: relative; flex: 1; min-height: 0;
+        border-radius: 10px; overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        canvas { position: absolute; inset: 0; }
+    }
+    .o_bs_codex_info {
+        flex: none;
+        h3 { font-size: 19px; font-weight: 800; margin: 0; }
+        p { font-size: 13px; line-height: 1.45; color: rgba(244, 241, 243, 0.7); margin: 6px 0 0; }
+    }
+    .o_bs_codex_sub {
+        font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
+        color: var(--bs-teal); margin-top: 3px;
+    }
+    .o_bs_codex_note {
+        flex: none; font-size: 12px; color: rgba(244, 241, 243, 0.42);
+        border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 10px;
+    }
+
+    .o_bs_err { color: var(--bs-hit); font-size: 13px; margin: 0; }
+    .o_bs_link {
+        border-color: transparent; background: transparent;
+        color: rgba(244, 241, 243, 0.5);
     }
 }
