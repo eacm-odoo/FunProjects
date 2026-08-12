@@ -11,8 +11,10 @@ three.js board rendered as an OWL component.
 * vs CPU (hunt/target AI, solved server side), 2 players hot-seat, or 2 players
   remote: one opens a room, the other joins with the code, and the two boards
   keep in step over the Odoo bus
-* five WWII ship models riding a simulated swell: shells raise rings the whole
-  fleet rolls on, and a glossary that shows each class on a 3D turntable
+* a live sea shaded on the GPU, with the grid drawn on the surface: five WWII
+  ship models ride the swell, and a shell arcs in and raises a ring the whole
+  fleet rolls on
+* a glossary that shows each class on a 3D turntable
 * manual or random fleet placement, ships can be re-picked and turned 90°
 * full shot history per game
 * win/loss record per player

@@ -39,7 +39,7 @@ battleship_3d/
     ├── board/battleship_board.scss  styling (Odoo purple #714B67 / teal #017E84)
     ├── board/scene.js               three.js layer — no game rules
     ├── board/ships.js               the five hulls, built from shared parts
-    ├── board/water.js               swell + impact rings, and what floats on them
+    ├── board/water.js               the sea: one wave field, in GLSL and in JS
     ├── board/glossary.js            what each class is (data only)
     ├── board/ship_viewer.js         the glossary turntable, its own tiny scene
     ├── board/sound.js               WebAudio SFX, no assets
@@ -102,16 +102,42 @@ destroyer read as one navy. The class is chosen by name when the payload gives
 one and by length when it does not, which is what an enemy ship looks like
 until it sinks.
 
-`water.js` is a height field, not a fluid: three travelling sine waves for the
-swell, plus one decaying ring per impact. Everything that needs to know how high
-the sea is samples the same function — the surface mesh deforms to it, and every
-hull reads four points around itself (bow, stern, port, starboard) to get its
-heave, pitch and roll. A wreck stays in the swell with a deeper draft and a
-permanent list.
+`water.js` is a height field, not a fluid: four travelling sine waves for the
+swell, plus one decaying ring per impact (twelve at a time, oldest recycled).
+
+It is written **twice on purpose**. The GLSL copy displaces and shades a 200x200
+sheet per board — fresnel, specular off the real wave normal, sun glitter, foam
+at the impact, and the grid drawn *on the surface* so the lines ride the swell.
+The JS copy answers the one question the CPU still has to ask: how high is the
+water under this hull. Every ship reads four points around itself (bow, stern,
+port, starboard) for its heave, pitch and roll, and every shot marker bobs on
+the same field. **The two copies have to agree** — they sit next to each other in
+that file for exactly that reason.
+
+Each grid is a well, not a sheet: four rails instead of a slab, a floor below
+the deepest trough and walls at the rim, and the swell flattened into the walls,
+so a dipping wave never reveals anything but more water. The two seas run at
+different phases and tints, or they would read as one sheet cut in half.
+
+One thing this cost: the surface is a `ShaderMaterial`, so it does not receive
+shadows — ships no longer cast onto the sea. Getting them back means pulling
+three.js's shadowmap chunks into the shader.
+
+A shot is a shell, not a state change: it arcs in from off the board, and the
+ring, the splash column, the crown, the droplets, the sound and the marker all
+happen when it lands. The cell is `pending` until then, so a payload arriving
+mid-flight does not drop the marker half a second early.
+
+One server call can carry several shots — the CPU answers inside the call that
+carries yours, and keeps firing while it hits — so the client spaces them out
+(`VOLLEY_STEP`) instead of resolving the whole turn in one frame. While anything
+is in the air the board is `settling`: input is refused, and the game-over card
+waits, because the salvo that ended the game is the part worth watching.
 
 Placement: click a ship in the panel or press **1**-**5** to pick one — including
 one already on the grid, which moves it — and **R** turns it 90°, redrawing the
-preview where it stands.
+preview where it stands. During a battle the cell under the pointer lights up,
+but only when it is one you may actually fire at.
 
 **Ships** opens the fleet glossary: the five classes, one at a time, on a
 turntable you can orbit, floating on the same swell as the board. It is the real

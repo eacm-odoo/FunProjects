@@ -14,6 +14,11 @@ import { sound } from "./sound";
 import { api } from "./api";
 
 const NICKNAME_KEY = "battleship_nickname";
+// Gap between two shells of the same answer. The CPU resolves its whole turn
+// inside the call that carries your shot, so without this the board would show
+// four impacts in one frame — and the flight is 0.55s, so anything under that
+// has them overlapping in the air.
+const VOLLEY_STEP = 0.85;
 
 /**
  * The board itself: a thin view over `battleship.game`.
@@ -53,7 +58,12 @@ export class BattleshipBoard extends Component {
             joinCode: "",
             error: "",
             codex: null, // name of the class shown in the glossary, or null
+            settling: false, // shells still in the air: hold the game-over card
         });
+
+        // Shots on their way, and what is waiting for the last one to land.
+        this.inFlight = 0;
+        this.onSettled = null;
 
         this.channel = null;
         this.onUpdate = (payload) => this.onRoomUpdate(payload);
@@ -68,6 +78,7 @@ export class BattleshipBoard extends Component {
         onMounted(() => {
             this.scene = new BattleshipScene(this.canvasRef.el, {
                 onPick: (pick, kind) => this.onPick(pick, kind),
+                onImpact: (result) => this.onImpact(result),
             });
             this.scene.render(this.ui.game);
         });
@@ -203,6 +214,14 @@ export class BattleshipBoard extends Component {
      * came from, and this is the only place that has to agree with it.
      */
     setGame(state) {
+        if (this.ui.game && this.ui.game.id !== state.id) {
+            // A different game is a different board: nothing that was still in
+            // the air belongs to it.
+            this.scene?.clearTransients();
+            this.inFlight = 0;
+            this.onSettled = null;
+            this.ui.settling = false;
+        }
         this.ui.game = state;
         this.listenTo(state.mode === "online" ? state.channel : null);
         return state;
@@ -246,12 +265,16 @@ export class BattleshipBoard extends Component {
             // A bus notification can land before the canvas is mounted.
             this.scene?.render(next);
             if (next.state === "done" && before.state !== "done") {
-                this.lost(next) ? sound.lose() : sound.win();
+                // The salvo that ended it is still in the air: let it land
+                // before the card comes down over the board.
+                this.settle(() => (this.lost(next) ? sound.lose() : sound.win()));
             } else if (next.mode === "hotseat" && before.current_player !== next.current_player) {
-                this.ui.pass = {
-                    title: this.sideLabel(next.current_player),
-                    text: _t("Pass the device, then continue."),
-                };
+                this.settle(() => {
+                    this.ui.pass = {
+                        title: this.sideLabel(next.current_player),
+                        text: _t("Pass the device, then continue."),
+                    };
+                });
             }
         } catch (error) {
             this.notification.add(error.data?.message || error.message, { type: "warning" });
@@ -267,26 +290,54 @@ export class BattleshipBoard extends Component {
         return state.mode === "online" && state.winner !== state.you;
     }
 
-    /** Sound + particles for every shot resolved since the last payload. */
+    /**
+     * Fire everything the last payload resolved, in the order it happened.
+     *
+     * One call can carry several shots — the CPU answers inside the same call
+     * as your own shot, and keeps firing while it hits — so they go out spaced
+     * apart instead of all at once. The sound is not played here: it belongs to
+     * the impact, and the impact is still seconds away.
+     */
     playFeedback(before, next) {
         if (!this.scene) {
             return;
         }
         const known = new Set((before.log || []).map((entry) => entry.shooter + entry.coord));
-        for (const entry of (next.log || []).slice().reverse()) {
-            if (known.has(entry.shooter + entry.coord)) {
-                continue;
-            }
+        const fresh = (next.log || []).slice().reverse()
+            .filter((entry) => !known.has(entry.shooter + entry.coord));
+        fresh.forEach((entry, index) => {
             const side = entry.shooter === "a" ? "b" : "a";
             const cell = [...Array(SIZE * SIZE).keys()].find((c) => coordOf(c) === entry.coord);
-            this.scene.splash(side, cell, entry.result !== "miss");
-            if (entry.result === "sunk") {
-                sound.sunk();
-            } else if (entry.result === "hit") {
-                sound.hit();
-            } else {
-                sound.miss();
-            }
+            this.scene.splash(side, cell, entry.result, index * VOLLEY_STEP);
+        });
+        this.inFlight += fresh.length;
+        this.ui.settling = this.inFlight > 0;
+    }
+
+    /** A shell landed. */
+    onImpact(result) {
+        if (result === "sunk") {
+            sound.sunk();
+        } else if (result === "hit") {
+            sound.hit();
+        } else {
+            sound.miss();
+        }
+        this.inFlight = Math.max(0, this.inFlight - 1);
+        if (!this.inFlight) {
+            this.ui.settling = false;
+            const settled = this.onSettled;
+            this.onSettled = null;
+            settled?.();
+        }
+    }
+
+    /** Run `fn` once nothing is in the air any more — now, if nothing is. */
+    settle(fn) {
+        if (this.inFlight) {
+            this.onSettled = fn;
+        } else {
+            fn();
         }
     }
 
@@ -322,14 +373,18 @@ export class BattleshipBoard extends Component {
 
     onPick(pick, kind) {
         const g = this.game;
-        if (this.ui.pass || this.ui.menu || this.ui.busy || !pick) {
+        // `settling` covers the CPU's turn: its shells are already on their way
+        // even though the payload says the turn is yours again.
+        if (this.ui.pass || this.ui.menu || this.ui.codex || this.ui.busy || this.ui.settling || !pick) {
             this.scene.clearGhost();
+            this.scene.setHover(null, null);
             return;
         }
         if (g.state === "setup") {
             // Includes the grid of a player who already locked their fleet in.
             if (!this.canPlace(pick.side)) {
                 this.scene.clearGhost();
+                this.scene.setHover(null, null);
                 return;
             }
             const ship = this.fleetOf(this.placingSide)[this.ui.selected];
@@ -341,11 +396,16 @@ export class BattleshipBoard extends Component {
             }
             return;
         }
-        if (kind !== "click" || g.state !== "battle") {
+        if (g.state !== "battle") {
+            this.scene.setHover(null, null);
             return;
         }
+        // Only ever light up a cell that can actually be fired at: the
+        // highlight is the crosshair, not a hover effect.
         const enemy = this.online ? pick.side !== g.you : pick.side !== g.current_player;
-        if (enemy && this.myTurn) {
+        const target = enemy && this.myTurn;
+        this.scene.setHover(target ? pick.side : null, target ? pick.cell : null);
+        if (target && kind === "click") {
             this.fire(pick.cell);
         }
     }
