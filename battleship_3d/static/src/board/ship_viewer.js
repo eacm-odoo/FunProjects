@@ -11,16 +11,15 @@
 import * as THREE from "@battleship_3d/lib/three.module";
 import { OrbitControls } from "@battleship_3d/lib/OrbitControls";
 import { shipMesh } from "./ships";
-import { WaveField } from "./water";
+import { WaterSurface } from "./water";
 
 // Sea under the model, in board cells.
 const PATCH = 8;
-const PATCH_SEGMENTS = 40;
+const PATCH_SEGMENTS = 120;
 
 export class ShipViewer {
     constructor(container) {
         this.container = container;
-        this.waves = new WaveField();
         this.ship = null;
 
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -68,24 +67,19 @@ export class ShipViewer {
         this.renderer.setAnimationLoop(() => this._tick());
     }
 
+    /** The same sea as the board, in a smaller well and without the grid. */
     _sea() {
         const group = new THREE.Group();
-        const deep = new THREE.Mesh(
-            new THREE.BoxGeometry(PATCH, 0.4, PATCH),
-            new THREE.MeshStandardMaterial({ color: "#08202b", roughness: 0.9 })
+        const floor = new THREE.Mesh(
+            new THREE.BoxGeometry(PATCH, 0.6, PATCH),
+            new THREE.MeshStandardMaterial({ color: "#0b2434", roughness: 0.95 })
         );
-        deep.position.y = -0.26;
-        group.add(deep);
+        floor.position.y = -0.72;
+        group.add(floor);
 
-        const geo = new THREE.PlaneGeometry(PATCH, PATCH, PATCH_SEGMENTS, PATCH_SEGMENTS);
-        geo.rotateX(-Math.PI / 2);
-        this.water = new THREE.Mesh(
-            geo,
-            new THREE.MeshStandardMaterial({ color: "#15384a", roughness: 0.3, metalness: 0.14 })
-        );
-        this.water.receiveShadow = true;
-        this.water.userData.base = Float32Array.from(geo.attributes.position.array);
-        group.add(this.water);
+        this.water = new WaterSurface({ size: PATCH, segments: PATCH_SEGMENTS, light: [6, 12, 5] });
+        this.water.uniforms.uGrid.value = 0;
+        group.add(this.water.mesh);
         return group;
     }
 
@@ -127,6 +121,7 @@ export class ShipViewer {
         this.resizeObserver.disconnect();
         this.renderer.setAnimationLoop(null);
         this.clear();
+        this.water.dispose();
         this.controls.dispose();
         this.renderer.dispose();
         this.renderer.domElement.remove();
@@ -136,10 +131,9 @@ export class ShipViewer {
         const now = performance.now();
         const dt = Math.min(0.05, (now - this.last) / 1000);
         this.last = now;
-        this.waves.advance(dt);
-        this.waves.shape("a", this.water);
+        this.water.advance(dt, this.camera);
         if (this.ship) {
-            this.waves.float("a", this.ship);
+            this.water.float(this.ship);
         }
         this.controls.update();
         this.renderer.render(this.scene, this.camera);

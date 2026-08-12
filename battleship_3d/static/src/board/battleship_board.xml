@@ -164,7 +164,9 @@
             </div>
         </div>
 
-        <div class="o_bs_over" t-if="game.state === 'done' and !ui.menu">
+        <!-- `settling` holds this back while the last shells are still falling:
+             the card covers the board, and that salvo is the point. -->
+        <div class="o_bs_over" t-if="game.state === 'done' and !ui.menu and !ui.settling">
             <div class="o_bs_panel o_bs_card">
                 <h2 t-esc="statusText"/>
                 <p t-if="game.end_reason === 'forfeit'">The room is closed.</p>

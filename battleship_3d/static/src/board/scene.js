@@ -7,27 +7,35 @@
 import * as THREE from "@battleship_3d/lib/three.module";
 import { OrbitControls } from "@battleship_3d/lib/OrbitControls";
 import { shipMesh } from "./ships";
-import { WaveField } from "./water";
+import { WaterSurface } from "./water";
 
 export const SIZE = 10;
 const GAP = 6.4;
 const COLS = "ABCDEFGHIJ";
-// Vertices per side of a water sheet. The height field is sampled once per
-// vertex per frame, so this is the knob that decides what the sea costs.
-const WATER_SEGMENTS = 48;
+// Vertices per side of a water sheet. Displaced on the GPU, so it can afford a
+// density the CPU never could — but there are two of these on screen at once,
+// each half the size the design prototype's single board was, hence 160 rather
+// than its 220: same wave detail per cell, half again the vertices.
+const WATER_SEGMENTS = 160;
+// The two seas, told apart by colour and by the phase of their swell.
+const SEA = {
+    a: { deep: "#0a2233", shallow: "#1d6a7e", sky: "#a9dbe8", phase: 0 },
+    b: { deep: "#0d1a24", shallow: "#31586b", sky: "#bcd3dd", phase: 1.7 },
+};
 
 const MAT = {
-    waterA: new THREE.MeshStandardMaterial({ name: "waterA", color: "#15384a", roughness: 0.3, metalness: 0.14 }),
-    waterB: new THREE.MeshStandardMaterial({ name: "waterB", color: "#16283c", roughness: 0.3, metalness: 0.14 }),
-    // Under the surface: what a wave trough opens onto.
-    deepA: new THREE.MeshStandardMaterial({ name: "deepA", color: "#08202b", roughness: 0.9 }),
-    deepB: new THREE.MeshStandardMaterial({ name: "deepB", color: "#0a1622", roughness: 0.9 }),
-    rimA: new THREE.MeshStandardMaterial({ name: "rimA", color: "#2a2028", roughness: 0.85 }),
-    rimB: new THREE.MeshStandardMaterial({ name: "rimB", color: "#16282b", roughness: 0.85 }),
+    // Under the surface: what a wave trough opens onto. Never the background.
+    deepA: new THREE.MeshStandardMaterial({ name: "deepA", color: "#0b2434", roughness: 0.95 }),
+    deepB: new THREE.MeshStandardMaterial({ name: "deepB", color: "#0c1d29", roughness: 0.95 }),
+    wallA: new THREE.MeshStandardMaterial({ name: "wallA", color: "#0e2c3f", roughness: 0.9, side: THREE.DoubleSide }),
+    wallB: new THREE.MeshStandardMaterial({ name: "wallB", color: "#102532", roughness: 0.9, side: THREE.DoubleSide }),
+    rimA: new THREE.MeshStandardMaterial({ name: "rimA", color: "#241a20", roughness: 0.82, metalness: 0.12 }),
+    rimB: new THREE.MeshStandardMaterial({ name: "rimB", color: "#16282b", roughness: 0.82, metalness: 0.12 }),
     sunk: new THREE.MeshStandardMaterial({ name: "sunk", color: "#3b464e", roughness: 0.9, metalness: 0.1 }),
     ghostOk: new THREE.MeshStandardMaterial({ name: "ghostOk", color: "#714B67", transparent: true, opacity: 0.55 }),
     ghostNo: new THREE.MeshStandardMaterial({ name: "ghostNo", color: "#C4472F", transparent: true, opacity: 0.45 }),
-    miss: new THREE.MeshStandardMaterial({ name: "miss", color: "#e8eef0", roughness: 0.6 }),
+    miss: new THREE.MeshStandardMaterial({ name: "miss", color: "#eef3f5", roughness: 0.55 }),
+    shell: new THREE.MeshStandardMaterial({ name: "shell", color: "#e9eef1", emissive: "#5b6a72", roughness: 0.4 }),
     hit: new THREE.MeshStandardMaterial({ name: "hit", color: "#C4472F", roughness: 0.4, emissive: "#4a140b" }),
 };
 
@@ -55,11 +63,14 @@ function textPlane(text, { width = 0.62, px = 128, font = 700, size = 72, color 
 }
 
 export class BattleshipScene {
-    constructor(container, { onPick } = {}) {
+    constructor(container, { onPick, onImpact } = {}) {
         this.container = container;
         this.onPick = onPick || (() => {});
-        this.effects = [];
-        this.waves = new WaveField();
+        // Called when a shell actually lands, which is where the sound of a
+        // shot belongs — not half a second earlier, when it was fired.
+        this.onImpact = onImpact || (() => {});
+        this.tweens = [];
+        this.shells = [];
         this.dir = "h";
         this.ghost = null;
         this.framed = false;
@@ -67,7 +78,7 @@ export class BattleshipScene {
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         this.renderer.shadowMap.enabled = true;
-        this.renderer.shadowMap.type = THREE.PCFShadowMap;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         this.renderer.domElement.style.touchAction = "none";
         container.appendChild(this.renderer.domElement);
 
@@ -105,9 +116,19 @@ export class BattleshipScene {
     destroy() {
         this.resizeObserver.disconnect();
         this.renderer.setAnimationLoop(null);
+        for (const side of ["a", "b"]) {
+            this.boards[side].water.dispose();
+        }
         this.controls.dispose();
         this.renderer.dispose();
         this.renderer.domElement.remove();
+    }
+
+    /** Light up the cell under the pointer on one board, or none anywhere. */
+    setHover(side, cell) {
+        for (const key of ["a", "b"]) {
+            this.boards[key].water.setHover(key === side ? cell : null);
+        }
     }
 
     _board(side) {
@@ -115,38 +136,52 @@ export class BattleshipScene {
         group.name = "board_" + side;
         const S = SIZE;
 
-        const base = new THREE.Mesh(new THREE.BoxGeometry(S + 1.2, 0.5, S + 1.2), side === "a" ? MAT.rimA : MAT.rimB);
-        base.position.y = -0.36;
-        base.receiveShadow = true;
-        base.name = "base";
-        group.add(base);
-
-        // Something has to be under the surface once it starts moving, or a
-        // trough shows the frame's background through the sea.
-        const deep = new THREE.Mesh(new THREE.BoxGeometry(S, 0.3, S), side === "a" ? MAT.deepA : MAT.deepB);
-        deep.position.y = -0.22;
-        deep.name = "deep";
-        group.add(deep);
-
-        // The surface is a plane the wave field deforms every frame; it keeps
-        // its flat vertices so the deformation is always applied to the rest
-        // shape and never accumulates.
-        const waterGeo = new THREE.PlaneGeometry(S, S, WATER_SEGMENTS, WATER_SEGMENTS);
-        waterGeo.rotateX(-Math.PI / 2);
-        const water = new THREE.Mesh(waterGeo, side === "a" ? MAT.waterA : MAT.waterB);
-        water.receiveShadow = true;
-        water.name = "water";
-        water.userData.base = Float32Array.from(waterGeo.attributes.position.array);
-        group.add(water);
-
-        const pts = [];
-        for (let i = 0; i <= S; i++) {
-            const p = -S / 2 + i;
-            pts.push(p, 0.075, -S / 2, p, 0.075, S / 2, -S / 2, 0.075, p, S / 2, 0.075, p);
+        // The plinth is four rails and not one slab: a solid top at the rim
+        // would sit in front of the troughs and cut the wave off.
+        const rim = side === "a" ? MAT.rimA : MAT.rimB;
+        const T = 0.75;
+        for (const [x, z, w, d] of [
+            [0, S / 2 + T / 2, S + T * 2, T], [0, -(S / 2 + T / 2), S + T * 2, T],
+            [S / 2 + T / 2, 0, T, S + T * 2], [-(S / 2 + T / 2), 0, T, S + T * 2],
+        ]) {
+            const rail = new THREE.Mesh(new THREE.BoxGeometry(w, 0.9, d), rim);
+            rail.position.set(x, -0.39, z);
+            rail.castShadow = rail.receiveShadow = true;
+            rail.name = "rim";
+            group.add(rail);
         }
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
-        group.add(new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: "#7fa8b4", transparent: true, opacity: 0.3 })));
+
+        // A well, not a sheet: a floor well below the deepest trough and four
+        // walls at the rim, so a dipping wave only ever reveals more water.
+        const floor = new THREE.Mesh(
+            new THREE.BoxGeometry(S, 0.6, S), side === "a" ? MAT.deepA : MAT.deepB
+        );
+        floor.position.y = -0.72;
+        floor.name = "deep";
+        group.add(floor);
+        for (let i = 0; i < 4; i++) {
+            const wall = new THREE.Mesh(
+                new THREE.PlaneGeometry(S, 0.48), side === "a" ? MAT.wallA : MAT.wallB
+            );
+            wall.position.set(
+                i === 1 ? S / 2 : i === 3 ? -S / 2 : 0,
+                -0.24,
+                i === 0 ? S / 2 : i === 2 ? -S / 2 : 0
+            );
+            wall.rotation.y = (i * Math.PI) / 2;
+            wall.name = "wall";
+            group.add(wall);
+        }
+
+        // The surface itself: displaced and shaded on the GPU, grid included,
+        // so the lines ride the swell instead of floating over it.
+        const water = new WaterSurface({
+            size: S,
+            segments: WATER_SEGMENTS,
+            ...SEA[side],
+            light: [9, 18, 8],
+        });
+        group.add(water.mesh);
 
         for (let i = 0; i < S; i++) {
             const col = textPlane(COLS[i], { color: "rgba(244,241,243,.55)" });
@@ -164,10 +199,19 @@ export class BattleshipScene {
         pick.userData.side = side;
         group.add(pick);
 
+        // Transients live apart from the state-derived meshes: `render()` wipes
+        // ships and markers on every payload, and a shell in the air or a
+        // splash halfway through has nothing to do with the payload.
+        const fx = new THREE.Group();
+        fx.name = "fx";
+        group.add(fx);
+
         group.position.x = side === "a" ? -(S / 2 + GAP / 2) : S / 2 + GAP / 2;
         this.scene.add(group);
-        // `ships` is what the swell moves each frame: pegs and effects stay put.
-        return { side, group, pick, water, ships: [] };
+        // `ships` and `pegs` are what the swell carries each frame. `pending`
+        // holds cells whose shell is still in the air: their marker is dropped
+        // by the impact, not by the payload that announced the shot.
+        return { side, group, fx, pick, water, ships: [], pegs: [], pending: new Set() };
     }
 
     setTitle(side, text, color) {
@@ -191,6 +235,7 @@ export class BattleshipScene {
                 }
             });
             board.ships = [];
+            board.pegs = [];
             for (const ship of state["fleet_" + side]) {
                 if (!ship.cells.length) {
                     continue;
@@ -221,7 +266,12 @@ export class BattleshipScene {
             }
             const hitCells = new Set(state["fleet_" + side].flatMap((s) => s.cells));
             for (const cell of state["shots_" + side]) {
-                this.peg(side, cell, hitCells.has(cell) || this._isHit(state, side, cell));
+                // A shell still on its way owns that cell: it drops its own
+                // marker when it lands, so the payload does not get to put one
+                // there half a second early.
+                if (!board.pending.has(cell)) {
+                    this.peg(side, cell, hitCells.has(cell) || this._isHit(state, side, cell));
+                }
             }
         }
         // The grids keep their place (A left, B right) whichever seat we hold:
@@ -246,61 +296,132 @@ export class BattleshipScene {
         );
     }
 
-    peg(side, cell, isHit, animate = false) {
+    /** The marker left on a cell that has been fired at. It rides the swell. */
+    peg(side, cell, isHit, grow = false) {
+        const board = this.boards[side];
         const mesh = isHit
             ? new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.5, 18), MAT.hit)
-            : new THREE.Mesh(new THREE.SphereGeometry(0.14, 20, 14), MAT.miss);
-        mesh.position.set(cx(cell % SIZE), isHit ? 0.55 : 0.1, cx(Math.floor(cell / SIZE)));
+            : new THREE.Mesh(new THREE.SphereGeometry(0.16, 18, 14), MAT.miss);
+        mesh.position.set(cx(cell % SIZE), 0, cx(Math.floor(cell / SIZE)));
+        mesh.userData.rest = isHit ? 0.5 : 0.08;
         mesh.name = isHit ? "hit_peg" : "miss_peg";
         mesh.castShadow = true;
         mesh.userData.dynamic = true;
-        this.boards[side].group.add(mesh);
-        if (animate) {
-            mesh.scale.setScalar(0.01);
-            const t0 = performance.now();
-            const grow = () => {
-                const t = Math.min(1, (performance.now() - t0) / 280);
-                mesh.scale.setScalar(0.01 + (1 - (1 - t) ** 3) * 0.99);
-                if (t < 1) {
-                    requestAnimationFrame(grow);
-                }
-            };
-            grow();
+        board.group.add(mesh);
+        board.pegs.push(mesh);
+        if (grow) {
+            mesh.scale.setScalar(0.02);
+            this._tween(board, mesh, 320, (o, k) => o.scale.setScalar(0.02 + (1 - (1 - k) ** 3) * 0.98), true);
         }
+        return mesh;
     }
 
-    splash(side, cell, isHit) {
+    /**
+     * A shot, from the muzzle to the marker.
+     *
+     * The shell arcs in from off the board, and everything else — the ring in
+     * the water, the column, the crown, the droplets and the marker — happens
+     * when it lands. Until then the cell is `pending`, so a state payload
+     * arriving in the meantime does not put the marker down early.
+     *
+     * `delay` is what turns a server answer that resolved several shots at once
+     * back into a sequence: the cell is claimed now, the shell leaves later.
+     */
+    splash(side, cell, result, delay = 0) {
         const board = this.boards[side];
-        if (!isHit) {
-            const ring = new THREE.Mesh(
-                new THREE.RingGeometry(0.12, 0.2, 32),
-                new THREE.MeshBasicMaterial({ color: "#cfe6ec", transparent: true, side: THREE.DoubleSide })
-            );
-            ring.rotation.x = -Math.PI / 2;
-            ring.position.set(cx(cell % SIZE), 0.06, cx(Math.floor(cell / SIZE)));
-            ring.userData.dynamic = true;
-            board.group.add(ring);
-            // The drawn ring is the foam; this is the water under it moving.
-            this.waves.splash(side, ring.position.x, ring.position.z, 0.07);
-            this.effects.push({ mesh: ring, t0: performance.now(), dur: 700, kind: "ripple", board });
-            return;
+        const x = cx(cell % SIZE);
+        const z = cx(Math.floor(cell / SIZE));
+        board.pending.add(cell);
+
+        const shell = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), MAT.shell);
+        const from = new THREE.Vector3(x - 5.5, 7.5, z + 6.5);
+        shell.position.copy(from);
+        shell.visible = !delay;
+        board.fx.add(shell);
+        this.shells.push({
+            board, cell, result, mesh: shell, from,
+            to: new THREE.Vector3(x, 0, z), k: 0, dur: 0.55, wait: delay,
+            isHit: result !== "miss",
+        });
+    }
+
+    /** Drop everything in the air: a different game is a different board. */
+    clearTransients() {
+        for (const side of ["a", "b"]) {
+            const board = this.boards[side];
+            board.fx.clear();
+            board.pending.clear();
         }
-        const burst = new THREE.Group();
-        burst.userData.dynamic = true;
-        for (let i = 0; i < 10; i++) {
-            const p = new THREE.Mesh(
-                new THREE.SphereGeometry(0.07, 8, 6),
-                new THREE.MeshBasicMaterial({ color: i % 3 ? "#ffb46b" : "#C4472F", transparent: true })
+        this.shells = [];
+        this.tweens = this.tweens.filter((tween) => tween.keep);
+    }
+
+    _impact(board, cell, x, z, isHit) {
+        board.pending.delete(cell);
+        // The ring the whole board feels, and the foam the shader draws with it.
+        board.water.splash(x, z, isHit ? 0.15 : 0.105);
+
+        const warm = isHit ? "#ffb46b" : "#dff0f5";
+        const column = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.1, 0.3, 1.5, 16, 1, true),
+            new THREE.MeshBasicMaterial({
+                color: warm, transparent: true, opacity: 0.85,
+                side: THREE.DoubleSide, depthWrite: false,
+            })
+        );
+        column.position.set(x, 0.18, z);
+        column.scale.set(0.5, 0.12, 0.5);
+        board.fx.add(column);
+        this._tween(board, column, 900, (o, k) => {
+            o.scale.set(0.5 + k * 0.8, 0.12 + Math.sin(Math.min(1, k * 1.5) * Math.PI * 0.5) * 1.35, 0.5 + k * 0.8);
+            o.position.y = 0.18 + k * 0.35;
+            o.material.opacity = 0.85 * (1 - k) * (1 - k);
+        });
+
+        const crown = new THREE.Mesh(
+            new THREE.RingGeometry(0.16, 0.3, 40),
+            new THREE.MeshBasicMaterial({
+                color: isHit ? "#ffd7b0" : "#eaf7fb", transparent: true, opacity: 0.8,
+                side: THREE.DoubleSide, depthWrite: false,
+            })
+        );
+        crown.rotation.x = -Math.PI / 2;
+        crown.position.set(x, 0.07, z);
+        board.fx.add(crown);
+        this._tween(board, crown, 1100, (o, k) => {
+            o.scale.setScalar(1 + k * 6.5);
+            o.material.opacity = 0.8 * (1 - k);
+        });
+
+        for (let i = 0; i < 16; i++) {
+            const drop = new THREE.Mesh(
+                new THREE.SphereGeometry(0.045 + Math.random() * 0.035, 6, 5),
+                new THREE.MeshBasicMaterial({
+                    color: isHit && i % 3 ? "#C4472F" : warm, transparent: true, depthWrite: false,
+                })
             );
+            drop.position.set(x, 0.2, z);
             const a = Math.random() * Math.PI * 2;
-            const sp = 0.5 + Math.random() * 0.9;
-            p.userData.v = new THREE.Vector3(Math.cos(a) * sp, 1.4 + Math.random() * 1.4, Math.sin(a) * sp);
-            burst.add(p);
+            const speed = 0.7 + Math.random() * 1.5;
+            const v = new THREE.Vector3(Math.cos(a) * speed, 2.2 + Math.random() * 2.2, Math.sin(a) * speed);
+            board.fx.add(drop);
+            this._tween(board, drop, 1000, (o, k, dt) => {
+                o.position.addScaledVector(v, dt);
+                v.y -= 8.5 * dt;
+                o.material.opacity = 1 - k * k;
+                if (o.position.y < 0 && v.y < 0) {
+                    v.multiplyScalar(0);
+                    o.position.y = 0;
+                }
+            });
         }
-        burst.position.set(cx(cell % SIZE), 0.4, cx(Math.floor(cell / SIZE)));
-        board.group.add(burst);
-        this.waves.splash(side, burst.position.x, burst.position.z, 0.13);
-        this.effects.push({ mesh: burst, t0: performance.now(), dur: 900, kind: "blast", board });
+
+        this.peg(board.side, cell, isHit, true);
+    }
+
+    /** Run `fn(object, progress, dt)` for `ms`, then drop the object. */
+    _tween(board, object, ms, fn, keep = false) {
+        this.tweens.push({ board, object, dur: ms / 1000, t: 0, fn, keep });
     }
 
     /**
@@ -370,6 +491,7 @@ export class BattleshipScene {
             return { side, cell: r * SIZE + c };
         };
         canvas.addEventListener("pointermove", (ev) => this.onPick(at(ev), "move"));
+        canvas.addEventListener("pointerleave", () => this.setHover(null, null));
         let down = null;
         canvas.addEventListener("pointerdown", (ev) => (down = { x: ev.clientX, y: ev.clientY }));
         canvas.addEventListener("pointerup", (ev) => {
@@ -436,36 +558,58 @@ export class BattleshipScene {
         const now = performance.now();
         const dt = Math.min(0.05, (now - this.last) / 1000);
         this.last = now;
-        this.waves.advance(dt);
+
         for (const side of ["a", "b"]) {
             const board = this.boards[side];
-            this.waves.shape(side, board.water);
+            board.water.advance(dt, this.camera);
             for (const ship of board.ships) {
-                this.waves.float(side, ship);
+                board.water.float(ship);
+            }
+            for (const peg of board.pegs) {
+                board.water.bob(peg, peg.userData.rest);
             }
             if (this.ghost?.side === side) {
-                this.waves.float(side, this.ghost.mesh);
+                board.water.float(this.ghost.mesh);
             }
         }
-        for (let i = this.effects.length - 1; i >= 0; i--) {
-            const e = this.effects[i];
-            const k = (now - e.t0) / e.dur;
-            if (k >= 1) {
-                e.board.group.remove(e.mesh);
-                this.effects.splice(i, 1);
+
+        // Shells in the air. The arc is a straight lerp lifted by a sine: it
+        // reads as a trajectory and lands exactly on the cell it was aimed at.
+        for (let i = this.shells.length - 1; i >= 0; i--) {
+            const shot = this.shells[i];
+            if (shot.wait > 0) {
+                shot.wait -= dt;
+                shot.mesh.visible = shot.wait <= 0;
                 continue;
             }
-            if (e.kind === "ripple") {
-                e.mesh.scale.setScalar(1 + k * 7);
-                e.mesh.material.opacity = 0.8 * (1 - k);
-            } else {
-                e.mesh.children.forEach((p) => {
-                    p.position.addScaledVector(p.userData.v, dt);
-                    p.userData.v.y -= 5.5 * dt;
-                    p.material.opacity = 1 - k;
-                });
+            shot.k += dt / shot.dur;
+            if (shot.k >= 1) {
+                shot.board.fx.remove(shot.mesh);
+                shot.mesh.geometry.dispose();
+                this.shells.splice(i, 1);
+                this._impact(shot.board, shot.cell, shot.to.x, shot.to.z, shot.isHit);
+                this.onImpact(shot.result);
+                continue;
+            }
+            shot.mesh.position.lerpVectors(shot.from, shot.to, shot.k);
+            shot.mesh.position.y += Math.sin(shot.k * Math.PI) * 2.6;
+        }
+
+        for (let i = this.tweens.length - 1; i >= 0; i--) {
+            const tween = this.tweens[i];
+            tween.t += dt;
+            const k = Math.min(1, tween.t / tween.dur);
+            tween.fn(tween.object, k, dt);
+            if (k >= 1) {
+                if (!tween.keep) {
+                    tween.board.fx.remove(tween.object);
+                    tween.object.geometry.dispose();
+                    tween.object.material.dispose();
+                }
+                this.tweens.splice(i, 1);
             }
         }
+
         this.controls.update();
         this.renderer.render(this.scene, this.camera);
     }
