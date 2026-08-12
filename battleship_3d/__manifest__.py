@@ -8,21 +8,27 @@ Turn-based Battleship
 Server-authoritative Battleship game (10x10, classic 5-ship fleet) with a
 three.js board rendered as an OWL component.
 
-* vs CPU (hunt/target AI, solved server side) or 2 players hot-seat
-* manual or random fleet placement
+* vs CPU (hunt/target AI, solved server side), 2 players hot-seat, or 2 players
+  remote: one opens a room, the other joins with the code, and the two boards
+  keep in step over the Odoo bus
+* five WWII ship models riding a simulated swell: shells raise rings the whole
+  fleet rolls on, and a glossary that shows each class on a 3D turntable
+* manual or random fleet placement, ships can be re-picked and turned 90°
 * full shot history per game
 * win/loss record per player
 * playable from the backend menu, and from the public page /battleship without
   an account (the game is bound to the browser session)
 """,
-    "version": "19.0.2.0.0",
+    "version": "19.0.3.0.0",
     "category": "Tools/Games",
     "license": "LGPL-3",
     "author": "Odoo Development Services",
     "website": "https://www.odoo.com",
     # `website` is required to publish /battleship in the site navigation
-    # (`website.menu` record), same as pingpong_3d and neon_strike do.
-    "depends": ["base", "web", "website"],
+    # (`website.menu` record), same as pingpong_3d and neon_strike do. `bus`
+    # carries the room notifications of an online game (see
+    # models/ir_websocket.py).
+    "depends": ["base", "web", "bus", "website"],
     "data": [
         "security/ir.model.access.csv",
         "views/battleship_game_views.xml",

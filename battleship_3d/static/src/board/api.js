@@ -8,8 +8,11 @@ import { rpc } from "@web/core/network/rpc";
  * board runs in two places: the backend client action, and the public
  * `/battleship` page where the visitor has no account and therefore no access
  * rights on `battleship.game`. The controller is what decides who owns a game
- * (the logged in user, or the session token of an anonymous player), so the
- * client never has to know which of the two cases it is in.
+ * (the logged in user, the session token of an anonymous player, or a seat in
+ * an online room), so the client never has to know which of the cases it is in.
+ *
+ * Nothing here sends an identity: the seat a player holds online is read from
+ * their session on the server, which is why no route takes a side.
  */
 export const api = {
     state: (gameId) => rpc("/battleship/state", { game_id: gameId }),
@@ -19,4 +22,9 @@ export const api = {
     randomFleet: (gameId, side) => rpc("/battleship/random", { game_id: gameId, side }),
     ready: (gameId) => rpc("/battleship/ready", { game_id: gameId }),
     fire: (gameId, cell) => rpc("/battleship/fire", { game_id: gameId, cell }),
+
+    createRoom: (nickname) => rpc("/battleship/room/create", { nickname }),
+    joinRoom: (code, nickname) => rpc("/battleship/room/join", { code, nickname }),
+    leaveRoom: (gameId) => rpc("/battleship/room/leave", { game_id: gameId }),
+    rematch: (gameId) => rpc("/battleship/room/rematch", { game_id: gameId }),
 };

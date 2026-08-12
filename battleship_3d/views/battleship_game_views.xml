@@ -8,6 +8,7 @@
                 <field name="name"/>
                 <field name="user_id"/>
                 <field name="mode"/>
+                <field name="code" optional="show"/>
                 <field name="state"/>
                 <field name="winner"/>
                 <field name="shot_count"/>
@@ -36,7 +37,16 @@
                         <group>
                             <field name="current_player"/>
                             <field name="winner"/>
+                            <field name="end_reason" invisible="not winner"/>
                             <field name="shot_count"/>
+                        </group>
+                        <group string="Online room" invisible="mode != 'online'">
+                            <field name="code"/>
+                            <field name="name_a"/>
+                            <field name="name_b"/>
+                            <field name="ready_a"/>
+                            <field name="ready_b"/>
+                            <field name="rematch_id"/>
                         </group>
                     </group>
                     <notebook>
