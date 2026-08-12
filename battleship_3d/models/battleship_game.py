@@ -66,6 +66,15 @@ class BattleshipGame(models.Model):
     shots_b = fields.Json(default=list)
     shot_ids = fields.One2many("battleship.shot", "game_id", string="Shot log")
     shot_count = fields.Integer(compute="_compute_shot_count")
+    # A game is over when somebody has won or walked away, and that is the only
+    # moment worth timing from `create_date`. A room nobody ever came back to
+    # has no end and counts as no time played, which is the honest reading: it
+    # was not played, it was left open.
+    date_end = fields.Datetime(readonly=True, copy=False)
+    duration = fields.Float(
+        compute="_compute_duration", store=True, aggregator="sum",
+        help="Hours between the first move and the end of the game.",
+    )
 
     # ------------------------------------------------------------------
     # online rooms
@@ -100,6 +109,23 @@ class BattleshipGame(models.Model):
     def _compute_shot_count(self):
         for game in self:
             game.shot_count = len(game.shot_ids)
+
+    @api.depends("create_date", "date_end")
+    def _compute_duration(self):
+        for game in self:
+            done = game.create_date and game.date_end
+            game.duration = (game.date_end - game.create_date).total_seconds() / 3600 if done else 0
+
+    def write(self, vals):
+        """Stamp the end of a game wherever it is declared over.
+
+        A fleet can go down in `_resolve`, a room can be walked out of in
+        `action_leave`, and both write `state`. The clock is stopped here so
+        that it cannot be forgotten in a third place later on.
+        """
+        if vals.get("state") == "done" and "date_end" not in vals:
+            vals = dict(vals, date_end=fields.Datetime.now())
+        return super().write(vals)
 
     # ------------------------------------------------------------------
     # helpers
@@ -157,6 +183,17 @@ class BattleshipGame(models.Model):
         """
         self.ensure_one()
         return "battleship_game_%s" % self.access_token
+
+    def _invite_url(self):
+        """Link that seats whoever opens it in this room.
+
+        It carries the code and nothing else: the seat is still taken by the
+        browser token the join route issues, so a link that leaks is worth no
+        more than the code itself — it opens the room while it is empty, and
+        stops working the moment somebody sits down.
+        """
+        self.ensure_one()
+        return "%s/battleship/join/%s" % (self.get_base_url(), self.code)
 
     @api.model
     def _generate_code(self):
@@ -499,6 +536,7 @@ class BattleshipGame(models.Model):
             # legitimately hold: it is how they subscribe to the bus.
             "you": viewer,
             "code": self.code,
+            "invite_url": self._invite_url() if self.mode == "online" else False,
             "channel": self._channel() if self.mode == "online" else False,
             "ready": {"a": self.ready_a, "b": self.ready_b},
             "players": {
@@ -529,11 +567,15 @@ class BattleshipGame(models.Model):
 
     @api.model
     def read_record(self, session_token=None):
-        """Win/loss tally of whoever owns the game: a user, or a browser.
+        """Tally of whoever owns the game: a user, or a browser.
 
         Local games are always played from side A, so winning is `winner == a`.
         Online, the same browser sits on either side depending on whether it
         opened the room or joined it, so its games count from its own seat.
+
+        Games played and time at the board count the same records the win/loss
+        tally does — finished ones — so the four numbers always add up on
+        screen: a game still running is not a game played yet.
         """
         owner = (
             [("session_token", "=", session_token)]
@@ -553,7 +595,13 @@ class BattleshipGame(models.Model):
                     wins += 1
                 else:
                     losses += 1
-        return {"wins": wins, "losses": losses}
+            games |= online
+        return {
+            "wins": wins,
+            "losses": losses,
+            "games": len(games),
+            "seconds": round(sum(games.mapped("duration")) * 3600),
+        }
 
     @api.model
     def action_new_game(self, mode="cpu", session_token=None):

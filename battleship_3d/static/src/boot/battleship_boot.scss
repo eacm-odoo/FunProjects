@@ -4,7 +4,9 @@
 // `owl-component` is an unknown element, hence the explicit display.
 body.o_battleship_page {
     overflow: hidden;
-    background: #0b1418;
+    // The same deep water the board opens on, so the wait is part of the screen
+    // rather than a gap in front of it.
+    background: radial-gradient(120% 90% at 20% 0%, #16232a 0%, #0b1216 55%, #070c0f 100%);
 }
 
 .o_battleship_root {

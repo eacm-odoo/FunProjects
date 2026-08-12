@@ -10,6 +10,7 @@ import { _t } from "@web/core/l10n/translation";
 import { BattleshipScene, SIZE, coordOf } from "./scene";
 import { ShipViewer } from "./ship_viewer";
 import { GLOSSARY, GLOSSARY_NOTE } from "./glossary";
+import { loadNavalFonts } from "./fonts";
 import { sound } from "./sound";
 import { api } from "./api";
 
@@ -40,10 +41,12 @@ export class BattleshipBoard extends Component {
     static props = { "*": true };
 
     setup() {
+        loadNavalFonts();
         this.notification = useService("notification");
         this.bus = useService("bus_service");
         this.canvasRef = useRef("canvas");
         this.glossaryRef = useRef("glossaryCanvas");
+        this.inviteRef = useRef("invite");
         this.glossary = GLOSSARY;
         this.glossaryNote = GLOSSARY_NOTE;
         this.ui = useState({
@@ -53,9 +56,11 @@ export class BattleshipBoard extends Component {
             soundOn: true,
             pass: null, // {title, text} while the hot-seat device is being passed
             busy: false,
-            menu: null, // "online" while the room panel is open
+            menu: null, // "start" on the opening screen, "online" on the room panel
+            backToStart: false, // the room panel was opened from the start screen
             nickname: browser.localStorage.getItem(NICKNAME_KEY) || "",
             joinCode: "",
+            report: null, // {kind, subject, body} while the report card is open
             error: "",
             codex: null, // name of the class shown in the glossary, or null
             settling: false, // shells still in the air: hold the game-over card
@@ -71,8 +76,16 @@ export class BattleshipBoard extends Component {
         useExternalListener(window, "keydown", (ev) => this.onKeyDown(ev));
 
         onWillStart(async () => {
+            if (this.props.roomCode) {
+                await this.enterFromLink(this.props.roomCode);
+                return;
+            }
             const gameId = this.props.action?.params?.game_id;
             this.setGame(gameId ? await api.state(gameId) : await api.newGame("cpu"));
+            // Nobody was sent here by a link or by the backend list: the board
+            // opens on the start screen, over a game that is already waiting
+            // behind it so picking a mode never costs a round trip.
+            this.ui.menu = gameId ? null : "start";
         });
 
         onMounted(() => {
@@ -166,6 +179,80 @@ export class BattleshipBoard extends Component {
         return this.game.you === "a" ? "b" : "a";
     }
 
+    /**
+     * The turn, spelled out over the board.
+     *
+     * Two players is where this matters: against the CPU every answer comes
+     * back inside your own call, so the turn is never really away from you. The
+     * rest of the time somebody is waiting on somebody, and a player who looks
+     * up from their fleet should not have to work out which of the two it is.
+     */
+    get turnBanner() {
+        const g = this.game;
+        if (g.mode === "cpu") {
+            return null;
+        }
+        if (this.online && g.state === "setup" && this.locked) {
+            return {
+                mine: false,
+                title: _t("Waiting for %s", this.game.players[this.other]),
+                text: _t("They are still placing their fleet."),
+            };
+        }
+        if (g.state !== "battle") {
+            return null;
+        }
+        if (!this.online) {
+            return {
+                mine: true,
+                title: _t("%s, your turn", this.sideLabel(g.current_player)),
+                text: _t("Fire at the opposing grid."),
+            };
+        }
+        return this.myTurn
+            ? { mine: true, title: _t("Your turn"), text: _t("Fire at the enemy grid.") }
+            : {
+                mine: false,
+                title: _t("%s is aiming", this.game.players[this.other]),
+                text: _t("Hold on."),
+            };
+    }
+
+    /** True while a shot of ours would actually be taken. Drives the crosshair. */
+    get aiming() {
+        return this.game.state === "battle" && this.myTurn && !this.ui.settling && !this.ui.pass;
+    }
+
+    /** The tag next to a panel title while that side holds the turn. The dot in
+     *  front of it is drawn by the stylesheet, not spelled here. */
+    turnTag(side) {
+        if (!this.online) {
+            return _t("to fire");
+        }
+        return side === this.game.you ? _t("your turn") : _t("their turn");
+    }
+
+    /**
+     * The panel of whoever the board is waiting on, so the turn is said twice.
+     *
+     * Lit when the side that has to act is ours and dimmed when it is not:
+     * teal means "you" everywhere else on this screen, and a teal frame around
+     * the opponent's fleet would say the opposite of what it means.
+     */
+    panelClass(side) {
+        const g = this.game;
+        if (g.mode === "cpu") {
+            return "";
+        }
+        const acting = g.state === "battle"
+            ? g.current_player === side
+            : g.state === "setup" && side === this.placingSide && !this.locked;
+        if (!acting) {
+            return "";
+        }
+        return !this.online || side === g.you ? "o_bs_active" : "o_bs_waiting";
+    }
+
     sideLabel(side) {
         if (this.game.mode === "cpu") {
             return side === "a" ? _t("You") : _t("CPU");
@@ -203,6 +290,112 @@ export class BattleshipBoard extends Component {
     /** True while that grid is the one the player is allowed to touch. */
     canPlace(side) {
         return this.game.state === "setup" && side === this.placingSide && !this.locked;
+    }
+
+    /**
+     * True when that fleet belongs to somebody at this screen.
+     *
+     * It is what tells the two plates at the bottom apart: ours lists ships by
+     * name, the other one lists radar contacts. Hot-seat has no enemy in that
+     * sense — both fleets are played from this chair, in turn — so both plates
+     * read as ours.
+     */
+    isMine(side) {
+        if (this.online) {
+            return side === this.game.you;
+        }
+        return this.game.mode !== "cpu" || side === "a";
+    }
+
+    /** How much of a fleet is still up, for the header of its plate. */
+    afloatLabel(side) {
+        const fleet = this.fleetOf(side);
+        const up = fleet.filter((ship) => !ship.sunk).length;
+        return _t("%(up)s / %(total)s afloat", { up, total: fleet.length });
+    }
+
+    /** Shots taken so far in this game, both sides counted. */
+    get salvoCount() {
+        const g = this.game;
+        return (g.shots_a || []).length + (g.shots_b || []).length;
+    }
+
+    get salvoLabel() {
+        return _t("Salvo %s", this.salvoCount + 1);
+    }
+
+    /** What a line of the radio log says happened, in the log's own words. */
+    logResult(entry) {
+        if (entry.result === "sunk") {
+            return _t("sunk");
+        }
+        return entry.result === "hit" ? _t("hit") : _t("water");
+    }
+
+    /**
+     * The time stamped at the head of the radio log.
+     *
+     * Shots carry no timestamp of their own, so this is not a time per line:
+     * it is when the sheet was last read, and it moves with every state that
+     * lands here — which is exactly when a new line appears.
+     */
+    get clock() {
+        const now = new Date();
+        return String(now.getHours()).padStart(2, "0") + String(now.getMinutes()).padStart(2, "0");
+    }
+
+    get soundLabel() {
+        return this.ui.soundOn ? _t("Sound on") : _t("Sound off");
+    }
+
+    /** The line under the service record, on the start screen. */
+    get dispatchLine() {
+        const shots = this.salvoCount;
+        if (!shots) {
+            return _t("No dispatch on file. The sea is quiet.");
+        }
+        if (this.online && this.game.code) {
+            return _t("Room %(code)s — %(shots)s salvos fired so far.", {
+                code: this.game.code,
+                shots,
+            });
+        }
+        return _t("Game in progress — %s salvos fired so far.", shots);
+    }
+
+    /**
+     * Shots and hits of whoever the final dispatch is written for.
+     *
+     * Online it is the player reading it, against the CPU it is always side A,
+     * and hot-seat has nobody to write it for but the winner.
+     */
+    get endStats() {
+        const g = this.game;
+        const side = this.online ? g.you : g.mode === "cpu" ? "a" : g.winner;
+        const enemy = side === "a" ? "b" : "a";
+        return {
+            shots: (g["shots_" + enemy] || []).length,
+            hits: this.fleetOf(enemy).reduce((total, ship) => total + ship.hits, 0),
+        };
+    }
+
+    get endReport() {
+        const { shots, hits } = this.endStats;
+        return _t("Fleet destroyed in %(shots)s salvos. %(hits)s of them found a hull.", {
+            shots,
+            hits,
+        });
+    }
+
+    /** The rubber stamp across the bottom of the final dispatch. */
+    get endStamp() {
+        const g = this.game;
+        if (g.end_reason === "forfeit") {
+            return { lost: true, text: _t("Room closed") };
+        }
+        return this.lost(g)
+            ? { lost: true, text: _t("Fleet lost") }
+            : { lost: false, text: _t("Fleet sunk") };
     }
 
     // ------------------------------------------------------------- the room
@@ -355,9 +548,28 @@ export class BattleshipBoard extends Component {
         if (typing || ev.ctrlKey || ev.metaKey || ev.altKey || !this.game) {
             return;
         }
+        if (this.ui.report) {
+            if (ev.key === "Escape") {
+                this.closeReport();
+            }
+            return;
+        }
         if (this.ui.codex) {
             if (ev.key === "Escape") {
                 this.closeCodex();
+            }
+            return;
+        }
+        // The start screen and the room panel are screens, not the board: the
+        // placement shortcuts below belong to the grid behind them.
+        if (this.ui.menu) {
+            if (ev.key !== "Escape") {
+                return;
+            }
+            if (this.ui.menu === "online") {
+                this.closeMenu();
+            } else if (this.game.state !== "setup") {
+                this.closeStart();
             }
             return;
         }
@@ -375,7 +587,10 @@ export class BattleshipBoard extends Component {
         const g = this.game;
         // `settling` covers the CPU's turn: its shells are already on their way
         // even though the payload says the turn is yours again.
-        if (this.ui.pass || this.ui.menu || this.ui.codex || this.ui.busy || this.ui.settling || !pick) {
+        if (
+            this.ui.pass || this.ui.menu || this.ui.codex || this.ui.report ||
+            this.ui.busy || this.ui.settling || !pick
+        ) {
             this.scene.clearGhost();
             this.scene.setHover(null, null);
             return;
@@ -491,6 +706,38 @@ export class BattleshipBoard extends Component {
         }
     }
 
+    // --------------------------------------------------------- start screen
+    /**
+     * Leave the start screen for a game of `mode`.
+     *
+     * The board behind the screen is a real game, and a fresh one is exactly
+     * what the player is asking for: if it already is that game, and nothing
+     * has been fired from it yet, the button is only a door. Otherwise it opens
+     * a new record, the same way the mode switch in the top bar does.
+     */
+    async startGame(mode) {
+        if (this.game.mode !== mode || this.game.state !== "setup") {
+            await this.newGame(mode);
+        }
+        this.closeStart();
+    }
+
+    /** The room panel, opened from the start screen and returning to it. */
+    openOnline() {
+        this.ui.backToStart = true;
+        return this.newGame("online");
+    }
+
+    openStart() {
+        this.ui.error = "";
+        this.ui.menu = "start";
+    }
+
+    closeStart() {
+        this.ui.menu = null;
+        this.ui.backToStart = false;
+    }
+
     toggleSound() {
         this.ui.soundOn = !this.ui.soundOn;
         sound.enabled = this.ui.soundOn;
@@ -537,6 +784,7 @@ export class BattleshipBoard extends Component {
             const state = this.setGame(await promise);
             this.ui.selected = 0;
             this.ui.menu = null;
+            this.ui.backToStart = false;
             this.scene?.render(state);
         } catch (error) {
             this.ui.error = error.data?.message || error.message;
@@ -553,22 +801,144 @@ export class BattleshipBoard extends Component {
         return this.enterRoom(api.joinRoom(this.ui.joinCode, this.ui.nickname));
     }
 
+    /**
+     * Sit down in the room an invitation link points at.
+     *
+     * Opening the link is the whole handshake, so nothing is asked before the
+     * seat is taken: the name is whatever this browser played under last, and
+     * an empty one is a player the server names for us. A link that leads
+     * nowhere — room full, finished, mistyped — leaves the visitor in front of
+     * the room panel with the code already filled in, which is the one screen
+     * where they can do something about it.
+     */
+    async enterFromLink(code) {
+        try {
+            this.setGame(await api.joinRoom(code, this.ui.nickname));
+        } catch (error) {
+            this.setGame(await api.newGame("cpu"));
+            this.ui.joinCode = code;
+            this.ui.menu = "online";
+            this.ui.error = error.data?.message || error.message;
+        }
+    }
+
+    /** Back where the room panel was opened from — the start screen, or the board. */
     closeMenu() {
-        this.ui.menu = null;
+        this.ui.menu = this.ui.backToStart ? "start" : null;
+        this.ui.backToStart = false;
         this.ui.error = "";
     }
 
-    async copyCode() {
-        // No clipboard over plain http: the code is on screen either way.
-        if (!browser.navigator.clipboard?.writeText) {
+    get backLabel() {
+        return this.ui.backToStart ? _t("Back to the menu") : _t("Back to the board");
+    }
+
+    /** Mobile browsers can hand the link straight to WhatsApp and friends. */
+    get canShare() {
+        return Boolean(browser.navigator.share);
+    }
+
+    get shareLabel() {
+        return this.canShare ? _t("Share the link") : _t("Copy the link");
+    }
+
+    /**
+     * Put the invitation where the opponent can be reached.
+     *
+     * The share sheet is the short way on a phone, and it is also the only one
+     * that can reach an app directly; everywhere else this falls back to the
+     * clipboard, and the link stays selectable on screen for the browsers that
+     * allow neither (the clipboard API is gone over plain http).
+     */
+    async shareInvite() {
+        const url = this.game.invite_url;
+        if (this.canShare) {
+            try {
+                await browser.navigator.share({
+                    title: _t("Battleship"),
+                    text: _t("Come and play a game of Battleship against me."),
+                    url,
+                });
+                return;
+            } catch {
+                // Sheet dismissed, or the browser refused it: copy instead.
+            }
+        }
+        await this.copy(url, _t("Link copied — paste it to your opponent."));
+    }
+
+    copyCode() {
+        return this.copy(this.game.code, _t("Code copied."));
+    }
+
+    async copy(text, message) {
+        if (browser.navigator.clipboard?.writeText) {
+            await browser.navigator.clipboard.writeText(text);
+            this.notification.add(message, { type: "success" });
             return;
         }
-        await browser.navigator.clipboard.writeText(this.game.code);
-        this.notification.add(_t("Code copied."), { type: "success" });
+        // No clipboard API — it is gone over plain http. The link is on screen
+        // in a field, so selecting it puts copying one shortcut away; the code
+        // is on screen too, but in a heading, and there it can only be read.
+        if (this.inviteRef.el?.value === text) {
+            this.inviteRef.el.select();
+            this.notification.add(_t("Press Ctrl+C to copy the link."), { type: "info" });
+        }
     }
 
     rematch() {
         return this.enterRoom(api.rematch(this.game.id));
+    }
+
+    // -------------------------------------------------------------- feedback
+    /**
+     * Time at the board, as a line rather than a number of seconds.
+     *
+     * It counts finished games only, exactly like the win/loss tally next to
+     * it: a game still on the table has not been played yet, it is being
+     * played, and a clock that ran while nobody was there would say otherwise.
+     */
+    get timePlayed() {
+        const total = this.game.record.seconds || 0;
+        const hours = Math.floor(total / 3600);
+        const minutes = Math.floor((total % 3600) / 60);
+        if (hours) {
+            return _t("%sh %smin", hours, minutes);
+        }
+        return minutes ? _t("%smin", minutes) : _t("%ss", total);
+    }
+
+    openReport(kind) {
+        this.ui.error = "";
+        this.ui.report = { kind: kind || "bug", subject: "", body: "" };
+    }
+
+    setReportKind(kind) {
+        this.ui.report.kind = kind;
+    }
+
+    closeReport() {
+        this.ui.report = null;
+        this.ui.error = "";
+    }
+
+    /** Send the report, and take the player straight back to the board. */
+    async sendReport() {
+        const report = this.ui.report;
+        if (!report.body.trim()) {
+            this.ui.error = _t("Say what happened, or what you would like to see.");
+            return;
+        }
+        this.ui.busy = true;
+        try {
+            await api.feedback(report.kind, report.subject, report.body, this.game.id);
+            this.ui.report = null;
+            this.notification.add(_t("Thanks — it is in the backend."), { type: "success" });
+        } catch (error) {
+            this.ui.error = error.data?.message || error.message;
+        } finally {
+            this.ui.busy = false;
+        }
     }
 
     /** Give up the room and fall back to a game against the CPU. */

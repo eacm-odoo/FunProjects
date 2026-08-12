@@ -25,7 +25,11 @@
                 <meta name="author" content="Odoo"/>
             </t>
 
-            <owl-component name="battleship_3d.board" class="o_battleship_root"/>
+            <!-- `props` is read and parsed as JSON by the public component
+                 interaction; the controller is what fills it, so an invitation
+                 link arrives at the board as a prop and not as a URL to parse. -->
+            <owl-component name="battleship_3d.board" class="o_battleship_root"
+                           t-att-props="board_props"/>
         </t>
     </template>
 

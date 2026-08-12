@@ -5,4 +5,6 @@
               action="battleship_board_action" sequence="10"/>
     <menuitem id="menu_battleship_games" name="Games" parent="menu_battleship_root"
               action="battleship_game_action" sequence="20"/>
+    <menuitem id="menu_battleship_feedback" name="Feedback" parent="menu_battleship_root"
+              action="battleship_feedback_action" sequence="30"/>
 </odoo>
