@@ -101,6 +101,7 @@ export class BattleshipBoard extends Component {
             this.scene = new BattleshipScene(this.canvasRef.el, {
                 onPick: (pick, kind) => this.onPick(pick, kind),
                 onImpact: (result) => this.onImpact(result),
+                onFire: ({ calibre }) => sound.gun(calibre),
             });
             this.scene.render(this.ui.game);
         });
@@ -771,8 +772,11 @@ export class BattleshipBoard extends Component {
      *
      * One call can carry several shots — the CPU answers inside the same call
      * as your own shot, and keeps firing while it hits — so they go out spaced
-     * apart instead of all at once. The sound is not played here: it belongs to
-     * the impact, and the impact is still seconds away.
+     * apart instead of all at once. No sound is played here: the report belongs
+     * to the muzzle and the splash to the impact, and both are still to come.
+     *
+     * `shooter` is what lets the shell leave one of that player's own hulls
+     * instead of the sky — as far as their fleet is on the table to be seen.
      */
     playFeedback(before, next) {
         if (!this.scene) {
@@ -786,7 +790,7 @@ export class BattleshipBoard extends Component {
         const fresh = (next.log || []).slice().reverse().filter((entry) => !known.has(key(entry)));
         fresh.forEach((entry, index) => {
             const cell = [...Array(SIZE * SIZE).keys()].find((c) => coordOf(c) === entry.coord);
-            this.scene.splash(entry.target, cell, entry.result, index * VOLLEY_STEP);
+            this.scene.fire(entry.target, cell, entry.result, index * VOLLEY_STEP, entry.shooter);
         });
         this.inFlight += fresh.length;
         this.ui.settling = this.inFlight > 0;

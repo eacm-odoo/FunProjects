@@ -58,6 +58,15 @@ const GLOW = { owed: "#f2c14e", again: "#ff7a45" };
 // from across the table without either of them blinking.
 const GLOW_BEAT = { owed: [620, 0.16, 0.46], again: [300, 0.42, 0.9] };
 
+// What a gun going off puts in the air. Warm, short-lived and unlit: a flash
+// competing with the key light reads as a grey cone instead of as fire.
+const FLASH = { core: "#fff3d0", fire: "#ffb552", smoke: "#cbd5d8" };
+// How long a gun takes to train round, and how long it stays out of battery.
+// Both together stay under VOLLEY_STEP, so one hull firing twice in a sweep is
+// back in battery before it is asked for the second shell.
+const TRAVERSE = 0.42;
+const RECOIL = 0.34;
+
 const MAT = {
     sunk: new THREE.MeshStandardMaterial({ name: "sunk", color: "#3b464e", roughness: 0.9, metalness: 0.1 }),
     ghostOk: new THREE.MeshStandardMaterial({ name: "ghostOk", color: "#714B67", transparent: true, opacity: 0.55 }),
@@ -91,14 +100,18 @@ function textPlane(text, { width = 0.62, px = 128, font = 700, size = 72, color 
 }
 
 export class BattleshipScene {
-    constructor(container, { onPick, onImpact } = {}) {
+    constructor(container, { onPick, onImpact, onFire } = {}) {
         this.container = container;
         this.onPick = onPick || (() => {});
-        // Called when a shell actually lands, which is where the sound of a
-        // shot belongs — not half a second earlier, when it was fired.
+        // Called when a shell actually lands, which is where the sound of the
+        // splash belongs — not a second earlier, when the gun went off.
         this.onImpact = onImpact || (() => {});
+        // And called at the muzzle, which is where the report belongs.
+        this.onFire = onFire || (() => {});
         this.tweens = [];
         this.shells = [];
+        // Guns part-way through train → fire → recover. See `_advanceGuns`.
+        this.guns = [];
         this.dir = "h";
         this.ghost = null;
         this.framed = false;
@@ -170,6 +183,9 @@ export class BattleshipScene {
         }
         this.sides = [];
         this.boards = {};
+        // Every gun in the middle of a sequence belonged to a hull on a board
+        // that has just gone off the table.
+        this.guns = [];
     }
 
     /**
@@ -429,6 +445,7 @@ export class BattleshipScene {
                     cx(Math.floor(first / SIZE)) + (horizontal ? 0 : (ship.size - 1) / 2)
                 );
                 mesh.rotation.y = horizontal ? 0 : Math.PI / 2;
+                mesh.userData.ship = ship;
                 if (ship.sunk) {
                     mesh.traverse((o) => {
                         if (o.isMesh) {
@@ -439,6 +456,9 @@ export class BattleshipScene {
                     // both are read back by the float step every frame.
                     mesh.userData.draft = -0.1;
                     mesh.userData.list = 0.13;
+                } else {
+                    // Only a hull still afloat can answer a bearing.
+                    this._rigGuns(mesh);
                 }
                 board.group.add(mesh);
                 board.ships.push(mesh);
@@ -534,33 +554,185 @@ export class BattleshipScene {
         return mesh;
     }
 
+    // ------------------------------------------------------------- the gun end
     /**
-     * A shot, from the muzzle to the marker.
+     * Find the main battery of a hull and remember how to aim it.
      *
-     * The shell arcs in from off the board, and everything else — the ring in
-     * the water, the column, the crown, the droplets and the marker — happens
-     * when it lands. Until then the cell is `pending`, so a state payload
-     * arriving in the meantime does not put the marker down early.
-     *
-     * `delay` is what turns a server answer that resolved several shots at once
-     * back into a sequence: the cell is claimed now, the shell leaves later.
+     * `ships.js` builds every class out of the same parts, so the guns are
+     * already there: groups named "turret", plus the submarine's "deckGun". The
+     * barrel length gives back the scale its turret was built at, which is what
+     * puts the muzzle at the end of the barrel instead of at the gunhouse. A
+     * carrier has neither, and is simply never the ship that answers.
      */
-    splash(side, cell, result, delay = 0) {
-        const board = this.boards[side];
-        const x = cx(cell % SIZE);
-        const z = cx(Math.floor(cell / SIZE));
-        board.pending.add(cell);
+    _rigGuns(mesh) {
+        const isBarrel = (o) => o.isMesh && o.geometry.type === "CylinderGeometry"
+            && Math.abs(Math.abs(o.rotation.z) - Math.PI / 2) < 0.2;
+        const guns = [];
+        mesh.traverse((o) => {
+            if (o.name !== "turret" && o.name !== "deckGun") {
+                return;
+            }
+            const barrels = o.children.filter(isBarrel);
+            if (!barrels.length) {
+                return;
+            }
+            const length = barrels[0].geometry.parameters.height;
+            guns.push({
+                group: o,
+                barrels,
+                // Along the barrel, at its mouth, in the turret's own frame.
+                muzzle: new THREE.Vector3(barrels[0].position.x + length / 2, barrels[0].position.y, 0),
+                // `turret()` cuts its barrels at 0.36 of the scale it was asked
+                // for, so the length reads back as the calibre of the gun.
+                calibre: Math.max(0.55, length / 0.36),
+            });
+        });
+        // The heaviest gun on the ship fires: the one built at the largest scale.
+        guns.sort((p, q) => q.calibre - p.calibre);
+        mesh.userData.guns = guns;
+    }
 
+    /** The hull that takes the shot: still afloat, armed, and nearest the target. */
+    _shooter(side, targetWorld) {
+        let best = null;
+        for (const mesh of this.boards[side]?.ships || []) {
+            if (mesh.userData.ship?.sunk || !mesh.userData.guns?.length) {
+                continue;
+            }
+            const d = mesh.getWorldPosition(new THREE.Vector3()).distanceTo(targetWorld);
+            if (!best || d < best.d) {
+                best = { mesh, d };
+            }
+        }
+        return best?.mesh || null;
+    }
+
+    /** The bearing of a world point from a hull, in the hull's own frame. */
+    _bearing(ship, targetWorld) {
+        const local = ship.worldToLocal(targetWorld.clone());
+        return Math.atan2(-local.z, local.x);
+    }
+
+    /** Flash, smoke and glare at the muzzle, in `board`'s own frame. */
+    _muzzleBlast(board, at, dir, calibre) {
+        const s = calibre;
+        const flash = new THREE.Mesh(
+            new THREE.ConeGeometry(0.13 * s, 0.62 * s, 12, 1, true),
+            new THREE.MeshBasicMaterial({
+                color: FLASH.core, transparent: true, opacity: 1,
+                depthWrite: false, side: THREE.DoubleSide,
+            })
+        );
+        flash.name = "muzzleFlash";
+        flash.position.copy(at);
+        flash.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+        board.fx.add(flash);
+        this._tween(board, flash, 190, (o, k) => {
+            o.scale.set(1 + k * 1.5, 1 + k * 2.6, 1 + k * 1.5);
+            o.material.color.set(k < 0.35 ? FLASH.core : FLASH.fire);
+            o.material.opacity = (1 - k) ** 1.6;
+        });
+
+        // A hot ball at the mouth, then the smoke it leaves hanging.
+        const ball = new THREE.Mesh(
+            new THREE.SphereGeometry(0.15 * s, 12, 10),
+            new THREE.MeshBasicMaterial({ color: FLASH.fire, transparent: true, opacity: 0.95, depthWrite: false })
+        );
+        ball.position.copy(at);
+        board.fx.add(ball);
+        this._tween(board, ball, 260, (o, k) => {
+            o.scale.setScalar(1 + k * 1.9);
+            o.material.opacity = 0.95 * (1 - k) ** 2;
+        });
+
+        for (let i = 0; i < 7; i++) {
+            const puff = new THREE.Mesh(
+                new THREE.SphereGeometry((0.07 + Math.random() * 0.06) * s, 8, 7),
+                new THREE.MeshBasicMaterial({ color: FLASH.smoke, transparent: true, opacity: 0.5, depthWrite: false })
+            );
+            puff.position.copy(at).addScaledVector(dir, 0.1 + i * 0.06 * s);
+            board.fx.add(puff);
+            const drift = dir.clone().multiplyScalar(0.5 + Math.random() * 0.9)
+                .add(new THREE.Vector3((Math.random() - 0.5) * 0.5, 0.25 + Math.random() * 0.4, (Math.random() - 0.5) * 0.5));
+            this._tween(board, puff, 1100 + i * 60, (o, k, dt) => {
+                o.position.addScaledVector(drift, dt);
+                drift.multiplyScalar(1 - dt * 1.6);
+                o.scale.setScalar(1 + k * 2.4);
+                o.material.opacity = 0.5 * (1 - k) ** 1.4;
+            });
+        }
+
+        // A gun going off lights its own ship for a frame or two. Cheap, because
+        // it is one light for a sixth of a second, and it is what sells the fire.
+        const glare = new THREE.PointLight(FLASH.fire, 26 * s, 4.5 * s, 2);
+        glare.position.copy(at);
+        board.fx.add(glare);
+        this._tween(board, glare, 170, (o, k) => {
+            o.intensity = 26 * s * (1 - k) ** 2;
+            if (k >= 1) {
+                board.fx.remove(o);
+            }
+        }, true);
+
+        // And the blast flattens the water under the muzzle.
+        if (Math.abs(at.x) < SIZE / 2 && Math.abs(at.z) < SIZE / 2) {
+            board.water.splash(at.x, at.z, 0.05 * s);
+        }
+    }
+
+    /**
+     * A shell in the air, from wherever it left to the cell it was aimed at.
+     *
+     * Everything else — the ring in the water, the column, the crown, the
+     * droplets and the marker — happens when it lands. Until then the cell is
+     * `pending`, so a state payload arriving in the meantime does not put the
+     * marker down early.
+     */
+    _shell(board, cell, result, from, dur, lift, delay = 0) {
         const shell = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), MAT.shell);
-        const from = new THREE.Vector3(x - 5.5, 7.5, z + 6.5);
+        shell.name = "shell";
         shell.position.copy(from);
         shell.visible = !delay;
         board.fx.add(shell);
         this.shells.push({
             board, cell, result, mesh: shell, from,
-            to: new THREE.Vector3(x, 0, z), k: 0, dur: 0.55, wait: delay,
-            isHit: result !== "miss",
+            to: new THREE.Vector3(cx(cell % SIZE), 0, cx(Math.floor(cell / SIZE))),
+            k: 0, dur, lift, wait: delay, isHit: result !== "miss",
         });
+    }
+
+    /**
+     * Fire on `cell` of `side` — from the line of `from`, not from off the board.
+     *
+     * The sequence is three beats, and they are deliberately separate: the gun
+     * trains round first, so the player sees WHICH ship answers; then it fires
+     * — flash, smoke, recoil, and only at that instant does the shell exist —
+     * and the shell flies from that muzzle to the far grid.
+     *
+     * A board with nothing visible on it to shoot with falls back to a shell
+     * out of the sky, which is what every shot used to be: an enemy fleet is
+     * hidden until it sinks, so their answering salvo has no gun to leave from.
+     *
+     * `delay` is what turns a server answer that resolved several shots at once
+     * back into a sequence: the cell is claimed now, the gun trains later.
+     */
+    fire(side, cell, result, delay = 0, from = null) {
+        const board = this.boards[side];
+        board.pending.add(cell);
+        if (!this.boards[from]) {
+            return this._skyShell(board, cell, result, delay);
+        }
+        // The hull is picked when the gun starts training rather than here:
+        // `render()` rebuilds every ship on the payload that announced this
+        // shot, and that payload is applied before the shell is in the air.
+        this.guns.push({ board, cell, result, from, t: -delay, phase: "aim" });
+    }
+
+    /** The old shot: a shell arcing in from off the corner of the board. */
+    _skyShell(board, cell, result, delay = 0) {
+        const x = cx(cell % SIZE);
+        const z = cx(Math.floor(cell / SIZE));
+        this._shell(board, cell, result, new THREE.Vector3(x - 5.5, 7.5, z + 6.5), 0.55, 2.6, delay);
     }
 
     /** Drop everything in the air: a different game is a different board. */
@@ -571,6 +743,7 @@ export class BattleshipScene {
             board.pending.clear();
         }
         this.shells = [];
+        this.guns = [];
         this.tweens = this.tweens.filter((tween) => tween.keep);
     }
 
@@ -782,6 +955,95 @@ export class BattleshipScene {
         this.framed = true;
     }
 
+    /**
+     * Train → fire → recover, one beat per frame.
+     *
+     * Every entry that comes in here has to end in a shell, whatever happens to
+     * the hull that was going to fire it: the component counts the salvo down
+     * by its impacts, and a shot that never lands leaves the board waiting for
+     * it forever. So both ways out of the aim — no gun to fire, or a hull that
+     * a fresh payload rebuilt underneath us — fall back to the sky shell.
+     */
+    _advanceGuns(dt) {
+        for (let i = this.guns.length - 1; i >= 0; i--) {
+            const g = this.guns[i];
+            g.t += dt;
+            if (g.t < 0) {
+                continue;
+            }
+            if (g.phase === "aim") {
+                g.targetWorld = g.board.group.localToWorld(
+                    new THREE.Vector3(cx(g.cell % SIZE), 0, cx(Math.floor(g.cell / SIZE)))
+                );
+                g.ship = this._shooter(g.from, g.targetWorld);
+                if (!g.ship) {
+                    this.guns.splice(i, 1);
+                    this._skyShell(g.board, g.cell, g.result);
+                    continue;
+                }
+                g.own = this.boards[g.from];
+                g.gun = g.ship.userData.guns[0];
+                g.rest = g.gun.group.rotation.y;
+                // Shortest way round, so a stern turret does not swing 350°.
+                g.aim = this._bearing(g.ship, g.targetWorld);
+                while (g.aim - g.rest > Math.PI) {
+                    g.aim -= Math.PI * 2;
+                }
+                while (g.aim - g.rest < -Math.PI) {
+                    g.aim += Math.PI * 2;
+                }
+                g.phase = "train";
+                g.t = 0;
+            }
+            if (!g.ship.parent) {
+                // The fleet was rebuilt mid-sequence: the shell is owed anyway.
+                this.guns.splice(i, 1);
+                this._skyShell(g.board, g.cell, g.result);
+                continue;
+            }
+            const { ship, gun } = g;
+            if (g.phase === "train") {
+                const k = Math.min(1, g.t / TRAVERSE);
+                const ease = k * k * (3 - 2 * k);
+                gun.group.rotation.y = g.rest + (g.aim - g.rest) * ease;
+                if (k < 1) {
+                    continue;
+                }
+                // Loose. The muzzle is read off the trained gun, so the shell
+                // and the flash leave the same point in the same direction.
+                ship.updateWorldMatrix(true, true);
+                const muzzleWorld = gun.group.localToWorld(gun.muzzle.clone());
+                const backWorld = gun.group.localToWorld(gun.muzzle.clone().setX(gun.muzzle.x - 0.3));
+                const dir = muzzleWorld.clone().sub(backWorld).normalize();
+                this._muzzleBlast(g.own, g.own.group.worldToLocal(muzzleWorld.clone()), dir, gun.calibre);
+                // The shell lives on the board it is going to land on, so its
+                // arc is read in the same frame as the cell it is aimed at.
+                const from = g.board.group.worldToLocal(muzzleWorld.clone());
+                const span = from.distanceTo(new THREE.Vector3(cx(g.cell % SIZE), 0, cx(Math.floor(g.cell / SIZE))));
+                // Both scale with the range: a board away is a longer, higher
+                // arc than the far corner of the grid in front of the guns.
+                this._shell(g.board, g.cell, g.result, from, Math.max(0.62, span * 0.045), 1.4 + span * 0.16);
+                this.onFire({ ship, calibre: gun.calibre });
+                g.phase = "recoil";
+                g.t = 0;
+                continue;
+            }
+            const k = Math.min(1, g.t / RECOIL);
+            // Out of battery hard, back in slowly: the shape of the recoil is
+            // most of what makes a gun feel heavy.
+            const out = k < 0.18 ? k / 0.18 : (1 - (k - 0.18) / 0.82) ** 2;
+            for (const barrel of gun.barrels) {
+                barrel.position.x = barrel.userData.rest ??= barrel.position.x;
+                barrel.position.x -= out * 0.11 * gun.calibre;
+            }
+            ship.userData.kick = out * 0.055;
+            if (k >= 1) {
+                ship.userData.kick = 0;
+                this.guns.splice(i, 1);
+            }
+        }
+    }
+
     _tick() {
         const now = performance.now();
         const dt = Math.min(0.05, (now - this.last) / 1000);
@@ -792,6 +1054,11 @@ export class BattleshipScene {
             board.water.advance(dt, this.camera);
             for (const ship of board.ships) {
                 board.water.float(ship);
+                if (ship.userData.kick) {
+                    // The hull leans away from its own broadside. After the
+                    // float, because that is what sets the roll of a frame.
+                    ship.rotation.x -= ship.userData.kick;
+                }
             }
             for (const peg of board.pegs) {
                 board.water.bob(peg, peg.userData.rest);
@@ -808,6 +1075,8 @@ export class BattleshipScene {
                 board.water.float(this.ghost.mesh);
             }
         }
+
+        this._advanceGuns(dt);
 
         // Shells in the air. The arc is a straight lerp lifted by a sine: it
         // reads as a trajectory and lands exactly on the cell it was aimed at.
@@ -828,7 +1097,7 @@ export class BattleshipScene {
                 continue;
             }
             shot.mesh.position.lerpVectors(shot.from, shot.to, shot.k);
-            shot.mesh.position.y += Math.sin(shot.k * Math.PI) * 2.6;
+            shot.mesh.position.y += Math.sin(shot.k * Math.PI) * shot.lift;
         }
 
         for (let i = this.tweens.length - 1; i >= 0; i--) {
