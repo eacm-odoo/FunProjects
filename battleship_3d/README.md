@@ -164,17 +164,25 @@ room sails gets the next free seat (`_free_seat`).
 
 The rules, and where they live:
 
-* **Everybody shoots everybody.** `action_fire` takes a `target` — which board
-  was clicked — and `_firing_at` checks it: not your own, and not one that is
-  already out. A duel never sends one, because it has only one answer.
+* **Everybody shoots everybody, every turn.** A turn is a sweep of the table:
+  one shell at each board still afloat, not one shell at one board of your
+  choosing. `action_fire` takes a `target` — which board was clicked — and
+  `_firing_at` checks it against `_pending_targets`: not your own, not one that
+  is already out, and not one this turn has been to already. A duel never sends
+  a target, because it has only one answer.
 * **A square can only be fired at once, by anybody.** This needed no new code.
   `shots_<side>` has always been "cells fired *at* that side", from whoever, so
   the check that stopped a player firing at the same square twice already stops
   the whole table doing it.
-* **One at a time, and a hit buys another shot** — the same rule the duel has.
-  `_pass_turn` walks the seats in order and skips everybody who is out, so a
-  four-way quietly becomes a three-way and then a duel without the rotation ever
-  being rewritten.
+* **A hit buys another shell, on that board** — the same rule the duel has,
+  read one grid at a time. `turn_cleared` is the boards the sweep is done with,
+  and `_advance_turn` only crosses one off when the shell misses or the fleet
+  goes down; the turn moves once nothing is pending. A duel is the same code
+  with one board in the sweep, which is why it still ends on the first miss.
+  `_next_player` then walks the seats in order and skips everybody who is out,
+  so a four-way quietly becomes a three-way and then a duel without the
+  rotation ever being rewritten. `read_state` ships the sweep as `turn_pending`,
+  which is what the client lights a crosshair on and counts down in the banner.
 * **Last one afloat wins.** `_end_if_settled` closes the game the moment one
   seat is left; `_is_out` is a fleet on the bottom *or* a player who walked away
   (`left_sides`). Walking out of a free-for-all is not a win for anybody — the

@@ -396,6 +396,14 @@ export class BattleshipScene {
         // them says which one is ours. In a free-for-all it says whose the
         // others are too, because "enemy" stops being one thing.
         const seatOf = (side) => (state.seats || []).find((seat) => seat.side === side);
+        const you = state.mode === "hotseat" ? state.current_player : state.you || "a";
+        // A free-for-all turn is a sweep: one shell at each of the other boards.
+        // The ones already dealt with this turn are dimmed, so a player can see
+        // what they still owe without counting the pegs themselves.
+        const swept = (side) =>
+            state.mode === "royale" && state.state === "battle" &&
+            state.current_player === you && side !== you &&
+            !(state.turn_pending || []).includes(side);
         const title = (side) => {
             const seat = seatOf(side);
             if (seat && seat.out) {
@@ -413,13 +421,14 @@ export class BattleshipScene {
             return side === "a" ? "PLAYER 1" : "PLAYER 2";
         };
         for (const side of this.sides) {
-            this.setTitle(side, title(side), seatOf(side)?.out ? "#6b7580" : TITLE_COLOR[side]);
+            const color = seatOf(side)?.out || swept(side) ? "#6b7580" : TITLE_COLOR[side];
+            this.setTitle(side, title(side), color);
         }
 
         // And whose shot the table is waiting on. A duel can point at the one
-        // grid the next shell belongs to; a free-for-all cannot, because three
-        // of them are fair game, so it names the gun instead of the target.
-        const you = state.mode === "hotseat" ? state.current_player : state.you || "a";
+        // grid the next shell belongs to; a free-for-all cannot, because every
+        // board still afloat gets a shell this turn, so it names the gun
+        // instead of the target.
         if (state.state !== "battle") {
             this.setTurn(null);
         } else if (state.mode === "royale") {

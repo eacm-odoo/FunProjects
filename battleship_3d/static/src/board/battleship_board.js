@@ -175,6 +175,17 @@ export class BattleshipBoard extends Component {
         return this.seats.filter((seat) => !seat.out);
     }
 
+    /**
+     * Boards the seat on the gun still owes a shell this turn.
+     *
+     * A turn is a sweep of the table — one shell at every rival still afloat —
+     * and the server is the one keeping count, so the client never works out
+     * how far along it is. A duel has one board in here until the shot misses.
+     */
+    get pendingTargets() {
+        return this.game.turn_pending || [];
+    }
+
     get statusText() {
         const g = this.game;
         if (this.royale) {
@@ -237,7 +248,10 @@ export class BattleshipBoard extends Component {
         }
         const left = this.standing.length;
         if (this.myTurn) {
-            return _t("Your shot — %s fleets still afloat.", left);
+            return _t(
+                "Your turn — %s of %s boards still to fire at.",
+                this.pendingTargets.length, left - 1
+            );
         }
         return _t("%s is aiming — %s fleets still afloat.", this.sideLabel(g.current_player), left);
     }
@@ -278,7 +292,10 @@ export class BattleshipBoard extends Component {
                 ? {
                     mine: true,
                     title: _t("Your shot"),
-                    text: _t("Any board but your own."),
+                    text: _t(
+                        "One shell at every board still afloat — %s to go.",
+                        this.pendingTargets.length
+                    ),
                 }
                 : {
                     mine: false,
@@ -857,11 +874,10 @@ export class BattleshipBoard extends Component {
         }
         // Only ever light up a cell that can actually be fired at: the
         // highlight is the crosshair, not a hover effect.
-        // In a free-for-all every board but our own is fair game, as long as
-        // there is still a fleet on it; a duel has exactly one answer.
-        const theirs = this.room ? pick.side !== g.you : pick.side !== g.current_player;
-        const standing = !this.royale || !this.seatOf(pick.side).out;
-        const target = theirs && standing && this.myTurn;
+        // Which boards those are is the server's answer, not ours: a turn owes
+        // one shell to every rival still afloat, and a board already swept this
+        // turn is as closed as our own or as one that has gone down.
+        const target = this.myTurn && this.pendingTargets.includes(pick.side);
         this.scene.setHover(target ? pick.side : null, target ? pick.cell : null);
         if (target && kind === "click") {
             this.fire(pick.cell, pick.side);

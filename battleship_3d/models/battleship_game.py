@@ -86,6 +86,10 @@ class BattleshipGame(models.Model):
     # free-for-all while two others were still shooting at each other.
     cpu_sides = fields.Json(default=list)
     left_sides = fields.Json(default=list)
+    # A turn is one shell at every rival still afloat, so it takes several calls
+    # to play. This is how far through that sweep the seat holding the turn is:
+    # the boards it is done with. It is emptied whenever the gun changes hands.
+    turn_cleared = fields.Json(default=list)
     shot_ids = fields.One2many("battleship.shot", "game_id", string="Shot log")
     shot_count = fields.Integer(compute="_compute_shot_count")
     # A game is over when somebody has won or walked away, and that is the only
@@ -230,6 +234,25 @@ class BattleshipGame(models.Model):
         seats = self._seats()
         order = seats[seats.index(after) + 1:] + seats[:seats.index(after)]
         return next((side for side in order if not self._is_out(side)), None)
+
+    def _pending_targets(self, shooter):
+        """Boards `shooter` still owes a shell before the turn moves on.
+
+        The sweep is never stored as a list of targets, only as the boards
+        already dealt with, so a fleet that goes down or a player who walks out
+        halfway through drops out of the turn on their own.
+        """
+        self.ensure_one()
+        cleared = set(self._json(self.turn_cleared))
+        return [
+            side for side in self._alive_sides()
+            if side != shooter and side not in cleared
+        ]
+
+    def _set_turn(self, side):
+        """Hand the gun to `side`, with a whole sweep in front of it."""
+        self.ensure_one()
+        self.write({"current_player": side, "turn_cleared": []})
 
     def _fleet(self, side):
         return list(self._json(self["fleet_%s" % side]))
@@ -616,7 +639,8 @@ class BattleshipGame(models.Model):
             # for: their seat is already off the table, and a fleet that will
             # never be locked in would otherwise hold up everybody else.
             if all(self["ready_%s" % seat] or self._is_out(seat) for seat in self._seats()):
-                self.write({"state": "battle", "current_player": self._first_player()})
+                self.write({"state": "battle"})
+                self._set_turn(self._first_player())
                 # Side A may be one of the admiralty's own in a room that was
                 # started by somebody who then left the lobby.
                 self._cpu_turns()
@@ -628,7 +652,8 @@ class BattleshipGame(models.Model):
             else:
                 self.setup_for = "b"
                 return self.read_state(side)
-        self.write({"state": "battle", "current_player": "a"})
+        self.write({"state": "battle"})
+        self._set_turn("a")
         return self.read_state(side)
 
     # ------------------------------------------------------------------
@@ -698,8 +723,31 @@ class BattleshipGame(models.Model):
         nxt = self._next_player(after)
         if not nxt:
             return
-        self.current_player = nxt
+        self._set_turn(nxt)
         self._cpu_turns()
+
+    def _advance_turn(self, shooter, target, result):
+        """Book a resolved shell against the shooter's sweep.
+
+        A hit buys another shell on the same board, so a target is only crossed
+        off the sweep when the shell misses — or when the board goes down, since
+        one that is out cannot be fired at again. The turn moves on once there
+        is nothing left to sweep, which in a duel is the first miss and in a
+        free-for-all is a miss on each of the other boards.
+
+        Nothing here plays a CPU seat: the caller does that once its own shell
+        is booked, so the admiralty never fires from inside another seat's call.
+        """
+        self.ensure_one()
+        if self.state == "done":
+            return
+        if result == "miss" or self._is_out(target):
+            self.turn_cleared = self._json(self.turn_cleared) + [target]
+        if self._pending_targets(shooter):
+            return
+        nxt = self._next_player(shooter)
+        if nxt:
+            self._set_turn(nxt)
 
     def action_fire(self, cell, side=None, target=None):
         """Player shot. Seats the admiralty holds answer within the same call.
@@ -709,9 +757,13 @@ class BattleshipGame(models.Model):
         the turn is the one rule a remote player would most like to break.
 
         `target` is whose water the shell lands in. A duel has only one answer
-        and works it out itself; a free-for-all has three, so there the client
-        says which board was clicked and the server checks it is a board that
-        can still be shot at.
+        and works it out itself; a free-for-all lets the player choose the order
+        the sweep is fired in, so there the client says which board was clicked
+        and the server checks it is one this turn still owes a shell to.
+
+        One call is one shell, not one turn: a free-for-all turn is a sweep of
+        the whole table and takes at least one call per rival to play out. What
+        it takes to end it lives in `_advance_turn`.
         """
         self.ensure_one()
         if self.state != "battle":
@@ -722,21 +774,27 @@ class BattleshipGame(models.Model):
         if self._is_room() and side != shooter:
             raise UserError(_("It is not your turn."))
         target = self._firing_at(shooter, target)
-        result = self._resolve(shooter, target, cell)
-        # A hit buys another shot, in every mode: the turn only moves on a miss.
-        if self.state != "done" and result == "miss":
-            self._pass_turn(shooter)
+        self._advance_turn(shooter, target, self._resolve(shooter, target, cell))
+        # Whoever the turn landed on, if anybody: a no-op unless it is a CPU.
+        self._cpu_turns()
         self._notify("fire")
         return self.read_state(side)
 
     def _firing_at(self, shooter, target):
-        """Whose board a shot is allowed to land on."""
+        """Whose board a shot is allowed to land on.
+
+        A board already swept this turn is as closed as a board that is out: a
+        second shell at it would be one the sweep never granted, and it would
+        come out of somebody else's share of the turn.
+        """
         self.ensure_one()
         if self.mode != "royale":
             return "b" if shooter == "a" else "a"
         if target == shooter:
             raise UserError(_("You cannot fire at your own fleet."))
-        if target not in self._alive_sides():
+        if target not in self._pending_targets(shooter):
+            if target in self._alive_sides():
+                raise UserError(_("You already fired at that fleet this turn."))
             raise UserError(_("That fleet is out of the game."))
         return target
 
@@ -771,12 +829,13 @@ class BattleshipGame(models.Model):
     def _cpu_shot(self, shooter):
         """A board and a cell for a seat the admiralty is playing.
 
-        A board it has already wounded is finished off before a fresh one is
-        opened — the same hunt-and-target the CPU has always played, except it
-        now has to pick whose water to play it in.
+        It only ever picks from what the turn still owes a shell to, so it walks
+        the same sweep a player does. Which board it opens first is still its
+        own call, and a board it has already wounded goes first — the same
+        hunt-and-target the CPU has always played, one grid at a time.
         """
         self.ensure_one()
-        targets = [side for side in self._alive_sides() if side != shooter]
+        targets = self._pending_targets(shooter)
         if not targets:
             return None, None
         wounded = [side for side in targets if self._cpu_queue(side)]
@@ -787,11 +846,11 @@ class BattleshipGame(models.Model):
     def _cpu_turns(self):
         """Play every seat the admiralty holds, until a human is up again.
 
-        Two loops in one: over the seats it has to play, and over the shots each
-        of those seats earns, because a hit buys another one here exactly like
-        it does for a player. The guard is not a rule, it is a promise that a
-        worker cannot be wedged by one: no game has more shells in it than
-        there are cells on the table.
+        One loop over shells rather than over turns: `_advance_turn` is what
+        knows when a sweep is finished and the gun moves, so the same rules the
+        players are held to are the ones the admiralty plays by. The guard is
+        not a rule, it is a promise that a worker cannot be wedged by one: no
+        game has more shells in it than there are cells on the table.
         """
         self.ensure_one()
         for _shell in range(len(self._seats()) * SIZE * SIZE):
@@ -801,15 +860,12 @@ class BattleshipGame(models.Model):
             target, cell = self._cpu_shot(shooter)
             if target is None:
                 # Nothing left to shoot at: the game is over, or about to be.
-                if self._end_if_settled() or not self._next_player(shooter):
-                    return
-                self.current_player = self._next_player(shooter)
-                continue
-            if self._resolve(shooter, target, cell) == "miss":
                 nxt = self._next_player(shooter)
-                if not nxt:
+                if self._end_if_settled() or not nxt:
                     return
-                self.current_player = nxt
+                self._set_turn(nxt)
+                continue
+            self._advance_turn(shooter, target, self._resolve(shooter, target, cell))
 
     # ------------------------------------------------------------------
     # client payload
@@ -855,6 +911,12 @@ class BattleshipGame(models.Model):
             "state": self.state,
             "setup_for": self.setup_for,
             "current_player": self.current_player,
+            # The boards the seat on the gun still owes a shell to this turn.
+            # The client fires at nothing else, and counts the sweep down with
+            # it; everybody reads the same list, whether it is their turn or not.
+            "turn_pending": (
+                self._pending_targets(self.current_player) if self.state == "battle" else []
+            ),
             "winner": self.winner,
             "end_reason": self.end_reason,
             # Rooms only. `channel` carries the room secret, which every player

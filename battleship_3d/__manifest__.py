@@ -13,8 +13,9 @@ three.js board rendered as an OWL component.
   keep in step over the Odoo bus
 * free-for-all: four boards on one table, up to four admirals in the room and
   the admiralty on whatever chairs are left, so one player is enough to sail.
-  Everybody fires at everybody, a square nobody can fire at twice, and the last
-  fleet afloat takes it
+  Every turn is a sweep of the table — one shell at each board still afloat,
+  and a hit buys another on that board — a square nobody can fire at twice, and
+  the last fleet afloat takes it
 * a live sea shaded on the GPU, with the grid drawn on the surface: five WWII
   ship models ride the swell, and a shell arcs in and raises a ring the whole
   fleet rolls on
@@ -33,7 +34,7 @@ three.js board rendered as an OWL component.
 * playable from the backend menu, and from the public page /battleship without
   an account (the game is bound to the browser session)
 """,
-    "version": "19.0.7.0.0",
+    "version": "19.0.7.1.0",
     "category": "Tools/Games",
     "license": "LGPL-3",
     "author": "Odoo Development Services",
