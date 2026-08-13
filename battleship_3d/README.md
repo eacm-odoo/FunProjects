@@ -112,6 +112,13 @@ the same time, and the battle starts once the second one locks in.
   long as the player at it is willing to. The beat runs only while a room is
   open (`syncHeartbeat`), and the wording is "has not answered", not
   "disconnected", because that is all the server can honestly tell.
+* **Names.** A room asks for one when you open or join it, but a player who
+  walked in through an invitation link was never asked and a player who was can
+  mistype it, so `action_rename` lets a seat change the name it plays under for
+  as long as the game is running. It is written twice: on the record, which is
+  what the table sees, and in `localStorage`, which is what this browser
+  suggests next time. The seat is read from the caller's token like every other
+  room call — the request carries a name, never a chair.
 * **Rematch.** A finished game is never reset — it is what the win/loss tally
   counts. "Rematch" opens a fresh room that inherits both seats, and the old
   channel is where the other tab hears about it (`rematch_id`).
@@ -212,6 +219,16 @@ smaller `WATER_SEGMENTS_MANY` and the tighter `GAP_MANY`. The shot log gained a
 `target` column for the same reason the boards did: four grids share one set of
 coordinates, so J8 no longer says whose J8.
 
+The log is a feed, not a source. It rides along with the payload `LOG_ROWS` deep
+— three rows are on screen, the rest is what the volley animates from — and
+anything read out of it inherits that window. Two things used to: the colour of
+a marker, which turned white again once its shot scrolled off the end, and the
+final dispatch's shots-and-hits, which stopped counting past the window. Both
+now come from the payload proper, counted over the whole game: `hits_<side>` is
+which cells on that board found a hull, and `tally` is what each seat fired and
+how much of it landed. Neither leaks anything — a marker is on the table for
+everyone to see, and a hit cell is one that was already fired at.
+
 ## Ships and water
 
 Both ported from the `Battleship 3D` design prototype.
@@ -279,6 +296,7 @@ the canvas).
 | `action_random_fleet(side)` | scatter a legal fleet |
 | `action_ready(side)` | lock a fleet; starts the battle when both are set |
 | `action_fire(cell, side)` | resolve a shot; in CPU mode the CPU answers in the same call |
+| `action_rename(side, nickname)` | change the name a seat plays under, while the game is still running |
 | `action_leave(side)` / `action_rematch(side)` | give up a room / play again in a new one |
 | `read_state(viewer)` | full client payload, cut for that seat — enemy positions filtered out |
 | `read_record(session_token)` | wins, losses, games played and seconds at the board, for a user or a browser session |

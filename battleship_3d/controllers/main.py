@@ -211,6 +211,14 @@ class BattleshipController(http.Controller):
             code, self._token(), nickname
         )
 
+    # Renaming a seat. Which seat that is comes from the caller's token like
+    # everywhere else here, so the request can carry a new name but never a new
+    # chair to hang it on.
+    @http.route("/battleship/room/rename", type="jsonrpc", auth="public")
+    def rename_seat(self, game_id=None, nickname=None, **kwargs):
+        game = self._game(game_id)
+        return game.action_rename(self._side(game), nickname)
+
     @http.route("/battleship/room/leave", type="jsonrpc", auth="public")
     def leave_room(self, game_id=None, **kwargs):
         game = self._game(game_id)

@@ -64,6 +64,8 @@ export class BattleshipBoard extends Component {
             backToStart: false, // the room panel was opened from the start screen
             roomMode: "online", // which kind of room that panel is about to open
             nickname: browser.localStorage.getItem(NICKNAME_KEY) || "",
+            renaming: false, // the name field on our own seat is open
+            rename: "", // and what has been typed into it so far
             joinCode: "",
             report: null, // {kind, subject, body} while the report card is open
             error: "",
@@ -553,13 +555,16 @@ export class BattleshipBoard extends Component {
         const g = this.game;
         const side = this.room ? g.you : g.mode === "cpu" ? "a" : g.winner;
         const enemies = this.seats.map((seat) => seat.side).filter((s) => s !== side);
-        const mine = (g.log || []).filter((entry) => entry.shooter === side);
+        // The tally is counted over the whole game on the server. The radio log
+        // it used to be added up from is a window on the last few dozen shells,
+        // so a long free-for-all reported a fraction of what was fired.
+        const mine = (g.tally || {})[side] || { shots: 0, hits: 0 };
         return {
             shots: this.royale
-                ? mine.length
+                ? mine.shots
                 : (g["shots_" + enemies[0]] || []).length,
             hits: this.royale
-                ? mine.filter((entry) => entry.result !== "miss").length
+                ? mine.hits
                 : this.fleetOf(enemies[0]).reduce((total, ship) => total + ship.hits, 0),
         };
     }
@@ -1122,6 +1127,58 @@ export class BattleshipBoard extends Component {
 
     createRoom() {
         return this.enterRoom(api.createRoom(this.ui.nickname, this.ui.roomMode));
+    }
+
+    // ------------------------------------------------------------- your name
+    /** The name the table knows this browser by, or "" outside a room. */
+    get myName() {
+        return this.room ? this.game.players[this.game.you] || "" : "";
+    }
+
+    /** A name can be fixed for as long as the game is still being played. */
+    get canRename() {
+        return this.room && this.game.state !== "done";
+    }
+
+    startRename() {
+        this.ui.rename = this.myName;
+        this.ui.renaming = true;
+    }
+
+    cancelRename() {
+        this.ui.renaming = false;
+        this.ui.rename = "";
+    }
+
+    /**
+     * Change the name, at the table and for the next room this browser opens.
+     *
+     * It lives in two places for two reasons: the server holds the one everyone
+     * sees, and localStorage holds the one this browser will suggest next time.
+     * Both are written, so a name that had to be corrected once does not have
+     * to be corrected again. A rejected name leaves the field open with the
+     * typing still in it — `apply` has already said why in a notification.
+     */
+    async saveRename() {
+        const name = this.ui.rename.trim();
+        if (!name || name === this.myName) {
+            this.cancelRename();
+            return;
+        }
+        await this.apply(api.rename(this.game.id, name));
+        if (this.myName === name) {
+            browser.localStorage.setItem(NICKNAME_KEY, name);
+            this.ui.nickname = name;
+            this.cancelRename();
+        }
+    }
+
+    onRenameKey(ev) {
+        if (ev.key === "Enter") {
+            this.saveRename();
+        } else if (ev.key === "Escape") {
+            this.cancelRename();
+        }
     }
 
     joinRoom() {

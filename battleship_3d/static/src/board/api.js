@@ -31,6 +31,7 @@ export const api = {
     createRoom: (nickname, mode) => rpc("/battleship/room/create", { nickname, mode }),
     startRoom: (gameId) => rpc("/battleship/room/start", { game_id: gameId }),
     joinRoom: (code, nickname) => rpc("/battleship/room/join", { code, nickname }),
+    rename: (gameId, nickname) => rpc("/battleship/room/rename", { game_id: gameId, nickname }),
     leaveRoom: (gameId) => rpc("/battleship/room/leave", { game_id: gameId }),
     ping: (gameId) => rpc("/battleship/room/ping", { game_id: gameId }),
     rematch: (gameId) => rpc("/battleship/room/rematch", { game_id: gameId }),

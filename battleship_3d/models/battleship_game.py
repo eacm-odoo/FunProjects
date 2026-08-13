@@ -31,6 +31,12 @@ SIDE_LABELS = [("a", "Side A"), ("b", "Side B"), ("c", "Side C"), ("d", "Side D"
 # so two players do not put a write on the table every few seconds each.
 AWAY_AFTER = 45
 PING_STEP = 5
+# How much of the shot log rides along with a payload. Three rows of it are on
+# screen; the rest is what the board animates from, since one call can resolve a
+# whole volley — a free-for-all turn is a shell per rival, and three admiralty
+# seats answering one player can put a couple of dozen of them in the air at
+# once. Anything the window does drop is still drawn, only without its arc.
+LOG_ROWS = 60
 
 
 def coord(cell):
@@ -281,6 +287,24 @@ class BattleshipGame(models.Model):
     def _shots(self, side):
         return list(self._json(self["shots_%s" % side]))
 
+    def _hit_cells(self, side):
+        """Which of the shells fired at that board found a hull.
+
+        The board paints a red marker on a hit and a white one on a miss, and it
+        used to work that out from the shot log, which only ever carries the
+        last few dozen entries: an older hit quietly turned white the moment it
+        scrolled off the end. A board can take a hundred shells, so the log was
+        never the place to read them back from.
+
+        This gives nothing away. A hit is a marker every player at the table can
+        already see, and it is only ever a cell that was fired at — where the
+        rest of a ship lies stays in `fleet_<side>`, which is emptied for
+        everybody but its owner until the ship goes down.
+        """
+        self.ensure_one()
+        hulls = {cell for ship in self._fleet(side) for cell in ship["cells"]}
+        return [cell for cell in self._shots(side) if cell in hulls]
+
     def _json(self, value):
         """An empty Json field is stored as NULL and reads back as False.
 
@@ -488,6 +512,32 @@ class BattleshipGame(models.Model):
         game.write(values)
         game._notify("join")
         return game.read_state(seat)
+
+    def action_rename(self, side, nickname):
+        """Change the name a seat plays under.
+
+        A name is worth being able to fix: a player who joins by opening a link
+        is never asked for one, and one who is asked can mistype it. Only the
+        holder of a seat can rename it — `side` is read from the caller's token
+        by the route and never from the request — and only while the game is
+        still running, because a finished dispatch names whoever won it.
+
+        The name has nowhere to hide: it is on the board, in the muster and in
+        every line of the radio log, so it is trimmed to the same 32 characters
+        the room panel asks for and an empty one is refused. Clearing a name
+        back to `Player 2` is not something anybody has asked to do.
+        """
+        self.ensure_one()
+        if not self._is_room() or side not in self._seats():
+            raise UserError(_("You are not sitting at that table."))
+        if self.state == "done":
+            raise UserError(_("That game is over."))
+        name = (nickname or "").strip()[:32]
+        if not name:
+            raise UserError(_("Enter a name."))
+        self.write({"name_%s" % side: name})
+        self._notify("rename")
+        return self.read_state(side)
 
     def action_start(self, side):
         """Sail with whoever turned up; the admiralty takes the empty seats.
@@ -923,6 +973,17 @@ class BattleshipGame(models.Model):
                 for ship in fleet
             ]
 
+        # One pass over the log serves both the rows the client shows and the
+        # per-seat tally; the records are read either way, so counting them here
+        # costs nothing over reading the last few.
+        shots = self.shot_ids.sorted("id", reverse=True)
+        tally = {side: {"shots": 0, "hits": 0} for side in seats}
+        for shot in shots:
+            seat = tally.get(shot.shooter)
+            if seat:
+                seat["shots"] += 1
+                seat["hits"] += shot.result != "miss"
+
         state = {
             "id": self.id,
             "mode": self.mode,
@@ -979,8 +1040,13 @@ class BattleshipGame(models.Model):
                     "result": s.result,
                     "ship_name": s.ship_name,
                 }
-                for s in self.shot_ids.sorted("id", reverse=True)[:20]
+                for s in shots[:LOG_ROWS]
             ],
+            # What each seat has fired and how much of it landed, counted over
+            # the whole game rather than over the window above: the final
+            # dispatch used to add up the log it could see, which stopped being
+            # the whole story twenty shells in.
+            "tally": tally,
             "record": self.env["battleship.game"].read_record(
                 self["token_%s" % viewer]
                 if self._is_room() and viewer in seats
@@ -990,6 +1056,7 @@ class BattleshipGame(models.Model):
         for side in seats:
             state["fleet_%s" % side] = fleet_payload(self._fleet(side), reveal[side])
             state["shots_%s" % side] = self._shots(side)
+            state["hits_%s" % side] = self._hit_cells(side)
         return state
 
     def _seat_name(self, side):

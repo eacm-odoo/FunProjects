@@ -34,7 +34,7 @@ three.js board rendered as an OWL component.
 * playable from the backend menu, and from the public page /battleship without
   an account (the game is bound to the browser session)
 """,
-    "version": "19.0.7.2.0",
+    "version": "19.0.8.0.0",
     "category": "Tools/Games",
     "license": "LGPL-3",
     "author": "Odoo Development Services",
