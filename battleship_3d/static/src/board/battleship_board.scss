@@ -364,6 +364,18 @@ $bs-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
             animation: o_bs_pulse 1.5s ease-in-out infinite;
         }
         &.theirs { opacity: 0.82; }
+        // Nothing heard from the other seat. Brass, not red: the room is still
+        // open and nobody has lost anything — it is a warning, not damage.
+        &.o_bs_quiet {
+            border-color: rgba(176, 138, 62, 0.8);
+            border-top-color: rgba(176, 138, 62, 0.95);
+
+            b { color: var(--bs-brass); }
+            .o_bs_turnbar_dot {
+                background: var(--bs-brass);
+                animation: o_bs_pulse 2.4s ease-in-out infinite;
+            }
+        }
     }
     .o_bs_turnbar_dot {
         flex: none;
@@ -371,6 +383,33 @@ $bs-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
         height: 8px;
         border-radius: 50%;
         background: rgba(227, 218, 196, 0.38);
+    }
+
+    // Walking the wreckage: the same slot as the turn banner, which is empty by
+    // then, and clickable — this one is a way back and not a label.
+    .o_bs_inspect {
+        position: absolute;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 8px 10px 8px 18px;
+        white-space: nowrap;
+        border: 1px solid #2c383f;
+        border-top-color: #42525a;
+        background: rgba(13, 20, 24, 0.92);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 18px rgba(0, 0, 0, 0.5);
+    }
+    .o_bs_inspect_text {
+        font-family: $bs-display;
+        font-size: 20px;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--bs-ink-bright);
     }
     .o_bs_turnbar_sub { font-family: $bs-typed; font-size: 13px; color: var(--bs-ink-dim); }
 
@@ -382,8 +421,15 @@ $bs-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
         align-items: center;
         gap: 10px;
         margin-bottom: 10px;
+        // Four plates share the width two used to have, and a name can be
+        // anything a player typed: the title gives up room before it wraps.
+        min-width: 0;
     }
     .o_bs_fleet_title {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
         font-family: $bs-display;
         font-size: 19px;
         font-weight: 800;
@@ -416,7 +462,50 @@ $bs-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
             &::before { background: var(--bs-ink-faint); }
         }
     }
-    .o_bs_afloat { margin-left: auto; @include bs-stencil(10px); letter-spacing: 0.18em; }
+    .o_bs_afloat {
+        flex: none;
+        margin-left: auto;
+        white-space: nowrap;
+        @include bs-stencil(10px);
+        letter-spacing: 0.18em;
+    }
+    // "CPU" and "OUT": what a seat is, in one word, next to whose it is.
+    .o_bs_tagline {
+        padding: 2px 7px;
+        border: 1px solid #3d4a50;
+        @include bs-stencil(9px, var(--bs-ink-faint));
+        letter-spacing: 0.2em;
+
+        &.o_bs_gone { border-color: rgba(196, 71, 47, 0.6); color: var(--bs-hit); }
+    }
+
+    // Four boards, four plates. They get half the room two had, so the plate
+    // gives up the parts that were only ever comfort: the fleet wraps tighter
+    // and the title carries the weight.
+    .o_bs_bar_bottom.o_bs_many {
+        .o_bs_panel { flex: 1 1 22%; min-width: 210px; padding: 10px 12px; }
+        .o_bs_fleet_title { font-size: 16px; letter-spacing: 0.12em; }
+        .o_bs_fleet { gap: 6px; }
+        .o_bs_ship { padding: 7px 9px; gap: 5px; }
+        .o_bs_ship .o_bs_ship_name { font-size: 13px; }
+        .o_bs_enemy .o_bs_ship .o_bs_ship_name { font-size: 10px; }
+        .o_bs_pip { width: 10px; height: 6px; }
+    }
+    // With four plates the toolbar is the table's, not the last fleet's: it
+    // gets the full width under them rather than a corner of one.
+    .o_bs_toolbar {
+        flex: 1 1 100% !important;
+        align-items: center;
+        padding: 10px 14px;
+    }
+    // A fleet that is off the table. It stays on screen — knowing who went
+    // down, and when, is half of what a free-for-all is about.
+    .o_bs_panel.o_bs_out {
+        opacity: 0.55;
+        border-color: #2a3238;
+        border-top-color: #2a3238;
+        box-shadow: none;
+    }
 
     .o_bs_fleet { display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -497,9 +586,10 @@ $bs-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
         margin-top: 11px;
         padding-top: 11px;
         border-top: 1px solid #2c383f;
-
-        .o_bs_spacer { margin-left: auto; }
     }
+    // Whatever ends the game sits apart from the things that do not.
+    .o_bs_actions .o_bs_spacer,
+    .o_bs_toolbar .o_bs_spacer { margin-left: auto; }
 
     // ------------------------------------------------------------ buttons
     // Painted steel with a lip: hover lifts the paint, pressing drops the plate
@@ -736,6 +826,47 @@ $bs-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
         text-overflow: ellipsis;
     }
     .o_bs_err { margin: 0 !important; color: var(--bs-hit) !important; font-size: 13px; }
+    .o_bs_wait { @include bs-stencil(10px, var(--bs-brass)); letter-spacing: 0.2em; text-align: center; }
+
+    // The muster: who is at the table, and which chairs the admiralty will
+    // take if nobody else turns up. Only a free-for-all has this question.
+    .o_bs_muster {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 10px 12px;
+        background: #0d1418;
+        border: 1px solid #2c383f;
+        box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.6);
+    }
+    .o_bs_berth {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        @include bs-stencil(10px, #566067);
+        letter-spacing: 0.16em;
+        font-weight: 400;
+
+        &.in { color: var(--bs-ink); }
+    }
+    .o_bs_berth_seat {
+        flex: none;
+        width: 20px;
+        text-align: center;
+        border: 1px solid #2c383f;
+        color: var(--bs-ink-faint);
+
+        .o_bs_berth.in & { border-color: #0a5f64; color: #4fb3b8; }
+    }
+    .o_bs_berth_name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        text-align: left;
+    }
+    .o_bs_berth_you { flex: none; color: var(--bs-brass); }
 
     // ------------------------------------------------------ final dispatch
     // The end of a game is paper: it is a report on something that is over.
@@ -796,6 +927,14 @@ $bs-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
                 border-color: #8b8570;
                 color: #22302f;
             }
+        }
+        // The way out of the dispatch and onto the board: quieter than the two
+        // above it, because it ends nothing and starts nothing.
+        button.o_bs_wreckage {
+            display: block;
+            width: 100%;
+            margin-top: 10px;
+            border-style: dashed;
         }
     }
     // Rubber-stamped across the bottom of a sheet, and never quite straight.
@@ -986,7 +1125,12 @@ $bs-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
         border-radius: 50%;
         background: var(--bs-teal);
         box-shadow: 0 0 10px var(--bs-teal);
+
+        &.brass { background: var(--bs-brass); box-shadow: 0 0 10px var(--bs-brass); }
     }
+    // The free-for-all takes the width of the pair above it: it is one way in,
+    // not one of two, and its subtitle needs the room.
+    .o_bs_tile.o_bs_wide { flex: none; width: 100%; }
 
     .o_bs_start_right { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 

@@ -21,15 +21,17 @@ export const api = {
         rpc("/battleship/place", { game_id: gameId, side, index, cell, direction }),
     randomFleet: (gameId, side) => rpc("/battleship/random", { game_id: gameId, side }),
     ready: (gameId) => rpc("/battleship/ready", { game_id: gameId }),
-    fire: (gameId, cell) => rpc("/battleship/fire", { game_id: gameId, cell }),
+    fire: (gameId, cell, target) => rpc("/battleship/fire", { game_id: gameId, cell, target }),
 
     feedback: (kind, subject, description, gameId) =>
         rpc("/battleship/feedback", {
             kind, subject, description, game_id: gameId,
         }),
 
-    createRoom: (nickname) => rpc("/battleship/room/create", { nickname }),
+    createRoom: (nickname, mode) => rpc("/battleship/room/create", { nickname, mode }),
+    startRoom: (gameId) => rpc("/battleship/room/start", { game_id: gameId }),
     joinRoom: (code, nickname) => rpc("/battleship/room/join", { code, nickname }),
     leaveRoom: (gameId) => rpc("/battleship/room/leave", { game_id: gameId }),
+    ping: (gameId) => rpc("/battleship/room/ping", { game_id: gameId }),
     rematch: (gameId) => rpc("/battleship/room/rematch", { game_id: gameId }),
 };

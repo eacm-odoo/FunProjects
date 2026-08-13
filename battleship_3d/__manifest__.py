@@ -11,12 +11,19 @@ three.js board rendered as an OWL component.
 * vs CPU (hunt/target AI, solved server side), 2 players hot-seat, or 2 players
   remote: one opens a room, the other joins with the code, and the two boards
   keep in step over the Odoo bus
+* free-for-all: four boards on one table, up to four admirals in the room and
+  the admiralty on whatever chairs are left, so one player is enough to sail.
+  Everybody fires at everybody, a square nobody can fire at twice, and the last
+  fleet afloat takes it
 * a live sea shaded on the GPU, with the grid drawn on the surface: five WWII
   ship models ride the swell, and a shell arcs in and raises a ring the whole
   fleet rolls on
 * a 1943 signals room around the board: an opening screen with the service
   record on a paper file, orders and a radio log across the bridge, fleets on
   painted steel plates, and a typed dispatch at the end of a game
+* the final board can be walked once a game is over, with both fleets revealed
+* online rooms say so when the other seat stops answering, without ever ending
+  the game over it
 * a glossary that shows each class on a 3D turntable
 * manual or random fleet placement, ships can be re-picked and turned 90°
 * full shot history per game
@@ -26,7 +33,7 @@ three.js board rendered as an OWL component.
 * playable from the backend menu, and from the public page /battleship without
   an account (the game is bound to the browser session)
 """,
-    "version": "19.0.5.0.0",
+    "version": "19.0.7.0.0",
     "category": "Tools/Games",
     "license": "LGPL-3",
     "author": "Odoo Development Services",

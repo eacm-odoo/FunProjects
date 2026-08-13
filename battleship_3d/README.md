@@ -102,6 +102,16 @@ the same time, and the battle starts once the second one locks in.
   reading the state back through its own seat, which is filtered as always.
 * **Leaving.** Closing a room in the lobby deletes it. Leaving mid-battle ends
   the game as a win for whoever stayed (`end_reason = forfeit`).
+* **Going quiet.** Two browsers over a bus have no way of saying goodbye — a
+  closed tab, a dead network and a shut laptop look identical from the server —
+  so each seat writes `seen_a`/`seen_b` every 15s (`/battleship/room/ping`) and
+  the same call answers with whether the other one still is. Three missed beats
+  (`AWAY_AFTER`, 45s) and the board says so: a brass banner over the water in
+  place of the turn one, plus a notification the moment it flips either way.
+  It decides nothing — nobody forfeits for being quiet, and the room waits as
+  long as the player at it is willing to. The beat runs only while a room is
+  open (`syncHeartbeat`), and the wording is "has not answered", not
+  "disconnected", because that is all the server can honestly tell.
 * **Rematch.** A finished game is never reset — it is what the win/loss tally
   counts. "Rematch" opens a fresh room that inherits both seats, and the old
   channel is where the other tab hears about it (`rematch_id`).
@@ -126,6 +136,12 @@ It sits over a game the server has already created, so picking a mode is a door
 and not a wait. The final dispatch has a **Menu** button back to it, and Esc
 closes it once there is a board worth going back to.
 
+**See the wreckage** on the final dispatch pushes it aside and leaves the board
+on screen. It is the only moment worth looking at the whole thing: `read_state`
+stops hiding fleets once a game is over, so both navies are on the water with
+every hit and every miss on them. The dispatch is one Esc away throughout, the
+bottom bar stays live, and any new game clears the flag (`setGame`).
+
 Across the bridge: the wordmark and the mode switch, the **orders** strip (the
 one line that has to be read the moment it changes, so nothing else in that row
 is allowed to grow into it), the record, and the radio log. Under the water, one
@@ -136,6 +152,48 @@ which is exactly what the server sends (`isMine`).
 at runtime instead of shipping them: the board is the only screen that uses
 them, and every rule names a fallback stack, so a browser that never reaches
 Google Fonts gets a plainer board and not a broken one.
+
+## Free-for-all
+
+Four boards on one table, `mode = royale`. It is a room like the duel is — a
+code, a bus channel, a seat per browser token — with three seats to give instead
+of one, and it does not start itself: whoever opened it presses **Sail now**, and
+every chair still empty at that moment goes to the admiralty (`cpu_sides`). One
+human is therefore enough, four is the most, and anybody who arrives before the
+room sails gets the next free seat (`_free_seat`).
+
+The rules, and where they live:
+
+* **Everybody shoots everybody.** `action_fire` takes a `target` — which board
+  was clicked — and `_firing_at` checks it: not your own, and not one that is
+  already out. A duel never sends one, because it has only one answer.
+* **A square can only be fired at once, by anybody.** This needed no new code.
+  `shots_<side>` has always been "cells fired *at* that side", from whoever, so
+  the check that stopped a player firing at the same square twice already stops
+  the whole table doing it.
+* **One at a time, and a hit buys another shot** — the same rule the duel has.
+  `_pass_turn` walks the seats in order and skips everybody who is out, so a
+  four-way quietly becomes a three-way and then a duel without the rotation ever
+  being rewritten.
+* **Last one afloat wins.** `_end_if_settled` closes the game the moment one
+  seat is left; `_is_out` is a fleet on the bottom *or* a player who walked away
+  (`left_sides`). Walking out of a free-for-all is not a win for anybody — the
+  others are in the middle of a game with each other.
+
+Seats were the part that had to change everywhere. Nothing counts sides any more:
+`_seats()` answers how many a mode has, `_is_room()` whether browsers meet in it,
+and the per-side columns (`fleet_`, `shots_`, `token_`, `name_`, `ready_`,
+`seen_`) go up to `d`. The payload carries a `seats` list — side, name, cpu, out,
+ready — and the client draws one panel per entry, so nothing in the UI knows how
+many players a mode has either.
+
+On the table itself, `scene.js` no longer owns two boards: `_layout(sides)`
+builds them for whatever seats the payload names, two in a row or four in a
+square, and rebuilds when that changes (they carry their own water, so it is not
+a resize). Four sheets of water would be four times the vertices, hence the
+smaller `WATER_SEGMENTS_MANY` and the tighter `GAP_MANY`. The shot log gained a
+`target` column for the same reason the boards did: four grids share one set of
+coordinates, so J8 no longer says whose J8.
 
 ## Ships and water
 

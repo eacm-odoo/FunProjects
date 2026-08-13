@@ -8,7 +8,8 @@ from odoo.http import request
 from odoo.tools.translate import _
 
 MODES = ("cpu", "hotseat")
-SIDES = ("a", "b")
+ROOM_MODES = ("online", "royale")
+SIDES = ("a", "b", "c", "d")
 DIRECTIONS = ("h", "v")
 SIZE = 10
 FLEET_SIZE = 5
@@ -61,14 +62,17 @@ class BattleshipController(http.Controller):
         on a record somebody else created.
         """
         game_id = self._as_int(game_id, 0, 2 ** 31)
+        token = self._token()
         room = request.env["battleship.game"].sudo().search([
             ("id", "=", game_id),
-            ("mode", "=", "online"),
-            "|", ("token_a", "=", self._token()), ("token_b", "=", self._token()),
+            ("mode", "in", ROOM_MODES),
+            "|", "|", "|",
+            ("token_a", "=", token), ("token_b", "=", token),
+            ("token_c", "=", token), ("token_d", "=", token),
         ], limit=1)
         if room:
             return room
-        domain = [("id", "=", game_id), ("mode", "!=", "online")]
+        domain = [("id", "=", game_id), ("mode", "not in", ROOM_MODES)]
         if self._is_public():
             domain.append(("session_token", "=", self._token()))
         game = self._games().search(domain, limit=1)
@@ -77,8 +81,8 @@ class BattleshipController(http.Controller):
         return game
 
     def _side(self, game):
-        """Which seat the caller holds, for an online game. None otherwise."""
-        return game._side_of(self._token()) if game.mode == "online" else None
+        """Which seat the caller holds, in a room. None for a local game."""
+        return game._side_of(self._token()) if game.mode in ROOM_MODES else None
 
     def _as_int(self, value, low, high):
         try:
@@ -165,10 +169,17 @@ class BattleshipController(http.Controller):
         game = self._game(game_id)
         return game.action_ready(self._side(game))
 
+    # `target` is which board was clicked. It only means anything in a
+    # free-for-all, where there are three to choose from; the model checks that
+    # the one named can still be fired at, so a forged one buys nothing.
     @http.route("/battleship/fire", type="jsonrpc", auth="public")
-    def fire(self, game_id=None, cell=None, **kwargs):
+    def fire(self, game_id=None, cell=None, target=None, **kwargs):
         game = self._game(game_id)
-        return game.action_fire(self._as_int(cell, 0, SIZE * SIZE - 1), self._side(game))
+        return game.action_fire(
+            self._as_int(cell, 0, SIZE * SIZE - 1),
+            self._side(game),
+            self._as_choice(target, SIDES) if target else None,
+        )
 
     # ------------------------------------------------------------------ #
     # Online rooms                                                        #
@@ -179,11 +190,19 @@ class BattleshipController(http.Controller):
     # forge to sit down at somebody else's side of the board.
 
     @http.route("/battleship/room/create", type="jsonrpc", auth="public")
-    def create_room(self, nickname=None, **kwargs):
+    def create_room(self, nickname=None, mode="online", **kwargs):
         uid = False if self._is_public() else request.env.uid
         return request.env["battleship.game"].sudo().action_create_room(
-            self._token(), nickname, uid
+            self._token(), nickname, uid, self._as_choice(mode, ROOM_MODES)
         )
+
+    # Sailing a free-for-all with whoever turned up: the empty seats go to the
+    # admiralty. Only the player who opened the room may call it, which the
+    # model checks against the seat rather than against the request.
+    @http.route("/battleship/room/start", type="jsonrpc", auth="public")
+    def start_room(self, game_id=None, **kwargs):
+        game = self._game(game_id)
+        return game.action_start(self._side(game))
 
     @http.route("/battleship/room/join", type="jsonrpc", auth="public")
     def join_room(self, code=None, nickname=None, **kwargs):
@@ -195,6 +214,14 @@ class BattleshipController(http.Controller):
     def leave_room(self, game_id=None, **kwargs):
         game = self._game(game_id)
         return game.action_leave(self._side(game))
+
+    # The beat of an online room: it says the caller is still there and answers
+    # with whether the other seat is. It carries no game data at all, so it is
+    # the one call in here that is safe to make on a timer.
+    @http.route("/battleship/room/ping", type="jsonrpc", auth="public")
+    def ping_room(self, game_id=None, **kwargs):
+        game = self._game(game_id)
+        return game.action_ping(self._side(game))
 
     @http.route("/battleship/room/rematch", type="jsonrpc", auth="public")
     def rematch(self, game_id=None, **kwargs):

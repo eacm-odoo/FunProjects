@@ -10,27 +10,46 @@ import { shipMesh } from "./ships";
 import { WaterSurface } from "./water";
 
 export const SIZE = 10;
+// Room between two boards. Four of them on one screen have to give some of it
+// back, or the table stops fitting in the band the layout leaves for it.
 const GAP = 6.4;
+const GAP_MANY = 3.4;
 const COLS = "ABCDEFGHIJ";
 // Vertices per side of a water sheet. Displaced on the GPU, so it can afford a
-// density the CPU never could — but there are two of these on screen at once,
-// each half the size the design prototype's single board was, hence 160 rather
-// than its 220: same wave detail per cell, half again the vertices.
+// density the CPU never could — but there are several of these on screen at
+// once, each half the size the design prototype's single board was, hence 160
+// rather than its 220: same wave detail per cell, half again the vertices. Four
+// boards halve it again rather than putting four times the water on the GPU.
 const WATER_SEGMENTS = 160;
-// The two seas, told apart by colour and by the phase of their swell.
+const WATER_SEGMENTS_MANY = 112;
+// One sea per seat, told apart by colour and by the phase of their swell: a
+// player who looks up mid-game should know whose water they are looking at
+// before they read the plate.
 const SEA = {
     a: { deep: "#0a2233", shallow: "#1d6a7e", sky: "#a9dbe8", phase: 0 },
     b: { deep: "#0d1a24", shallow: "#31586b", sky: "#bcd3dd", phase: 1.7 },
+    c: { deep: "#141c26", shallow: "#4a5a72", sky: "#cbd2e0", phase: 3.1 },
+    d: { deep: "#151821", shallow: "#5c5364", sky: "#ddd0d8", phase: 4.6 },
 };
+// Plinth, floor and wall, per seat. Built once and shared: a board is rebuilt
+// whenever the table changes shape, and these outlive that.
+const HULL = {
+    a: { deep: "#0b2434", wall: "#0e2c3f", rim: "#241a20" },
+    b: { deep: "#0c1d29", wall: "#102532", rim: "#16282b" },
+    c: { deep: "#151d28", wall: "#1a2634", rim: "#20262e" },
+    d: { deep: "#171922", shallow: "#1e1f2b", wall: "#1e1f2b", rim: "#2a2028" },
+};
+const HULL_MAT = Object.fromEntries(
+    Object.entries(HULL).map(([side, c]) => [side, {
+        deep: new THREE.MeshStandardMaterial({ name: "deep" + side, color: c.deep, roughness: 0.95 }),
+        wall: new THREE.MeshStandardMaterial({ name: "wall" + side, color: c.wall, roughness: 0.9, side: THREE.DoubleSide }),
+        rim: new THREE.MeshStandardMaterial({ name: "rim" + side, color: c.rim, roughness: 0.82, metalness: 0.12 }),
+    }])
+);
+// What each seat's plate is written in, matching its water.
+const TITLE_COLOR = { a: "#b98fad", b: "#63c6cb", c: "#c9b98a", d: "#c7a3b3" };
 
 const MAT = {
-    // Under the surface: what a wave trough opens onto. Never the background.
-    deepA: new THREE.MeshStandardMaterial({ name: "deepA", color: "#0b2434", roughness: 0.95 }),
-    deepB: new THREE.MeshStandardMaterial({ name: "deepB", color: "#0c1d29", roughness: 0.95 }),
-    wallA: new THREE.MeshStandardMaterial({ name: "wallA", color: "#0e2c3f", roughness: 0.9, side: THREE.DoubleSide }),
-    wallB: new THREE.MeshStandardMaterial({ name: "wallB", color: "#102532", roughness: 0.9, side: THREE.DoubleSide }),
-    rimA: new THREE.MeshStandardMaterial({ name: "rimA", color: "#241a20", roughness: 0.82, metalness: 0.12 }),
-    rimB: new THREE.MeshStandardMaterial({ name: "rimB", color: "#16282b", roughness: 0.82, metalness: 0.12 }),
     sunk: new THREE.MeshStandardMaterial({ name: "sunk", color: "#3b464e", roughness: 0.9, metalness: 0.1 }),
     ghostOk: new THREE.MeshStandardMaterial({ name: "ghostOk", color: "#714B67", transparent: true, opacity: 0.55 }),
     ghostNo: new THREE.MeshStandardMaterial({ name: "ghostNo", color: "#C4472F", transparent: true, opacity: 0.45 }),
@@ -102,7 +121,11 @@ export class BattleshipScene {
         fill.position.set(-10, 8, -8);
         this.scene.add(fill);
 
-        this.boards = { a: this._board("a"), b: this._board("b") };
+        // The table starts as a duel and is rebuilt the first time a payload
+        // says otherwise: `_layout` is what owns how many boards there are.
+        this.sides = [];
+        this.boards = {};
+        this._layout(["a", "b"]);
         this._bindPointer();
 
         this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -116,21 +139,57 @@ export class BattleshipScene {
     destroy() {
         this.resizeObserver.disconnect();
         this.renderer.setAnimationLoop(null);
-        for (const side of ["a", "b"]) {
-            this.boards[side].water.dispose();
-            // The plates hold a canvas texture each: dropping the mesh is not
-            // enough, so they go out the way they came in.
-            this._plate(this.boards[side], "title", "", {});
-            this._plate(this.boards[side], "turn", "", {});
-        }
+        this._teardown();
         this.controls.dispose();
         this.renderer.dispose();
         this.renderer.domElement.remove();
     }
 
+    /** Take every board off the table and give the GPU its memory back. */
+    _teardown() {
+        for (const side of this.sides) {
+            const board = this.boards[side];
+            board.water.dispose();
+            // The plates hold a canvas texture each: dropping the mesh is not
+            // enough, so they go out the way they came in.
+            this._plate(board, "title", "", {});
+            this._plate(board, "turn", "", {});
+            this.scene.remove(board.group);
+        }
+        this.sides = [];
+        this.boards = {};
+    }
+
+    /**
+     * Build the table for a given set of seats.
+     *
+     * A duel puts two boards side by side; a free-for-all puts four in a
+     * square. Changing modes is therefore not a resize — the boards are
+     * different objects, with their own water — so this is the one place that
+     * knows how to swap one table for another, and it does nothing at all when
+     * the seats have not changed.
+     */
+    _layout(sides) {
+        if (sides.length === this.sides.length && sides.every((s, i) => s === this.sides[i])) {
+            return;
+        }
+        this._teardown();
+        this.sides = [...sides];
+        for (const side of this.sides) {
+            this.boards[side] = this._board(side);
+        }
+        this.framed = false;
+        this.fit();
+    }
+
+    /** Gap between boards, and how finely their water is cut. */
+    get _gap() {
+        return this.sides.length > 2 ? GAP_MANY : GAP;
+    }
+
     /** Light up the cell under the pointer on one board, or none anywhere. */
     setHover(side, cell) {
-        for (const key of ["a", "b"]) {
+        for (const key of this.sides) {
             this.boards[key].water.setHover(key === side ? cell : null);
         }
     }
@@ -142,7 +201,8 @@ export class BattleshipScene {
 
         // The plinth is four rails and not one slab: a solid top at the rim
         // would sit in front of the troughs and cut the wave off.
-        const rim = side === "a" ? MAT.rimA : MAT.rimB;
+        const hull = HULL_MAT[side];
+        const rim = hull.rim;
         const T = 0.75;
         for (const [x, z, w, d] of [
             [0, S / 2 + T / 2, S + T * 2, T], [0, -(S / 2 + T / 2), S + T * 2, T],
@@ -157,16 +217,12 @@ export class BattleshipScene {
 
         // A well, not a sheet: a floor well below the deepest trough and four
         // walls at the rim, so a dipping wave only ever reveals more water.
-        const floor = new THREE.Mesh(
-            new THREE.BoxGeometry(S, 0.6, S), side === "a" ? MAT.deepA : MAT.deepB
-        );
+        const floor = new THREE.Mesh(new THREE.BoxGeometry(S, 0.6, S), hull.deep);
         floor.position.y = -0.72;
         floor.name = "deep";
         group.add(floor);
         for (let i = 0; i < 4; i++) {
-            const wall = new THREE.Mesh(
-                new THREE.PlaneGeometry(S, 0.48), side === "a" ? MAT.wallA : MAT.wallB
-            );
+            const wall = new THREE.Mesh(new THREE.PlaneGeometry(S, 0.48), hull.wall);
             wall.position.set(
                 i === 1 ? S / 2 : i === 3 ? -S / 2 : 0,
                 -0.24,
@@ -181,7 +237,7 @@ export class BattleshipScene {
         // so the lines ride the swell instead of floating over it.
         const water = new WaterSurface({
             size: S,
-            segments: WATER_SEGMENTS,
+            segments: this.sides.length > 2 ? WATER_SEGMENTS_MANY : WATER_SEGMENTS,
             ...SEA[side],
             light: [9, 18, 8],
         });
@@ -210,7 +266,19 @@ export class BattleshipScene {
         fx.name = "fx";
         group.add(fx);
 
-        group.position.x = side === "a" ? -(S / 2 + GAP / 2) : S / 2 + GAP / 2;
+        // Two boards face each other across a gap; four sit in a square, in
+        // seat order, reading left to right and then down — the same order the
+        // panels under the canvas are in, so a board and its fleet are never
+        // two different places on the screen.
+        const step = S + this._gap;
+        const index = this.sides.indexOf(side);
+        const cols = this.sides.length > 2 ? 2 : this.sides.length;
+        const rows = Math.ceil(this.sides.length / cols);
+        group.position.set(
+            ((index % cols) - (cols - 1) / 2) * step,
+            0,
+            (Math.floor(index / cols) - (rows - 1) / 2) * step
+        );
         this.scene.add(group);
         // `ships` and `pegs` are what the swell carries each frame. `pending`
         // holds cells whose shell is still in the air: their marker is dropped
@@ -261,7 +329,7 @@ export class BattleshipScene {
      * their turn on the board itself rather than in a line of status text.
      */
     setTurn(side, text, color) {
-        for (const key of ["a", "b"]) {
+        for (const key of this.sides) {
             this._plate(this.boards[key], "turn", key === side ? text : "", {
                 width: 4.2, w: 640, px: 128, font: 800, size: 66, color, z: SIZE / 2 + 2.05,
             });
@@ -271,7 +339,13 @@ export class BattleshipScene {
     /** Rebuild ships + pegs from a read_state() payload. */
     render(state) {
         this.state = state;
-        for (const side of ["a", "b"]) {
+        // How many boards there are is a property of the payload, so this is
+        // the first thing that happens: everything below draws onto whatever
+        // table the seats ask for.
+        this._layout((state.seats || []).map((seat) => seat.side).filter(Boolean).length
+            ? state.seats.map((seat) => seat.side)
+            : ["a", "b"]);
+        for (const side of this.sides) {
             const board = this.boards[side];
             [...board.group.children].forEach((child) => {
                 if (child.userData.dynamic) {
@@ -318,26 +392,42 @@ export class BattleshipScene {
                 }
             }
         }
-        // The grids keep their place (A left, B right) whichever seat we hold:
-        // only the plate over them says which one is ours.
+        // The grids keep their place whichever seat we hold: only the plate over
+        // them says which one is ours. In a free-for-all it says whose the
+        // others are too, because "enemy" stops being one thing.
+        const seatOf = (side) => (state.seats || []).find((seat) => seat.side === side);
         const title = (side) => {
+            const seat = seatOf(side);
+            if (seat && seat.out) {
+                return "OUT";
+            }
             if (state.mode === "cpu") {
                 return side === "a" ? "YOUR FLEET" : "ENEMY";
+            }
+            if (state.mode === "royale") {
+                return side === state.you ? "YOUR WATERS" : (seat?.name || "").toUpperCase().slice(0, 14);
             }
             if (state.mode === "online") {
                 return side === state.you ? "YOUR WATERS" : "ENEMY";
             }
             return side === "a" ? "PLAYER 1" : "PLAYER 2";
         };
-        this.setTitle("a", title("a"), "#b98fad");
-        this.setTitle("b", title("b"), "#63c6cb");
+        for (const side of this.sides) {
+            this.setTitle(side, title(side), seatOf(side)?.out ? "#6b7580" : TITLE_COLOR[side]);
+        }
 
-        // And which of the two the next shot belongs to, from where this screen
-        // sits: the hot-seat device is always in front of the player whose turn
-        // it is, and online the seat is the one the payload was cut for.
+        // And whose shot the table is waiting on. A duel can point at the one
+        // grid the next shell belongs to; a free-for-all cannot, because three
+        // of them are fair game, so it names the gun instead of the target.
         const you = state.mode === "hotseat" ? state.current_player : state.you || "a";
         if (state.state !== "battle") {
             this.setTurn(null);
+        } else if (state.mode === "royale") {
+            this.setTurn(
+                state.current_player,
+                state.current_player === you ? "YOUR SHOT" : "ON THE GUN",
+                state.current_player === you ? "#f2c14e" : "#e0805f"
+            );
         } else if (state.current_player === you) {
             this.setTurn(you === "a" ? "b" : "a", "FIRE HERE", "#f2c14e");
         } else {
@@ -345,10 +435,17 @@ export class BattleshipScene {
         }
     }
 
+    /**
+     * Did that cell take a hit, on that board?
+     *
+     * The log says which board each shell landed on, which is the only way to
+     * tell in a free-for-all: four grids share one set of coordinates, so a
+     * hit on J8 says nothing about whose J8 it was.
+     */
     _isHit(state, side, cell) {
         return (state.log || []).some(
             (entry) => entry.result !== "miss" && entry.coord === coordOf(cell) &&
-                entry.shooter !== side
+                entry.target === side
         );
     }
 
@@ -403,7 +500,7 @@ export class BattleshipScene {
 
     /** Drop everything in the air: a different game is a different board. */
     clearTransients() {
-        for (const side of ["a", "b"]) {
+        for (const side of this.sides) {
             const board = this.boards[side];
             board.fx.clear();
             board.pending.clear();
@@ -533,7 +630,9 @@ export class BattleshipScene {
             ptr.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
             ptr.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
             ray.setFromCamera(ptr, this.camera);
-            const hits = ray.intersectObjects([this.boards.a.pick, this.boards.b.pick], false);
+            const hits = ray.intersectObjects(
+                this.sides.map((side) => this.boards[side].pick), false
+            );
             if (!hits.length) {
                 return null;
             }
@@ -572,11 +671,19 @@ export class BattleshipScene {
         this.fit();
     }
 
-    /** Frame both grids inside whatever band the layout leaves for the canvas. */
+    /** Frame every grid inside whatever band the layout leaves for the canvas. */
     fit() {
+        // The same arithmetic `_board` places by, read back as an extent: two
+        // boards make a wide strip, four make a square, and the margins leave
+        // room for the coordinate letters and the plates in front.
+        const step = SIZE + this._gap;
+        const cols = this.sides.length > 2 ? 2 : Math.max(this.sides.length, 1);
+        const rows = Math.ceil(Math.max(this.sides.length, 1) / cols);
+        const halfX = ((cols - 1) * step) / 2 + SIZE / 2 + 1.5;
+        const halfZ = ((rows - 1) * step) / 2 + SIZE / 2 + 2.2;
         const box = new THREE.Box3(
-            new THREE.Vector3(-(SIZE + GAP / 2 + 1.4), -0.4, -(SIZE / 2 + 1.4)),
-            new THREE.Vector3(SIZE + GAP / 2 + 1.4, 1.2, SIZE / 2 + 1.9)
+            new THREE.Vector3(-halfX, -0.4, -halfZ),
+            new THREE.Vector3(halfX, 1.2, halfZ)
         );
         const center = box.getCenter(new THREE.Vector3());
         const corners = [];
@@ -615,7 +722,7 @@ export class BattleshipScene {
         const dt = Math.min(0.05, (now - this.last) / 1000);
         this.last = now;
 
-        for (const side of ["a", "b"]) {
+        for (const side of this.sides) {
             const board = this.boards[side];
             board.water.advance(dt, this.camera);
             for (const ship of board.ships) {
