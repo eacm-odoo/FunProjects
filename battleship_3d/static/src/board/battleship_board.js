@@ -186,6 +186,22 @@ export class BattleshipBoard extends Component {
         return this.game.turn_pending || [];
     }
 
+    /**
+     * The board whose last shell hit, and which the sweep still owes another.
+     *
+     * The order of a sweep is the player's own, so this is never an obligation;
+     * it is where the shot a hit just bought is waiting to be fired, which is
+     * the one thing on the table worth pointing at twice.
+     */
+    get repeatTarget() {
+        return this.game.turn_again || null;
+    }
+
+    /** What a board still owed a shell says on its panel. */
+    owedTag(side) {
+        return side === this.repeatTarget ? _t("fire again") : _t("to fire");
+    }
+
     get statusText() {
         const g = this.game;
         if (this.royale) {
@@ -248,10 +264,13 @@ export class BattleshipBoard extends Component {
         }
         const left = this.standing.length;
         if (this.myTurn) {
-            return _t(
-                "Your turn — %s of %s boards still to fire at.",
-                this.pendingTargets.length, left - 1
-            );
+            if (this.repeatTarget) {
+                return _t(
+                    "Hit on %s — another shell there. %s boards left to fire at.",
+                    this.sideLabel(this.repeatTarget), this.pendingTargets.length
+                );
+            }
+            return _t("Your turn — %s boards left to fire at.", this.pendingTargets.length);
         }
         return _t("%s is aiming — %s fleets still afloat.", this.sideLabel(g.current_player), left);
     }
@@ -287,6 +306,16 @@ export class BattleshipBoard extends Component {
                         text: _t("Waiting for the rest of the table."),
                     }
                     : null;
+            }
+            if (this.myTurn && this.repeatTarget) {
+                return {
+                    mine: true,
+                    title: _t("Hit — fire again"),
+                    text: _t(
+                        "Another shell at %s. %s boards left this turn.",
+                        this.sideLabel(this.repeatTarget), this.pendingTargets.length
+                    ),
+                };
             }
             return this.myTurn
                 ? {

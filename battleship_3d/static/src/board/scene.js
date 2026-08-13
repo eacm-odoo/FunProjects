@@ -48,6 +48,15 @@ const HULL_MAT = Object.fromEntries(
 );
 // What each seat's plate is written in, matching its water.
 const TITLE_COLOR = { a: "#b98fad", b: "#63c6cb", c: "#c9b98a", d: "#c7a3b3" };
+// The two things a board can be waiting for on your turn: amber while the sweep
+// still owes it a shell, hotter on the one whose last shell hit and bought
+// another. Nothing at all once it has been dealt with, which is the point —
+// what is lit is what is left.
+const GLOW = { owed: "#f2c14e", again: "#ff7a45" };
+// How the halo breathes: period in ms, and the opacity it swings between. The
+// bought shot beats about twice as fast as the owed one, so the two read apart
+// from across the table without either of them blinking.
+const GLOW_BEAT = { owed: [620, 0.16, 0.46], again: [300, 0.42, 0.9] };
 
 const MAT = {
     sunk: new THREE.MeshStandardMaterial({ name: "sunk", color: "#3b464e", roughness: 0.9, metalness: 0.1 }),
@@ -154,6 +163,9 @@ export class BattleshipScene {
             // enough, so they go out the way they came in.
             this._plate(board, "title", "", {});
             this._plate(board, "turn", "", {});
+            // One material for the four bars of a halo, four geometries.
+            board.halo.children.forEach((bar) => bar.geometry.dispose());
+            board.haloMat.dispose();
             this.scene.remove(board.group);
         }
         this.sides = [];
@@ -214,6 +226,28 @@ export class BattleshipScene {
             rail.name = "rim";
             group.add(rail);
         }
+
+        // A halo lying along the top of those rails: four bars rather than a
+        // plane, so it frames the water instead of covering it. It is dark
+        // until `setGlow` gives it a colour, and `_tick` is what breathes it.
+        const haloMat = new THREE.MeshBasicMaterial({
+            name: "halo" + side, color: GLOW.owed, transparent: true,
+            opacity: 0, depthWrite: false,
+        });
+        const halo = new THREE.Group();
+        halo.name = "halo";
+        halo.visible = false;
+        for (const [x, z, w, d] of [
+            [0, S / 2 + T / 2, S + T * 2, T], [0, -(S / 2 + T / 2), S + T * 2, T],
+            [S / 2 + T / 2, 0, T, S + T * 2], [-(S / 2 + T / 2), 0, T, S + T * 2],
+        ]) {
+            // Clear of the rail top rather than flush with it: two coplanar
+            // faces would fight over which of them the camera sees.
+            const bar = new THREE.Mesh(new THREE.BoxGeometry(w, 0.05, d), haloMat);
+            bar.position.set(x, 0.11, z);
+            halo.add(bar);
+        }
+        group.add(halo);
 
         // A well, not a sheet: a floor well below the deepest trough and four
         // walls at the rim, so a dipping wave only ever reveals more water.
@@ -283,7 +317,12 @@ export class BattleshipScene {
         // `ships` and `pegs` are what the swell carries each frame. `pending`
         // holds cells whose shell is still in the air: their marker is dropped
         // by the impact, not by the payload that announced the shot.
-        return { side, group, fx, pick, water, ships: [], pegs: [], pending: new Set() };
+        // `glow` is which of the two halo states this board is in, or null for
+        // a board with nothing to say: `_tick` reads it, nobody else does.
+        return {
+            side, group, fx, pick, water, halo, haloMat, glow: null,
+            ships: [], pegs: [], pending: new Set(),
+        };
     }
 
     /**
@@ -322,17 +361,39 @@ export class BattleshipScene {
     }
 
     /**
-     * Mark the grid the next shot belongs to, and only that one.
+     * Mark the grids the turn is waiting on, and only those.
      *
-     * The plate sits in front of the board it points at and breathes (see
+     * `marks` is a plate per side — `{ b: { text, color } }` — because a
+     * free-for-all turn is owed a shell by every board still afloat and each of
+     * them has its own thing to say. Sides left out of it are cleared. The
+     * plates sit in front of the boards they point at and breathe (see
      * `_tick`), because a player who looks up from the fleet panel should find
      * their turn on the board itself rather than in a line of status text.
      */
-    setTurn(side, text, color) {
+    setTurn(marks) {
         for (const key of this.sides) {
-            this._plate(this.boards[key], "turn", key === side ? text : "", {
-                width: 4.2, w: 640, px: 128, font: 800, size: 66, color, z: SIZE / 2 + 2.05,
+            const mark = (marks || {})[key];
+            this._plate(this.boards[key], "turn", mark?.text || "", {
+                width: 4.2, w: 640, px: 128, font: 800, size: 66,
+                color: mark?.color, z: SIZE / 2 + 2.05,
             });
+        }
+    }
+
+    /**
+     * Light a board up, or put it out.
+     *
+     * `mode` is "owed" for a board the turn has not been to yet, "again" for
+     * the one a hit just bought another shell at, and null for everything else
+     * — our own water, a board already dealt with, a fleet on the bottom, and
+     * every board on the table while somebody else is shooting.
+     */
+    setGlow(side, mode) {
+        const board = this.boards[side];
+        board.glow = mode || null;
+        board.halo.visible = !!mode;
+        if (mode) {
+            board.haloMat.color.set(GLOW[mode]);
         }
     }
 
@@ -397,13 +458,16 @@ export class BattleshipScene {
         // others are too, because "enemy" stops being one thing.
         const seatOf = (side) => (state.seats || []).find((seat) => seat.side === side);
         const you = state.mode === "hotseat" ? state.current_player : state.you || "a";
-        // A free-for-all turn is a sweep: one shell at each of the other boards.
-        // The ones already dealt with this turn are dimmed, so a player can see
-        // what they still owe without counting the pegs themselves.
-        const swept = (side) =>
-            state.mode === "royale" && state.state === "battle" &&
-            state.current_player === you && side !== you &&
-            !(state.turn_pending || []).includes(side);
+        // A turn is a sweep — one shell at each board still afloat — and these
+        // three lines are the whole of what the table says about it while it is
+        // ours: which boards are still owed one, which of them the last shell
+        // hit, and, by leaving them out, which are done with.
+        const mine = state.state === "battle" && state.current_player === you;
+        const owed = mine ? state.turn_pending || [] : [];
+        const again = mine ? state.turn_again : null;
+        // A board already dealt with is dimmed rather than lit, so what a player
+        // has left to do is what they can see without counting pegs themselves.
+        const swept = (side) => mine && side !== you && !owed.includes(side);
         const title = (side) => {
             const seat = seatOf(side);
             if (seat && seat.out) {
@@ -423,24 +487,26 @@ export class BattleshipScene {
         for (const side of this.sides) {
             const color = seatOf(side)?.out || swept(side) ? "#6b7580" : TITLE_COLOR[side];
             this.setTitle(side, title(side), color);
+            this.setGlow(side, owed.includes(side) ? (side === again ? "again" : "owed") : null);
         }
 
-        // And whose shot the table is waiting on. A duel can point at the one
-        // grid the next shell belongs to; a free-for-all cannot, because every
-        // board still afloat gets a shell this turn, so it names the gun
-        // instead of the target.
+        // And what the table is waiting for. On our turn that is one plate per
+        // board the sweep still owes a shell to, so the boards themselves count
+        // the turn down; the rest of the time it is a single plate naming the
+        // gun, or our own water taking the incoming.
         if (state.state !== "battle") {
             this.setTurn(null);
+        } else if (mine) {
+            this.setTurn(Object.fromEntries(owed.map((side) => [
+                side,
+                side === again
+                    ? { text: "FIRE AGAIN", color: GLOW.again }
+                    : { text: "FIRE HERE", color: GLOW.owed },
+            ])));
         } else if (state.mode === "royale") {
-            this.setTurn(
-                state.current_player,
-                state.current_player === you ? "YOUR SHOT" : "ON THE GUN",
-                state.current_player === you ? "#f2c14e" : "#e0805f"
-            );
-        } else if (state.current_player === you) {
-            this.setTurn(you === "a" ? "b" : "a", "FIRE HERE", "#f2c14e");
+            this.setTurn({ [state.current_player]: { text: "ON THE GUN", color: "#e0805f" } });
         } else {
-            this.setTurn(you, "INCOMING", "#e0805f");
+            this.setTurn({ [you]: { text: "INCOMING", color: "#e0805f" } });
         }
     }
 
@@ -743,6 +809,10 @@ export class BattleshipScene {
             if (board.turn) {
                 // Slow enough to read as breathing rather than as a blink.
                 board.turn.material.opacity = 0.55 + 0.45 * Math.sin(now / 420);
+            }
+            if (board.glow) {
+                const [beat, lo, hi] = GLOW_BEAT[board.glow];
+                board.haloMat.opacity = lo + (hi - lo) * (0.5 + 0.5 * Math.sin(now / beat));
             }
             if (this.ghost?.side === side) {
                 board.water.float(this.ghost.mesh);

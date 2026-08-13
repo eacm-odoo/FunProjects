@@ -115,12 +115,21 @@ the same time, and the battle starts once the second one locks in.
 * **Rematch.** A finished game is never reset — it is what the win/loss tally
   counts. "Rematch" opens a fresh room that inherits both seats, and the old
   channel is where the other tab hears about it (`rematch_id`).
-* **Whose turn.** Two players means waiting for somebody, so the turn is said in
-  four places at once: a banner over the water, the panel of the side being
-  waited on, a pulsing `FIRE HERE` / `INCOMING` plate on the grid the next shot
-  belongs to (`scene.setTurn`), and the crosshair, which only appears while a
-  click would really fire. None of it is state of its own — every one of them
-  reads `current_player` against the seat this screen holds.
+* **Whose turn, and what is left of it.** Two players means waiting for
+  somebody, and four means a turn with several shells in it, so it is said in
+  five places at once: a banner over the water, the panel of the side being
+  waited on, a halo along the rim of every board the turn still owes a shell to
+  (`scene.setGlow`), a `FIRE HERE` plate on each of those same boards
+  (`scene.setTurn`), and the crosshair, which only appears while a click would
+  really fire. A board already dealt with drops all of it and dims its name
+  plate, so what is lit is what is left. None of it is state of its own — it all
+  reads `turn_pending` and `turn_again` against the seat this screen holds.
+* **The shot a hit buys.** When the last shell hit and that board is still owed
+  one, it is the shell waiting to be fired, and it says so louder than the rest:
+  `turn_again` names the board, its halo and its `FIRE AGAIN` plate beat about
+  twice as fast, and its fleet panel wears an amber `fire again` tag. It is a
+  signpost and not a rule — the sweep may be fired in whatever order the player
+  likes, and the server only insists that every board gets its one shell.
 
 ## Interface
 
