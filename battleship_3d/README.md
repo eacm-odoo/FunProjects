@@ -239,6 +239,24 @@ destroyer read as one navy. The class is chosen by name when the payload gives
 one and by length when it does not, which is what an enemy ship looks like
 until it sinks.
 
+Those turrets are what a shot leaves from. `scene.fire()` takes the shooter's
+side as well as the target's, and the nearest hull of theirs that is still
+afloat and still has a gun answers it in three beats: it trains its main
+battery onto the bearing, so you see *which* ship is firing; it fires — flash,
+smoke, a point light for a sixth of a second, recoil down the barrels and the
+hull leaning off its own broadside; and only then does the shell exist, flying
+from that muzzle to the far grid. The hull is picked when the gun starts
+training rather than when the shot is queued, because `render()` rebuilds every
+ship on the payload that announced it.
+
+Only a fleet that is on the table can fire, and an enemy fleet is hidden until
+it sinks — so their salvo has no gun to leave from and still arcs in from off
+the corner of the board, the way every shot used to. Hot-seat reveals whoever
+is at the screen *now*, so a miss there hands the turn over before the shell is
+in the air and takes the same fallback; a hit keeps the turn, and the gun. That
+fallback is also the safety net: a shot that never lands would leave the board
+waiting on it forever, so both ways out of the aim end in a shell.
+
 `water.js` is a height field, not a fluid: four travelling sine waves for the
 swell, plus one decaying ring per impact (twelve at a time, oldest recycled).
 

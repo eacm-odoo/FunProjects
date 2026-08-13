@@ -53,6 +53,15 @@ export const sound = {
         src.connect(filter).connect(amp).connect(c.destination);
         src.start();
     },
+    /**
+     * The report of a main battery, `calibre` being the scale its turret was
+     * built at: a destroyer's 5-inch cracks, a battleship's 16-inch thumps.
+     */
+    gun(calibre = 1) {
+        const c = Math.max(0.55, Math.min(1.6, calibre));
+        this.noise(0.16 + c * 0.12, 0.26, 2600 / c);
+        this.tone(150 / c, 0.22 * c, "square", 0.13, -70);
+    },
     miss() {
         this.noise(0.35, 0.16, 900);
         this.tone(320, 0.18, "sine", 0.05, -180);
