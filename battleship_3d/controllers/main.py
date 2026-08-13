@@ -170,8 +170,9 @@ class BattleshipController(http.Controller):
         return game.action_ready(self._side(game))
 
     # `target` is which board was clicked. It only means anything in a
-    # free-for-all, where there are three to choose from; the model checks that
-    # the one named can still be fired at, so a forged one buys nothing.
+    # free-for-all, where a turn owes a shell to each of the other boards and
+    # the player picks the order; the model checks the one named is still owed
+    # one this turn, so a forged target buys neither a board nor a second shell.
     @http.route("/battleship/fire", type="jsonrpc", auth="public")
     def fire(self, game_id=None, cell=None, target=None, **kwargs):
         game = self._game(game_id)
