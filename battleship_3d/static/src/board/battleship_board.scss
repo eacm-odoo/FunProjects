@@ -461,6 +461,28 @@ $bs-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
             color: var(--bs-ink-faint);
             &::before { background: var(--bs-ink-faint); }
         }
+        // A board this turn still owes a shell to. Amber rather than teal: teal
+        // is "you" all over this screen, and these are everybody else's waters.
+        &.o_bs_owed {
+            border-color: rgba(242, 193, 78, 0.55);
+            background: rgba(242, 193, 78, 0.12);
+            color: #f2c14e;
+            &::before {
+                background: #f2c14e;
+                animation: o_bs_pulse 2.4s ease-in-out infinite;
+            }
+        }
+        // The one the last shell hit: the same tag, breathing twice as fast,
+        // because the shot it is waiting for was bought rather than owed.
+        &.o_bs_again {
+            border-color: rgba(255, 122, 69, 0.75);
+            background: rgba(255, 122, 69, 0.18);
+            color: #ff9a6b;
+            &::before {
+                background: #ff7a45;
+                animation-duration: 1.1s;
+            }
+        }
     }
     .o_bs_afloat {
         flex: none;

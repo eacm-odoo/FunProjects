@@ -119,6 +119,13 @@
                         <span t-attf-class="o_bs_turn {{ myTurn ? '' : 'muted' }}"
                               t-if="game.state === 'battle' and game.current_player === side and !seat.out"
                               t-esc="turnTag(side)"/>
+                        <!-- A turn owes a shell to every board still afloat, so
+                             the ones it has not been to yet say so, and the one
+                             a hit just bought another shell at says it louder.
+                             A board already dealt with wears nothing at all. -->
+                        <span t-attf-class="o_bs_turn o_bs_owed {{ side === repeatTarget ? 'o_bs_again' : '' }}"
+                              t-if="myTurn and pendingTargets.includes(side)"
+                              t-esc="owedTag(side)"/>
                         <span class="o_bs_turn"
                               t-if="room and game.state === 'setup' and game.ready[side]">Fleet locked</span>
                         <span class="o_bs_afloat" t-esc="afloatLabel(side)"/>

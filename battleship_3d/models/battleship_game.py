@@ -254,6 +254,24 @@ class BattleshipGame(models.Model):
         self.ensure_one()
         self.write({"current_player": side, "turn_cleared": []})
 
+    def _repeat_target(self):
+        """The board the last shell hit and the sweep still owes another to.
+
+        Nothing forces the shooter back to it — the sweep may be fired in any
+        order they like — but it is where the shell that hit just bought them
+        another one, and a player who has to be told anything is told that.
+        """
+        self.ensure_one()
+        if self.state != "battle":
+            return False
+        last = self.shot_ids.sorted("id", reverse=True)[:1]
+        if not last or last.shooter != self.current_player or last.result == "miss":
+            return False
+        # Duels fired before the log had a `target` column left it empty, and
+        # there it can only ever have meant the other side.
+        target = last.target or ("b" if last.shooter == "a" else "a")
+        return target if target in self._pending_targets(self.current_player) else False
+
     def _fleet(self, side):
         return list(self._json(self["fleet_%s" % side]))
 
@@ -917,6 +935,10 @@ class BattleshipGame(models.Model):
             "turn_pending": (
                 self._pending_targets(self.current_player) if self.state == "battle" else []
             ),
+            # And of those, the one the last shell hit: the board the extra
+            # shell that hit bought is aimed at. False whenever the last shell
+            # missed, which is most of the time.
+            "turn_again": self._repeat_target(),
             "winner": self.winner,
             "end_reason": self.end_reason,
             # Rooms only. `channel` carries the room secret, which every player
