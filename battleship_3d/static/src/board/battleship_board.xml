@@ -13,6 +13,26 @@
     <button class="primary o_bs_spacer" t-else="" t-on-click="() => this.newGame()">New game</button>
 </t>
 
+<!-- The name this browser plays under, and the way to change it. A player who
+     came in through an invitation link was never asked for one, and one who was
+     asked can mistype it, so it is a field rather than a fact. Shown twice: in
+     the waiting room, where a name is what everybody is looking at, and on the
+     bridge, because a free-for-all writes it on the water for the whole game. -->
+<t t-name="battleship_3d.RenameField">
+    <div class="o_bs_rename" t-if="canRename">
+        <t t-if="ui.renaming">
+            <input type="text" placeholder="YOUR NAME" maxlength="32" autofocus="autofocus"
+                   t-model="ui.rename" t-on-keydown="onRenameKey"/>
+            <button class="primary" t-att-disabled="ui.busy" t-on-click="saveRename">Save</button>
+            <button t-on-click="cancelRename">Cancel</button>
+        </t>
+        <button t-else="" class="o_bs_rename_open" t-on-click="startRename">
+            <span class="o_bs_rename_name" t-esc="myName"/>
+            <span class="o_bs_rename_hint">rename</span>
+        </button>
+    </div>
+</t>
+
 <t t-name="battleship_3d.Board">
     <div class="o_battleship" t-if="game">
 
@@ -35,6 +55,7 @@
                             t-on-click="() => this.newGame('royale')">Free-for-all</button>
                 </div>
                 <span class="o_bs_code" t-if="room" t-esc="game.code"/>
+                <t t-call="battleship_3d.RenameField"/>
             </div>
 
             <div class="o_bs_panel o_bs_orders">
@@ -304,6 +325,8 @@
                         </div>
                     </t>
                 </div>
+
+                <t t-call="battleship_3d.RenameField"/>
 
                 <input class="o_bs_invite" type="text" readonly="readonly" t-ref="invite"
                        t-att-value="game.invite_url" t-on-focus="(ev) => ev.target.select()"/>

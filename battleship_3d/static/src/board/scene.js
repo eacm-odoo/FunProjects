@@ -443,13 +443,17 @@ export class BattleshipScene {
                 board.group.add(mesh);
                 board.ships.push(mesh);
             }
-            const hitCells = new Set(state["fleet_" + side].flatMap((s) => s.cells));
+            // Which cells took a hull comes from the payload, not from the shot
+            // log: the log is a window on the last few dozen shells, and a
+            // marker read out of it turned white again the moment its shot
+            // scrolled off the end.
+            const hitCells = new Set(state["hits_" + side] || []);
             for (const cell of state["shots_" + side]) {
                 // A shell still on its way owns that cell: it drops its own
                 // marker when it lands, so the payload does not get to put one
                 // there half a second early.
                 if (!board.pending.has(cell)) {
-                    this.peg(side, cell, hitCells.has(cell) || this._isHit(state, side, cell));
+                    this.peg(side, cell, hitCells.has(cell));
                 }
             }
         }
@@ -508,20 +512,6 @@ export class BattleshipScene {
         } else {
             this.setTurn({ [you]: { text: "INCOMING", color: "#e0805f" } });
         }
-    }
-
-    /**
-     * Did that cell take a hit, on that board?
-     *
-     * The log says which board each shell landed on, which is the only way to
-     * tell in a free-for-all: four grids share one set of coordinates, so a
-     * hit on J8 says nothing about whose J8 it was.
-     */
-    _isHit(state, side, cell) {
-        return (state.log || []).some(
-            (entry) => entry.result !== "miss" && entry.coord === coordOf(cell) &&
-                entry.target === side
-        );
     }
 
     /** The marker left on a cell that has been fired at. It rides the swell. */

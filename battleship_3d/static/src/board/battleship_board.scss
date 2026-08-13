@@ -170,6 +170,68 @@ $bs-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
         white-space: nowrap;
     }
 
+    // The name this browser plays under. It sits in two very different places —
+    // the brand plate up here and the waiting room card — so it lays out its own
+    // row and takes the look of whichever it is in. Only the closed state needs
+    // dressing on the bridge: the field itself is the card's.
+    .o_bs_rename {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+
+        // Its own field, so the bridge has one to show: inside the waiting room
+        // card the card's own input rule comes later and takes it over, which is
+        // what keeps it looking like the fields around it there.
+        input {
+            flex: 1;
+            min-width: 0;
+            padding: 5px 8px;
+            background: #0d1418;
+            border: 1px solid #2c383f;
+            border-radius: 2px;
+            color: var(--bs-ink);
+            font-family: $bs-mono;
+            font-size: 12px;
+            letter-spacing: 0.12em;
+
+            &::placeholder { color: #566067; }
+            &:focus { outline: none; border-color: var(--bs-teal); }
+        }
+        button { flex: none; }
+    }
+    .o_bs_rename_open {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        max-width: 220px;
+    }
+    .o_bs_rename_name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .o_bs_rename_hint {
+        flex: none;
+        @include bs-stencil(9px, var(--bs-brass));
+        letter-spacing: 0.2em;
+    }
+
+    .o_bs_bar_top .o_bs_rename {
+        align-self: center;
+
+        .o_bs_rename_open {
+            padding: 4px 9px;
+            border: 1px solid #2c383f;
+            background: rgba(255, 255, 255, 0.03);
+            @include bs-stencil(10.5px, var(--bs-ink-dim));
+            letter-spacing: 0.14em;
+
+            &:hover:not(:disabled) { color: var(--bs-ink-bright); }
+        }
+    }
+
     // ------------------------------------------------------- orders strip
     // The one line that has to be read the moment it changes, given the width
     // of the screen and a red tab so the eye finds it without looking.
