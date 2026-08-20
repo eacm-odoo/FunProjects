@@ -25,6 +25,9 @@ three.js board rendered as an OWL component.
 * the final board can be walked once a game is over, with both fleets revealed
 * online rooms say so when the other seat stops answering, without ever ending
   the game over it
+* patrols overhead: fighters, interceptors and bombers cross the table on
+  their own errand, trade tracer and trail smoke on the way out — weather, not
+  a rule, and it can be grounded from the toolbar
 * a glossary that shows each class on a 3D turntable
 * manual or random fleet placement, ships can be re-picked and turned 90°
 * full shot history per game
@@ -34,7 +37,7 @@ three.js board rendered as an OWL component.
 * playable from the backend menu, and from the public page /battleship without
   an account (the game is bound to the browser session)
 """,
-    "version": "19.0.8.0.0",
+    "version": "19.0.9.0.0",
     "category": "Tools/Games",
     "license": "LGPL-3",
     "author": "Odoo Development Services",

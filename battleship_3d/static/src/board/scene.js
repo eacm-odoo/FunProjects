@@ -8,6 +8,7 @@ import * as THREE from "@battleship_3d/lib/three.module";
 import { OrbitControls } from "@battleship_3d/lib/OrbitControls";
 import { shipMesh } from "./ships";
 import { WaterSurface } from "./water";
+import { AirTraffic } from "./air_traffic";
 
 export const SIZE = 10;
 // Room between two boards. Four of them on one screen have to give some of it
@@ -150,6 +151,12 @@ export class BattleshipScene {
         this._layout(["a", "b"]);
         this._bindPointer();
 
+        // The air over the table: patrols that cross it, trade fire and leave.
+        // Ambience only — it reads no payload, claims no cell and reports
+        // nothing back, so a player who turns it off plays the same game.
+        this.air = new AirTraffic(this.scene, { reach: this._reach });
+        this._frameAir();
+
         this.resizeObserver = new ResizeObserver(() => this.resize());
         this.resizeObserver.observe(container);
         this.resize();
@@ -161,6 +168,7 @@ export class BattleshipScene {
     destroy() {
         this.resizeObserver.disconnect();
         this.renderer.setAnimationLoop(null);
+        this.air.dispose();
         this._teardown();
         this.controls.dispose();
         this.renderer.dispose();
@@ -208,11 +216,44 @@ export class BattleshipScene {
         }
         this.framed = false;
         this.fit();
+        if (this.air) {
+            // First call comes from the constructor, before there is any air.
+            this._frameAir();
+        }
     }
 
     /** Gap between boards, and how finely their water is cut. */
     get _gap() {
         return this.sides.length > 2 ? GAP_MANY : GAP;
+    }
+
+    /**
+     * How far out the table reaches, in board units — `fit`'s own arithmetic,
+     * read back as one radius. It is what the patrols enter and leave on, so
+     * four boards are overflown across their corners and not only down the
+     * middle of the square.
+     */
+    get _reach() {
+        const step = SIZE + this._gap;
+        const cols = this.sides.length > 2 ? 2 : Math.max(this.sides.length, 1);
+        const rows = Math.ceil(Math.max(this.sides.length, 1) / cols);
+        return Math.max((cols - 1) * step, (rows - 1) * step) / 2 + SIZE / 2 + 2.2;
+    }
+
+    /**
+     * Tell the air what table it is flying over.
+     *
+     * A free-for-all is already drawing four seas, four fleets and their
+     * shadows, so it gets one sortie in the sky at a time rather than two.
+     */
+    _frameAir() {
+        this.air.setReach(this._reach);
+        this.air.maxFlights = this.sides.length > 2 ? 1 : 2;
+    }
+
+    /** Patrols on or off. Nothing already in the air is shot down for it. */
+    setAirPatrol(on) {
+        this.air.enabled = on;
     }
 
     /** Light up the cell under the pointer on one board, or none anywhere. */
@@ -1114,6 +1155,8 @@ export class BattleshipScene {
                 this.tweens.splice(i, 1);
             }
         }
+
+        this.air.update(dt);
 
         this.controls.update();
         this.renderer.render(this.scene, this.camera);

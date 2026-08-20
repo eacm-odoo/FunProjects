@@ -58,6 +58,7 @@ export class BattleshipBoard extends Component {
             selected: 0,
             dir: "h",
             soundOn: true,
+            patrolOn: true, // aircraft crossing the table, purely as weather
             pass: null, // {title, text} while the hot-seat device is being passed
             busy: false,
             menu: null, // "start" on the opening screen, "online" on the room panel
@@ -527,6 +528,10 @@ export class BattleshipBoard extends Component {
 
     get soundLabel() {
         return this.ui.soundOn ? _t("Sound on") : _t("Sound off");
+    }
+
+    get patrolLabel() {
+        return this.ui.patrolOn ? _t("Air patrol on") : _t("Air patrol off");
     }
 
     /** The line under the service record, on the start screen. */
@@ -1072,6 +1077,18 @@ export class BattleshipBoard extends Component {
     closeStart() {
         this.ui.menu = null;
         this.ui.backToStart = false;
+    }
+
+    /**
+     * Ground the patrols, or send them back up.
+     *
+     * They decide nothing, so this is a preference and not a rule: whatever is
+     * already in the air flies its sortie out, and no new one is spawned until
+     * they are back on.
+     */
+    togglePatrol() {
+        this.ui.patrolOn = !this.ui.patrolOn;
+        this.scene?.setAirPatrol(this.ui.patrolOn);
     }
 
     toggleSound() {
