@@ -9,6 +9,8 @@
     <button t-on-click="() => this.openReport('bug')">Report</button>
     <button t-attf-class="{{ ui.soundOn ? 'on' : '' }}" t-on-click="toggleSound"
             t-esc="soundLabel"/>
+    <button t-attf-class="{{ ui.patrolOn ? 'on' : '' }}" t-on-click="togglePatrol"
+            t-esc="patrolLabel"/>
     <button class="danger o_bs_spacer" t-if="room" t-on-click="leaveRoom">Leave room</button>
     <button class="primary o_bs_spacer" t-else="" t-on-click="() => this.newGame()">New game</button>
 </t>
@@ -236,6 +238,8 @@
                             <button t-on-click="openCodex">Fleet glossary</button>
                             <button t-attf-class="{{ ui.soundOn ? 'on' : '' }}" t-on-click="toggleSound"
                                     t-esc="soundLabel"/>
+                            <button t-attf-class="{{ ui.patrolOn ? 'on' : '' }}" t-on-click="togglePatrol"
+                                    t-esc="patrolLabel"/>
                             <button class="o_bs_link" t-if="game.state !== 'setup'"
                                     t-on-click="closeStart">Back to the board</button>
                         </div>
