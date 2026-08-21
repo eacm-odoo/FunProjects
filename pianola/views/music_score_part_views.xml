@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="music_score_part_view_list" model="ir.ui.view">
+        <field name="name">music.score.part.list</field>
+        <field name="model">music.score.part</field>
+        <field name="arch" type="xml">
+            <list string="Parts">
+                <field name="score_id"/>
+                <field name="name"/>
+                <field name="instrument"/>
+                <field name="staff_count"/>
+                <field name="midi_program"/>
+            </list>
+        </field>
+    </record>
+
+</odoo>

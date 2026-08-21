@@ -1,0 +1,18 @@
+// Odoo brand palette: https://www.odoo.com/page/brand-assets
+$o-pianola-primary: #714B67;
+$o-pianola-accent: #017E84;
+
+// The compilation log is a list of machine-written lines. Reading it in a
+// proportional font is needlessly hard, and the measure numbers in it only
+// line up in a monospace one.
+.o_pianola_parse_log {
+    font-family: var(--o-font-family-monospace, monospace);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    max-height: 24rem;
+    overflow-y: auto;
+    padding: 0.5rem 0.75rem;
+    border-left: 3px solid $o-pianola-accent;
+    background-color: rgba($o-pianola-primary, 0.04);
+}

@@ -1,0 +1,8 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_music_score_user,music.score.user,model_music_score,pianola.group_pianola_user,1,0,0,0
+access_music_score_manager,music.score.manager,model_music_score,pianola.group_pianola_manager,1,1,1,1
+access_music_score_part_user,music.score.part.user,model_music_score_part,pianola.group_pianola_user,1,0,0,0
+access_music_score_part_manager,music.score.part.manager,model_music_score_part,pianola.group_pianola_manager,1,1,1,1
+access_music_note_user,music.note.user,model_music_note,pianola.group_pianola_user,1,0,0,0
+access_music_note_manager,music.note.manager,model_music_note,pianola.group_pianola_manager,1,1,1,1
+access_music_score_import_manager,music.score.import.manager,model_music_score_import,pianola.group_pianola_manager,1,1,1,1

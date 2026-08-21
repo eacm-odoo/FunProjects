@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <menuitem id="menu_pianola_root" name="Pianola" sequence="95"
+              web_icon="pianola,static/description/icon.png"
+              groups="pianola.group_pianola_user"/>
+
+    <menuitem id="menu_pianola_scores" name="Scores" parent="menu_pianola_root"
+              action="music_score_action" sequence="10"/>
+
+    <menuitem id="menu_pianola_import" name="Import" parent="menu_pianola_root"
+              action="music_score_import_action" sequence="20"
+              groups="pianola.group_pianola_manager"/>
+
+    <menuitem id="menu_pianola_notes" name="Notes" parent="menu_pianola_root"
+              action="music_note_action" sequence="90"
+              groups="pianola.group_pianola_manager"/>
+
+</odoo>

@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="music_note_view_list" model="ir.ui.view">
+        <field name="name">music.note.list</field>
+        <field name="model">music.note</field>
+        <field name="arch" type="xml">
+            <list string="Notes" editable="bottom" multi_edit="1"
+                  decoration-info="hand == 'left'">
+                <field name="measure_number"/>
+                <field name="display_name" string="Note" readonly="1"/>
+                <field name="pitch_step"/>
+                <field name="pitch_alter"/>
+                <field name="pitch_octave"/>
+                <field name="midi_number"/>
+                <field name="hand"/>
+                <field name="staff" optional="hide"/>
+                <field name="voice" optional="hide"/>
+                <field name="onset_seconds" digits="[10, 3]"/>
+                <field name="duration_seconds" digits="[10, 3]"/>
+                <field name="velocity"/>
+                <field name="onset_ticks" optional="hide"/>
+                <field name="duration_ticks" optional="hide"/>
+                <field name="is_tied_start" optional="hide"/>
+                <field name="is_tied_stop" optional="hide"/>
+                <field name="sustain_pedal" optional="hide"/>
+                <field name="part_id" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="music_note_view_form" model="ir.ui.view">
+        <field name="name">music.note.form</field>
+        <field name="model">music.note</field>
+        <field name="arch" type="xml">
+            <form string="Note">
+                <sheet>
+                    <group>
+                        <group string="Score">
+                            <field name="score_id"/>
+                            <field name="part_id"/>
+                            <field name="measure_number"/>
+                            <field name="voice"/>
+                            <field name="staff"/>
+                            <field name="hand"/>
+                        </group>
+                        <group string="Pitch">
+                            <field name="pitch_step"/>
+                            <field name="pitch_alter"/>
+                            <field name="pitch_octave"/>
+                            <field name="midi_number"/>
+                        </group>
+                        <group string="Time">
+                            <field name="onset_ticks"/>
+                            <field name="duration_ticks"/>
+                            <field name="onset_seconds" digits="[10, 4]"/>
+                            <field name="duration_seconds" digits="[10, 4]"/>
+                        </group>
+                        <group string="Playing">
+                            <field name="velocity"/>
+                            <field name="is_tied_start"/>
+                            <field name="is_tied_stop"/>
+                            <field name="is_grace"/>
+                            <field name="sustain_pedal"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="music_note_view_search" model="ir.ui.view">
+        <field name="name">music.note.search</field>
+        <field name="model">music.note</field>
+        <field name="arch" type="xml">
+            <search string="Notes">
+                <field name="score_id"/>
+                <field name="measure_number"/>
+                <field name="midi_number"/>
+                <filter name="filter_right" string="Right Hand" domain="[('hand', '=', 'right')]"/>
+                <filter name="filter_left" string="Left Hand" domain="[('hand', '=', 'left')]"/>
+                <filter name="filter_tied" string="Tied"
+                        domain="['|', ('is_tied_start', '=', True), ('is_tied_stop', '=', True)]"/>
+                <group expand="0" string="Group By">
+                    <filter name="group_by_measure" string="Measure"
+                            context="{'group_by': 'measure_number'}"/>
+                    <filter name="group_by_hand" string="Hand" context="{'group_by': 'hand'}"/>
+                    <filter name="group_by_part" string="Part" context="{'group_by': 'part_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="music_note_action" model="ir.actions.act_window">
+        <field name="name">Notes</field>
+        <field name="res_model">music.note</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>

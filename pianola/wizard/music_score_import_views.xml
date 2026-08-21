@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="music_score_import_view_form" model="ir.ui.view">
+        <field name="name">music.score.import.form</field>
+        <field name="model">music.score.import</field>
+        <field name="arch" type="xml">
+            <form string="Import a Score">
+                <group>
+                    <field name="source_type"/>
+                    <field name="source_file" filename="source_filename"
+                           string="MusicXML File"/>
+                    <field name="source_filename" invisible="1"/>
+                    <field name="name" placeholder="Taken from the file if left empty"/>
+                    <field name="composer_id"/>
+                    <field name="fermata_factor"/>
+                </group>
+                <div class="alert alert-info" role="alert"
+                     invisible="source_type == 'musicxml'">
+                    Only MusicXML is read for now. MIDI and PDF arrive with the
+                    later phases.
+                </div>
+                <footer>
+                    <button name="action_import" type="object" string="Import"
+                            class="btn-primary" data-hotkey="q"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"
+                            data-hotkey="x"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="music_score_import_action" model="ir.actions.act_window">
+        <field name="name">Import a Score</field>
+        <field name="res_model">music.score.import</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+</odoo>

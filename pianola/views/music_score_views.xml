@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="music_score_view_list" model="ir.ui.view">
+        <field name="name">music.score.list</field>
+        <field name="model">music.score</field>
+        <field name="arch" type="xml">
+            <list string="Scores" decoration-danger="state == 'error'" decoration-muted="state == 'draft'">
+                <field name="name"/>
+                <field name="composer_id"/>
+                <field name="key_signature"/>
+                <field name="time_signature"/>
+                <field name="tempo_bpm" digits="[6, 1]"/>
+                <field name="duration_seconds" digits="[8, 1]"/>
+                <field name="note_count"/>
+                <field name="warning_count" optional="show"/>
+                <field name="source_type" optional="hide"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'ready'"
+                       decoration-warning="state == 'parsed'"
+                       decoration-danger="state == 'error'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="music_score_view_form" model="ir.ui.view">
+        <field name="name">music.score.form</field>
+        <field name="model">music.score</field>
+        <field name="arch" type="xml">
+            <form string="Score">
+                <header>
+                    <button name="action_parse" type="object" string="Compile"
+                            class="btn-primary"
+                            invisible="state not in ('draft', 'error')"/>
+                    <button name="action_recompile" type="object" string="Recompile"
+                            invisible="state not in ('parsed', 'ready')"/>
+                    <button name="action_reset_to_draft" type="object" string="Reset to Draft"
+                            invisible="state == 'draft'"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,parsed,ready"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_open_notes" type="object"
+                                class="oe_stat_button" icon="fa-music"
+                                invisible="note_count == 0">
+                            <field name="note_count" widget="statinfo" string="Notes"/>
+                        </button>
+                    </div>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name" placeholder="e.g. Invention no. 1"/></h1>
+                    </div>
+                    <group>
+                        <group string="Source">
+                            <field name="source_type"/>
+                            <field name="source_file" filename="source_filename"/>
+                            <field name="source_filename" invisible="1"/>
+                            <field name="composer_id"/>
+                            <field name="fermata_factor"/>
+                        </group>
+                        <group string="Compiled" invisible="state == 'draft'">
+                            <field name="key_signature"/>
+                            <field name="time_signature"/>
+                            <field name="tempo_bpm" digits="[6, 1]"/>
+                            <field name="duration_seconds" digits="[8, 2]"/>
+                            <field name="part_count"/>
+                            <field name="warning_count"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Parts" name="parts" invisible="part_count == 0">
+                            <field name="part_ids" readonly="1">
+                                <list>
+                                    <field name="name"/>
+                                    <field name="instrument"/>
+                                    <field name="staff_count"/>
+                                    <field name="midi_program"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Compilation Log" name="log" invisible="not parse_log">
+                            <field name="parse_log" class="o_pianola_parse_log" readonly="1" nolabel="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="music_score_view_search" model="ir.ui.view">
+        <field name="name">music.score.search</field>
+        <field name="model">music.score</field>
+        <field name="arch" type="xml">
+            <search string="Scores">
+                <field name="name"/>
+                <field name="composer_id"/>
+                <field name="key_signature"/>
+                <filter name="filter_ready" string="Ready" domain="[('state', '=', 'ready')]"/>
+                <filter name="filter_error" string="Failed" domain="[('state', '=', 'error')]"/>
+                <filter name="filter_warnings" string="With Warnings"
+                        domain="[('warning_count', '&gt;', 0)]"/>
+                <group expand="0" string="Group By">
+                    <filter name="group_by_composer" string="Composer"
+                            context="{'group_by': 'composer_id'}"/>
+                    <filter name="group_by_state" string="Status"
+                            context="{'group_by': 'state'}"/>
+                    <filter name="group_by_key" string="Key"
+                            context="{'group_by': 'key_signature'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="music_score_action" model="ir.actions.act_window">
+        <field name="name">Scores</field>
+        <field name="res_model">music.score</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Import a score</p>
+            <p>Bring in a MusicXML file and Pianola turns it into a timeline of
+               notes you can play back.</p>
+        </field>
+    </record>
+
+</odoo>
