@@ -76,7 +76,7 @@ class BattleshipGame(models.Model):
             ("cpu", "vs CPU"),
             ("hotseat", "2 players (hot-seat)"),
             ("online", "2 players (online)"),
-            ("royale", "Free-for-all (4 boards)"),
+            ("royale", "4-way battle (all vs all)"),
         ],
         default="cpu", required=True,
     )

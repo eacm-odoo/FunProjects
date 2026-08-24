@@ -54,7 +54,7 @@
                     <button t-attf-class="{{ game.mode === 'online' ? 'active' : '' }}"
                             t-on-click="() => this.newGame('online')">Online</button>
                     <button t-attf-class="{{ game.mode === 'royale' ? 'active' : '' }}"
-                            t-on-click="() => this.newGame('royale')">Free-for-all</button>
+                            t-on-click="() => this.newGame('royale')">4-way battle</button>
                 </div>
                 <span class="o_bs_code" t-if="room" t-esc="game.code"/>
                 <t t-call="battleship_3d.RenameField"/>
@@ -246,9 +246,9 @@
                              is, so it goes through the same panel — the empty
                              seats are what makes one player enough. -->
                         <button class="o_bs_tile o_bs_wide" t-on-click="() => this.openOnline('royale')">
-                            <span class="o_bs_tile_title">Free-for-all<span class="o_bs_dot brass"/></span>
-                            <span class="o_bs_tile_sub">Four fleets, up to four admirals,
-                                the admiralty takes the empty chairs</span>
+                            <span class="o_bs_tile_title">4-way battle<span class="o_bs_dot brass"/></span>
+                            <span class="o_bs_tile_sub">Everybody shoots everybody. Up to four
+                                admirals, and the admiralty takes the empty chairs</span>
                         </button>
 
                         <!-- Who the admiralty is whenever it holds a seat: the
@@ -315,11 +315,12 @@
             <div class="o_bs_card">
                 <div class="o_bs_card_head">
                     <span class="o_bs_eyebrow">Encrypted channel</span>
-                    <h2 t-esc="openingRoyale ? 'Free-for-all' : 'Play online'"/>
+                    <h2 t-esc="openingRoyale ? '4-way battle' : 'Play online'"/>
                 </div>
-                <p t-if="openingRoyale">Open a room for four and pass the link around, or type
-                    the code you were given. Empty chairs are played by the admiralty, so you
-                    can sail with one.</p>
+                <p t-if="openingRoyale">Four fleets on one table, everybody shooting at
+                    everybody, and the last one afloat takes it. Open a room and pass the link
+                    around, or type the code you were given. Empty chairs are played by the
+                    admiralty, so you can sail with one.</p>
                 <p t-else="">Open a room and send your opponent the link, or type the code you
                     were given.</p>
                 <input type="text" placeholder="YOUR NAME" maxlength="32" t-model="ui.nickname"/>
