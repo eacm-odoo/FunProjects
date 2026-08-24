@@ -219,14 +219,23 @@ two ways of being drawn.
 * Any real state landing (`setGame`) ends the replay, because it was a look
   back at a board that has just stopped being the one on screen.
 
-## Free-for-all
+## 4-way battle
 
-Four boards on one table, `mode = royale`. It is a room like the duel is — a
-code, a bus channel, a seat per browser token — with three seats to give instead
-of one, and it does not start itself: whoever opened it presses **Sail now**, and
-every chair still empty at that moment goes to the admiralty (`cpu_sides`). One
-human is therefore enough, four is the most, and anybody who arrives before the
-room sails gets the next free seat (`_free_seat`).
+Four boards on one table and everybody shooting at everybody, `mode = royale`.
+
+Three names for one thing, and it is worth saying which is which: **4-way
+battle** is what the player reads, `royale` is the stored mode and what every
+branch in the code tests, and **free-for-all** is what the comments in this
+module call it, because that is what it was called while it was written. The
+mode key is in the database of every game ever played, so it stays; the label
+is the only one of the three anybody outside the code sees.
+
+It is a room like the duel is — a code, a bus channel, a seat per browser
+token — with three seats to give instead of one, and it does not start itself:
+whoever opened it presses **Sail now**, and every chair still empty at that
+moment goes to the admiralty (`cpu_sides`). One human is therefore enough, four
+is the most, and anybody who arrives before the room sails gets the next free
+seat (`_free_seat`).
 
 The rules, and where they live:
 

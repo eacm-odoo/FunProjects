@@ -16,9 +16,9 @@ three.js board rendered as an OWL component.
   already found, normal searches the grid no ship can hide between, and the
   admiral works out where the fleet could still be lying and fires there.
   None of the three is told anything the player could not have worked out
-* free-for-all: four boards on one table, up to four admirals in the room and
-  the admiralty on whatever chairs are left, so one player is enough to sail.
-  Every turn is a sweep of the table — one shell at each board still afloat,
+* 4-way battle: four boards on one table and everybody shooting at everybody,
+  up to four admirals in the room and the admiralty on whatever chairs are
+  left, so one player is enough to sail. Every turn is a sweep of the table — one shell at each board still afloat,
   and a hit buys another on that board — a square nobody can fire at twice, and
   the last fleet afloat takes it
 * a live sea shaded on the GPU, with the grid drawn on the surface: five WWII
