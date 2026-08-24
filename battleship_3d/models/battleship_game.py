@@ -37,6 +37,23 @@ PING_STEP = 5
 # seats answering one player can put a couple of dozen of them in the air at
 # once. Anything the window does drop is still drawn, only without its arc.
 LOG_ROWS = 60
+# How well the admiralty shoots. The three levels are three different searches
+# and nothing else: none of them is given a single thing a player watching the
+# same board could not have worked out for themselves (see `_cpu_intel`).
+DIFFICULTIES = [
+    ("easy", "Easy"),
+    ("normal", "Normal"),
+    ("admiral", "Admiral"),
+]
+# How often a green gun bothers to finish off a hull it has already found.
+# The rest of the time it goes back to firing at the sea, which is what makes
+# it beatable: a wounded ship of yours can sit there for another dozen salvos.
+EASY_FOLLOW_UP = 0.35
+# What an admiral makes of a placement that would explain a hit already on the
+# board, against one that ignores it. High enough that target mode falls out of
+# the same arithmetic as the search — no separate branch decides to press a
+# hit — and that two hits in a line beat one every time.
+HIT_WEIGHT = 8
 
 
 def coord(cell):
@@ -71,6 +88,15 @@ class BattleshipGame(models.Model):
             ("done", "Finished"),
         ],
         default="setup", required=True,
+    )
+    # How the admiralty shoots, whenever it is holding a seat. It is set when
+    # the game is created and never changes: a level picked halfway through
+    # would be a different opponent finishing somebody else's game, and the
+    # record on the start screen counts every game the same.
+    difficulty = fields.Selection(
+        DIFFICULTIES, default="normal", required=True,
+        help="How well the seats the admiralty holds shoot. Inert in a game "
+             "with no CPU in it.",
     )
     setup_for = fields.Selection(SIDE_LABELS, default="a")
     current_player = fields.Selection(SIDE_LABELS, default="a")
@@ -456,8 +482,13 @@ class BattleshipGame(models.Model):
         raise UserError(_("Could not get a free room code, try again."))
 
     @api.model
-    def action_create_room(self, token, nickname=None, uid=False, mode="online"):
-        """Open a room and take side A. The others join with the code."""
+    def action_create_room(self, token, nickname=None, uid=False, mode="online", difficulty=None):
+        """Open a room and take side A. The others join with the code.
+
+        A duel has no CPU in it and `difficulty` means nothing there; a
+        free-for-all gives every chair nobody claimed to the admiralty, so the
+        player opening one is picking who they will be sharing the table with.
+        """
         # Sitting down is itself a sign of life: without it a seat taken by
         # somebody who closes the tab straight away would stay silent forever
         # without ever counting as quiet.
@@ -467,6 +498,7 @@ class BattleshipGame(models.Model):
             "token_a": token,
             "name_a": (nickname or "").strip()[:32] or False,
             "seen_a": fields.Datetime.now(),
+            "difficulty": difficulty or "normal",
         }, mode="royale" if mode == "royale" else "online")
         return game.read_state("a")
 
@@ -634,8 +666,10 @@ class BattleshipGame(models.Model):
                 "state": "setup",
                 "user_id": self.user_id.id,
                 # Whoever the admiralty was playing for, it plays for again:
-                # a rematch is the same table, not a new negotiation.
+                # a rematch is the same table, not a new negotiation. Nor is it
+                # a chance to quietly ask for an easier opponent.
                 "cpu_sides": self._json(self.cpu_sides),
+                "difficulty": self.difficulty,
             }
             for seat in self._seats():
                 values["token_%s" % seat] = self["token_%s" % seat]
@@ -869,6 +903,41 @@ class BattleshipGame(models.Model):
     # ------------------------------------------------------------------
     # the admiralty
     # ------------------------------------------------------------------
+    def _cpu_intel(self, target):
+        """What anybody watching that board already knows about it.
+
+        This is the line the admiralty is not allowed to cross. It reads
+        `fleet_<target>`, which holds the truth, but only ever to answer
+        questions the table has already answered out loud: a shell that was
+        fired is public, its result was announced when it landed, and a ship
+        that went down was named as it did. Nothing here can tell where a hull
+        that has not been hit is lying.
+
+        * `shots` — every cell fired at that board, by anybody.
+        * `wounded` — cells known to hold a hull that is still up: a hit that
+          no sinking has accounted for yet.
+        * `afloat` — the sizes still to be found, since a sinking names its
+          ship and the fleet is the same five classes on every board.
+        """
+        self.ensure_one()
+        shots = set(self._shots(target))
+        fleet = self._fleet(target)
+        # Cells of the ships already announced sunk. Every one of them was hit
+        # — that is what sank the ship — so they are the part of `shots` that
+        # is spoken for, and what is left over is the wounded.
+        wrecks = {cell for ship in fleet if ship["sunk"] for cell in ship["cells"]}
+        hulls = {cell for ship in fleet for cell in ship["cells"]}
+        return {
+            "shots": shots,
+            "wounded": (hulls & shots) - wrecks,
+            "afloat": [ship["size"] for ship in fleet if not ship["sunk"]],
+        }
+
+    def _cpu_free(self, target):
+        """Every cell nobody has fired at yet. A green gun's whole search."""
+        shots = set(self._shots(target))
+        return [cell for cell in range(SIZE * SIZE) if cell not in shots]
+
     def _cpu_queue(self, target):
         """Cells next to a hit that has not sunk yet, on that board."""
         shots = set(self._shots(target))
@@ -894,21 +963,87 @@ class BattleshipGame(models.Model):
         free = [c for c in range(SIZE * SIZE) if c not in shots]
         return [c for c in free if (c % SIZE + c // SIZE) % 2 == 0] or free
 
+    def _cpu_density(self, target):
+        """The cells the most surviving ships could still be lying on.
+
+        Every ship still afloat is laid over the grid in every position it
+        could legally occupy — one that covers a miss or a known wreck is not
+        one of them — and each open cell counts how many of those placements
+        pass through it. The busiest cells are the ones fired at.
+
+        Target mode is not a separate branch here, it falls out of the same
+        count: a placement that would explain a hit already on the board counts
+        `HIT_WEIGHT` times over, so the moment a hull is wounded the squares
+        that could continue it dwarf everything else, and two hits in a line
+        beat one because a placement can cover both. That is also why this
+        finishes ships along their axis without ever being told what an axis is.
+        """
+        self.ensure_one()
+        intel = self._cpu_intel(target)
+        # What no ship still afloat can be lying under: the misses, and the
+        # hulls already on the bottom. That is every shell fired at this board
+        # bar the wounded ones — a ship goes down only once every cell of it
+        # has been hit, so a wreck is a shot that is not wounded.
+        blocked = intel["shots"] - intel["wounded"]
+        score = {}
+        for size in intel["afloat"]:
+            for cell in range(SIZE * SIZE):
+                for direction in ("h", "v"):
+                    cells = self._cells_for(cell, size, direction)
+                    if not cells or blocked.intersection(cells):
+                        continue
+                    weight = 1 + HIT_WEIGHT * len(intel["wounded"].intersection(cells))
+                    for spot in cells:
+                        if spot not in intel["shots"]:
+                            score[spot] = score.get(spot, 0) + weight
+        if not score:
+            # Every remaining ship is boxed in by what has already been fired,
+            # which the arithmetic above cannot happen upon: fall back to the
+            # plain search rather than leaving the gun with nothing to do.
+            return self._cpu_free(target)
+        best = max(score.values())
+        return [cell for cell, value in score.items() if value == best]
+
+    def _cpu_cells(self, target):
+        """Where this admiralty would put its next shell on that board.
+
+        Three searches, one per level, and the whole of what a difficulty is:
+
+        * `easy` fires at the open sea, and only sometimes bothers to finish a
+          hull it has already found.
+        * `normal` walks the parity grid no ship can hide between, and follows
+          up on a hit until it goes down.
+        * `admiral` counts, for every open cell, how many placements of the
+          ships still afloat would cover it, and fires at the busiest.
+        """
+        self.ensure_one()
+        if self.difficulty == "admiral":
+            return self._cpu_density(target)
+        queue = self._cpu_queue(target)
+        if self.difficulty == "easy":
+            if queue and random.random() < EASY_FOLLOW_UP:
+                return queue
+            return self._cpu_free(target)
+        return queue or self._cpu_hunt(target)
+
     def _cpu_shot(self, shooter):
         """A board and a cell for a seat the admiralty is playing.
 
         It only ever picks from what the turn still owes a shell to, so it walks
         the same sweep a player does. Which board it opens first is still its
-        own call, and a board it has already wounded goes first — the same
-        hunt-and-target the CPU has always played, one grid at a time.
+        own call, and above `easy` a board it has already wounded goes first —
+        a green gun does not join the dots between grids either.
         """
         self.ensure_one()
         targets = self._pending_targets(shooter)
         if not targets:
             return None, None
-        wounded = [side for side in targets if self._cpu_queue(side)]
-        target = random.choice(wounded or targets)
-        cells = self._cpu_queue(target) or self._cpu_hunt(target)
+        if self.difficulty == "easy":
+            target = random.choice(targets)
+        else:
+            wounded = [side for side in targets if self._cpu_queue(side)]
+            target = random.choice(wounded or targets)
+        cells = self._cpu_cells(target)
         return (target, random.choice(cells)) if cells else (None, None)
 
     def _cpu_turns(self):
@@ -987,6 +1122,10 @@ class BattleshipGame(models.Model):
         state = {
             "id": self.id,
             "mode": self.mode,
+            # Only ever read by a game with a CPU in it, but it travels with
+            # every payload: the start screen shows which level the board
+            # behind it was opened at, whatever mode that board is.
+            "difficulty": self.difficulty,
             "state": self.state,
             "setup_for": self.setup_for,
             "current_player": self.current_player,
@@ -1066,6 +1205,45 @@ class BattleshipGame(models.Model):
             return _("Admiralty %s") % side.upper()
         return _("Player %s") % (self._seats().index(side) + 1)
 
+    def read_replay(self):
+        """Every shell of a finished game, oldest first.
+
+        This is the one thing `read_state` cannot answer. Its log is a window
+        `LOG_ROWS` deep — enough to animate the last volley and to fill three
+        rows on the bridge — and a game runs to several hundred shells, so a
+        replay read out of it would start somewhere in the middle.
+
+        It carries nothing but the shots. The board it is played back on is the
+        one already on screen, whose payload holds the fleets, the seats and
+        the names; asking for those twice would be two shapes to keep in step
+        for no gain, and the client rebuilds every state in between from the
+        shells themselves.
+
+        Only a finished game answers. Not for secrecy — `read_state` reveals
+        both fleets by then and the markers were always public — but because a
+        replay of a game still being played is a live feed of the enemy's
+        aim, and the point of the thing is to look back at something over.
+        """
+        self.ensure_one()
+        if self.state != "done":
+            raise UserError(_("That game is not over yet."))
+        return {
+            "id": self.id,
+            "shots": [
+                {
+                    "shooter": shot.shooter,
+                    "target": shot.target or ("b" if shot.shooter == "a" else "a"),
+                    "cell": shot.cell,
+                    "coord": shot.coord,
+                    "result": shot.result,
+                    "ship_name": shot.ship_name,
+                }
+                # `_order` on the model is newest first, which is what the
+                # bridge wants and the exact opposite of what a replay does.
+                for shot in self.shot_ids.sorted("id")
+            ],
+        }
+
     @api.model
     def read_record(self, session_token=None):
         """Tally of whoever owns the game: a user, or a browser.
@@ -1111,7 +1289,7 @@ class BattleshipGame(models.Model):
         }
 
     @api.model
-    def action_new_game(self, mode="cpu", session_token=None):
+    def action_new_game(self, mode="cpu", session_token=None, difficulty=None):
         if mode in ("online", "royale"):
             # Those need a code and a seat: `action_create_room` is the door.
             raise UserError(_("Open a room to play with other people."))
@@ -1119,6 +1297,7 @@ class BattleshipGame(models.Model):
             "mode": mode,
             "name": _("Game %s") % fields.Datetime.now(),
             "session_token": session_token or False,
+            "difficulty": difficulty or "normal",
         })
         return game.read_state()
 

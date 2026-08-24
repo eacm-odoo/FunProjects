@@ -9,6 +9,7 @@ from odoo.tools.translate import _
 
 MODES = ("cpu", "hotseat")
 ROOM_MODES = ("online", "royale")
+DIFFICULTIES = ("easy", "normal", "admiral")
 SIDES = ("a", "b", "c", "d")
 DIRECTIONS = ("h", "v")
 SIZE = 10
@@ -140,14 +141,26 @@ class BattleshipController(http.Controller):
     # ------------------------------------------------------------------ #
 
     @http.route("/battleship/new", type="jsonrpc", auth="public")
-    def new_game(self, mode="cpu", **kwargs):
+    def new_game(self, mode="cpu", difficulty=None, **kwargs):
         token = self._token() if self._is_public() else None
-        return self._games().action_new_game(self._as_choice(mode, MODES), token)
+        return self._games().action_new_game(
+            self._as_choice(mode, MODES),
+            token,
+            self._as_choice(difficulty, DIFFICULTIES) if difficulty else None,
+        )
 
     @http.route("/battleship/state", type="jsonrpc", auth="public")
     def state(self, game_id=None, **kwargs):
         game = self._game(game_id)
         return game.read_state(self._side(game))
+
+    # Every shell of a finished game, for the replay on the final dispatch.
+    # It goes through `_game` like every other call here, so a game id on its
+    # own still buys nothing: the shot log of somebody else's board is not
+    # readable just because the board it belongs to is over.
+    @http.route("/battleship/replay", type="jsonrpc", auth="public")
+    def replay(self, game_id=None, **kwargs):
+        return self._game(game_id).read_replay()
 
     @http.route("/battleship/place", type="jsonrpc", auth="public")
     def place_ship(self, game_id=None, side=None, index=None, cell=None, direction=None, **kwargs):
@@ -191,10 +204,11 @@ class BattleshipController(http.Controller):
     # forge to sit down at somebody else's side of the board.
 
     @http.route("/battleship/room/create", type="jsonrpc", auth="public")
-    def create_room(self, nickname=None, mode="online", **kwargs):
+    def create_room(self, nickname=None, mode="online", difficulty=None, **kwargs):
         uid = False if self._is_public() else request.env.uid
         return request.env["battleship.game"].sudo().action_create_room(
-            self._token(), nickname, uid, self._as_choice(mode, ROOM_MODES)
+            self._token(), nickname, uid, self._as_choice(mode, ROOM_MODES),
+            self._as_choice(difficulty, DIFFICULTIES) if difficulty else None,
         )
 
     # Sailing a free-for-all with whoever turned up: the empty seats go to the

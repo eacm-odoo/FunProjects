@@ -8,9 +8,14 @@ Turn-based Battleship
 Server-authoritative Battleship game (10x10, classic 5-ship fleet) with a
 three.js board rendered as an OWL component.
 
-* vs CPU (hunt/target AI, solved server side), 2 players hot-seat, or 2 players
-  remote: one opens a room, the other joins with the code, and the two boards
-  keep in step over the Odoo bus
+* vs CPU (solved server side), 2 players hot-seat, or 2 players remote: one
+  opens a room, the other joins with the code, and the two boards keep in step
+  over the Odoo bus
+* three admiralties to play against, picked before the game and kept to the
+  end: easy fires at the open sea and often walks away from a hull it has
+  already found, normal searches the grid no ship can hide between, and the
+  admiral works out where the fleet could still be lying and fires there.
+  None of the three is told anything the player could not have worked out
 * free-for-all: four boards on one table, up to four admirals in the room and
   the admiralty on whatever chairs are left, so one player is enough to sail.
   Every turn is a sweep of the table — one shell at each board still afloat,
@@ -23,6 +28,8 @@ three.js board rendered as an OWL component.
   record on a paper file, orders and a radio log across the bridge, fleets on
   painted steel plates, and a typed dispatch at the end of a game
 * the final board can be walked once a game is over, with both fleets revealed
+* a replay of the whole battle on the board it was fought on: every shell in
+  order, hold and step, three speeds and a track to jump anywhere in it
 * online rooms say so when the other seat stops answering, without ever ending
   the game over it
 * patrols overhead: fighters, interceptors and bombers cross the table on
@@ -37,7 +44,7 @@ three.js board rendered as an OWL component.
 * playable from the backend menu, and from the public page /battleship without
   an account (the game is bound to the browser session)
 """,
-    "version": "19.0.9.0.0",
+    "version": "19.0.10.0.0",
     "category": "Tools/Games",
     "license": "LGPL-3",
     "author": "Odoo Development Services",

@@ -788,8 +788,37 @@ export class BattleshipScene {
         this.tweens = this.tweens.filter((tween) => tween.keep);
     }
 
+    /**
+     * A shell that has already landed, with nothing in the air behind it.
+     *
+     * A replay runs a whole game past in half a minute, which is far faster
+     * than a shell flies: it paints the end of a shot without the shot, and
+     * the water is what carries it.
+     *
+     * `withPeg` is false when the caller is redrawing the table anyway — a
+     * hull going down is the one thing a marker cannot show, so those steps go
+     * through `render()`, which draws a marker for every cell the payload has
+     * been fired at and would otherwise leave two on the same square.
+     */
+    mark(side, cell, isHit, withPeg = true) {
+        const board = this.boards[side];
+        if (!board) {
+            return;
+        }
+        this._splash(board, cx(cell % SIZE), cx(Math.floor(cell / SIZE)), isHit);
+        if (withPeg) {
+            this.peg(side, cell, isHit, true);
+        }
+    }
+
     _impact(board, cell, x, z, isHit) {
         board.pending.delete(cell);
+        this._splash(board, x, z, isHit);
+        this.peg(board.side, cell, isHit, true);
+    }
+
+    /** Everything a shell throws up where it lands, but not the marker. */
+    _splash(board, x, z, isHit) {
         // The ring the whole board feels, and the foam the shader draws with it.
         board.water.splash(x, z, isHit ? 0.15 : 0.105);
 
@@ -847,8 +876,6 @@ export class BattleshipScene {
                 }
             });
         }
-
-        this.peg(board.side, cell, isHit, true);
     }
 
     /** Run `fn(object, progress, dt)` for `ms`, then drop the object. */

@@ -475,6 +475,97 @@ $bs-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
     }
     .o_bs_turnbar_sub { font-family: $bs-typed; font-size: 13px; color: var(--bs-ink-dim); }
 
+    // The game being wound back. Same slot and the same plate as the two above
+    // it — there is no turn to announce by then — but this one is worked, so it
+    // is the widest thing on the water and the only one that takes a click.
+    .o_bs_replay {
+        position: absolute;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 940px;
+        max-width: calc(100% - 24px);
+        padding: 8px 10px;
+        border: 1px solid #2c383f;
+        border-top-color: #42525a;
+        background: rgba(13, 20, 24, 0.94);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 18px rgba(0, 0, 0, 0.5);
+
+        button {
+            flex: none;
+            padding: 7px 12px;
+            font-size: 10px;
+            letter-spacing: 0.16em;
+        }
+        button.primary { min-width: 88px; }
+    }
+    .o_bs_replay_speed { min-width: 52px; }
+    // How far through the game the board is, in shells. Tabular so the bar
+    // does not twitch sideways on every step.
+    .o_bs_replay_count {
+        flex: none;
+        font-variant-numeric: tabular-nums;
+        @include bs-stencil(10.5px, var(--bs-brass));
+        letter-spacing: 0.14em;
+    }
+    // The whole battle as one length of tape, and the only way to jump in it.
+    .o_bs_replay_track {
+        flex: 1 1 auto;
+        min-width: 90px;
+        height: 18px;
+        margin: 0;
+        padding: 0;
+        appearance: none;
+        background: transparent;
+        cursor: pointer;
+
+        &::-webkit-slider-runnable-track {
+            height: 4px;
+            border: 1px solid #2c383f;
+            background: #0d1418;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.7);
+        }
+        &::-moz-range-track {
+            height: 4px;
+            border: 1px solid #2c383f;
+            background: #0d1418;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.7);
+        }
+        &::-webkit-slider-thumb {
+            appearance: none;
+            width: 10px;
+            height: 16px;
+            margin-top: -7px;
+            border: 1px solid #7a5f2c;
+            border-radius: 1px;
+            background: linear-gradient(180deg, #d8b366 0%, #B08A3E 100%);
+        }
+        &::-moz-range-thumb {
+            width: 10px;
+            height: 16px;
+            border: 1px solid #7a5f2c;
+            border-radius: 1px;
+            background: #B08A3E;
+        }
+        &:focus-visible { outline: 1px solid var(--bs-teal); outline-offset: 2px; }
+    }
+    // What that shell did, in the radio log's own words. It gives up room
+    // before anything else in the bar: the controls have to stay reachable.
+    .o_bs_replay_line {
+        flex: 1 1 0;
+        min-width: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        font-family: $bs-typed;
+        font-size: 13px;
+        color: var(--bs-ink-dim);
+    }
+
     // -------------------------------------------------------- fleet plates
     .o_bs_bar_bottom .o_bs_panel { flex: 1 1 0; min-width: 0; padding: 12px 14px; }
 
@@ -1021,6 +1112,13 @@ $bs-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
             border-style: dashed;
         }
     }
+    // A footnote on the sheet: who the admiralty was, typed under the report.
+    .o_bs_dispatch_note {
+        margin: 8px 0 0;
+        font-family: $bs-typed;
+        font-size: 12.5px;
+        color: #5c6960;
+    }
     // Rubber-stamped across the bottom of a sheet, and never quite straight.
     .o_bs_stamp {
         display: flex;
@@ -1108,6 +1206,27 @@ $bs-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
     }
 
     .o_bs_start_btns { display: flex; flex-direction: column; gap: 12px; width: 520px; max-width: 100%; }
+
+    // Who the admiralty is. It is a setting and not a way in, so it sits below
+    // the three doors, ruled off from them, at the weight of a caption.
+    .o_bs_levels {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 4px;
+        padding-top: 14px;
+        border-top: 1px solid #2c383f;
+
+        .o_bs_seg button { flex: 1; justify-content: center; }
+    }
+    .o_bs_level_blurb {
+        margin: 0;
+        min-height: 34px;
+        font-family: $bs-typed;
+        font-size: 12.5px;
+        line-height: 1.45;
+        color: var(--bs-ink-dim);
+    }
 
     // The way in. Numbered like an order on a sheet, and the only thing on the
     // screen at that weight.

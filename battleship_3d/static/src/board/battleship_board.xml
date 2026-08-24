@@ -99,6 +99,23 @@
         </div>
 
         <div t-attf-class="o_bs_canvas {{ aiming ? 'o_bs_aim' : '' }}" t-ref="canvas">
+            <!-- The game, wound back and played forward. It takes the same
+                 slot as the two banners under it and never fights them for it:
+                 a replay frame says the game is over, which is the one thing
+                 both of them refuse to talk over. It is also the only thing on
+                 this screen that moves on its own, hence the controls. -->
+            <div t-if="ui.replay" class="o_bs_replay">
+                <button class="primary" t-on-click="toggleReplay" t-esc="replayPlayLabel"/>
+                <button t-on-click="restartReplay">From the top</button>
+                <button class="o_bs_replay_speed" t-on-click="cycleReplaySpeed"
+                        t-esc="replaySpeedLabel"/>
+                <span class="o_bs_replay_count" t-esc="replayCounter"/>
+                <input class="o_bs_replay_track" type="range" min="0" step="1"
+                       t-att-max="replayTape.length" t-att-value="ui.replay.index"
+                       t-on-input="onReplaySeek"/>
+                <span class="o_bs_replay_line" t-esc="replayLine"/>
+                <button t-on-click="closeReplay">Close (Esc)</button>
+            </div>
             <!-- Whose move it is, over the water, where the player is already
                  looking. The board itself carries the other half of the answer:
                  a plate that breathes on the grid the next shot belongs to. -->
@@ -233,6 +250,22 @@
                             <span class="o_bs_tile_sub">Four fleets, up to four admirals,
                                 the admiralty takes the empty chairs</span>
                         </button>
+
+                        <!-- Who the admiralty is whenever it holds a seat: the
+                             opponent in a game against the CPU, and every
+                             chair nobody claimed in a free-for-all. A game
+                             carries the level it was opened at and keeps it to
+                             the end, so this is about the next one. -->
+                        <div class="o_bs_levels">
+                            <span class="o_bs_eyebrow">Enemy admiralty</span>
+                            <div class="o_bs_seg">
+                                <button t-foreach="difficulties" t-as="level" t-key="level.key"
+                                        t-attf-class="{{ level.key === ui.difficulty ? 'active' : '' }}"
+                                        t-on-click="() => this.setDifficulty(level.key)"
+                                        t-esc="level.name"/>
+                            </div>
+                            <p class="o_bs_level_blurb" t-esc="chosenLevel.blurb"/>
+                        </div>
 
                         <div class="o_bs_btns">
                             <button t-on-click="openCodex">Fleet glossary</button>
@@ -433,7 +466,7 @@
              are still falling: the card covers the board, and that salvo is the
              point. -->
         <div class="o_bs_over"
-             t-if="game.state === 'done' and !ui.menu and !ui.settling and !ui.inspect">
+             t-if="game.state === 'done' and !ui.menu and !ui.settling and !ui.inspect and !ui.replay">
             <div class="o_bs_grain"/>
             <div class="o_bs_vignette"/>
             <div class="o_bs_dispatch_card">
@@ -441,6 +474,11 @@
                 <h2 t-esc="statusText"/>
                 <p t-if="game.end_reason === 'forfeit'">The room is closed.</p>
                 <p t-else="" t-esc="endReport"/>
+                <!-- Which admiralty was on the other side of it. Only worth
+                     saying where there was one, and only where the fleet was
+                     actually fought to the bottom. -->
+                <p class="o_bs_dispatch_note"
+                   t-if="hasCpu and game.end_reason !== 'forfeit'" t-esc="levelNote"/>
                 <div class="o_bs_btns">
                     <t t-if="room">
                         <button class="primary" t-if="game.end_reason !== 'forfeit'" t-on-click="rematch">
@@ -453,9 +491,14 @@
                         <button class="o_bs_ghost" t-on-click="openStart">Menu</button>
                     </t>
                 </div>
-                <!-- Both fleets are on the water now. Worth a look. -->
+                <!-- Both fleets are on the water now. Worth a look — either
+                     as it ended, or shell by shell from the first salvo. -->
                 <button class="o_bs_ghost o_bs_wreckage" t-on-click="inspectBoard">
                     See the wreckage
+                </button>
+                <button class="o_bs_ghost o_bs_wreckage" t-if="canReplay"
+                        t-att-disabled="ui.busy" t-on-click="openReplay">
+                    Replay the battle
                 </button>
                 <div t-attf-class="o_bs_stamp {{ endStamp.lost ? 'lost' : '' }}">
                     <span t-esc="endStamp.text"/>

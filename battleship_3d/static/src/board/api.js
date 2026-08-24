@@ -16,7 +16,10 @@ import { rpc } from "@web/core/network/rpc";
  */
 export const api = {
     state: (gameId) => rpc("/battleship/state", { game_id: gameId }),
-    newGame: (mode) => rpc("/battleship/new", { mode }),
+    newGame: (mode, difficulty) => rpc("/battleship/new", { mode, difficulty }),
+    // Every shell of a finished game, oldest first. The board it is played
+    // back on is the one already on screen, so this carries nothing else.
+    replay: (gameId) => rpc("/battleship/replay", { game_id: gameId }),
     placeShip: (gameId, side, index, cell, direction) =>
         rpc("/battleship/place", { game_id: gameId, side, index, cell, direction }),
     randomFleet: (gameId, side) => rpc("/battleship/random", { game_id: gameId, side }),
@@ -28,7 +31,8 @@ export const api = {
             kind, subject, description, game_id: gameId,
         }),
 
-    createRoom: (nickname, mode) => rpc("/battleship/room/create", { nickname, mode }),
+    createRoom: (nickname, mode, difficulty) =>
+        rpc("/battleship/room/create", { nickname, mode, difficulty }),
     startRoom: (gameId) => rpc("/battleship/room/start", { game_id: gameId }),
     joinRoom: (code, nickname) => rpc("/battleship/room/join", { code, nickname }),
     rename: (gameId, nickname) => rpc("/battleship/room/rename", { game_id: gameId, nickname }),
