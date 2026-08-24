@@ -11,6 +11,7 @@
                 <field name="name"/>
                 <field name="user_id"/>
                 <field name="mode"/>
+                <field name="difficulty" optional="hide"/>
                 <field name="code" optional="show"/>
                 <field name="state"/>
                 <field name="winner"/>
@@ -38,6 +39,9 @@
                             <field name="name"/>
                             <field name="user_id"/>
                             <field name="mode"/>
+                            <!-- Only the seats the admiralty holds read it, so
+                                 it is beside the mode rather than on its own. -->
+                            <field name="difficulty"/>
                         </group>
                         <group>
                             <field name="current_player"/>
@@ -89,6 +93,9 @@
                 <filter name="online" string="Online" domain="[('mode', '=', 'online')]"/>
                 <filter name="vs_cpu" string="vs CPU" domain="[('mode', '=', 'cpu')]"/>
                 <separator/>
+                <filter name="admiral" string="Against the admiral"
+                        domain="[('difficulty', '=', 'admiral')]"/>
+                <separator/>
                 <!-- `date` builds the period filters (month, quarter, year and
                      the one before each) without a domain of its own. -->
                 <filter name="started" string="Started" date="create_date"/>
@@ -97,6 +104,8 @@
                             context="{'group_by': 'mode'}"/>
                     <filter name="by_state" string="State" domain="[]"
                             context="{'group_by': 'state'}"/>
+                    <filter name="by_difficulty" string="Difficulty" domain="[]"
+                            context="{'group_by': 'difficulty'}"/>
                     <filter name="by_player" string="Player" domain="[]"
                             context="{'group_by': 'user_id'}"/>
                     <filter name="by_month" string="Start month" domain="[]"

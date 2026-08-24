@@ -37,6 +37,7 @@ battleship_3d/
     ├── boot/battleship_public.js    same stub as an `owl-component` for /battleship
     ├── board/battleship_board.js    the board itself (registry "lazy_components")
     ├── board/api.js                 every server call the board makes
+    ├── board/replay.js              a finished game, wound back into payloads
     ├── board/battleship_board.xml   QWeb template
     ├── board/battleship_board.scss  the chrome: steel plates and signals paper
     ├── board/fonts.js               pulls the four faces the chrome is set in
@@ -68,8 +69,9 @@ pointed at a room: the code reaches the board as the `roomCode` prop and it join
 on start. `/battleship/feedback` takes bug reports and ideas from either place.
 
 The board never calls `call_kw`: a visitor has no rights on `battleship.game`,
-so every action goes through `/battleship/{new,state,place,random,ready,fire}`
-and `/battleship/room/{create,join,leave,rematch}` (`auth="public"`). The
+so every action goes through
+`/battleship/{new,state,place,random,ready,fire,replay}` and
+`/battleship/room/{create,join,leave,rematch}` (`auth="public"`). The
 controller resolves who owns a game — the logged in user, the session token for
 an anonymous player, or one of the two seats of an online room — and anonymous
 games run in `sudo()`. A game id alone is never enough to act on a game.
@@ -169,6 +171,54 @@ at runtime instead of shipping them: the board is the only screen that uses
 them, and every rule names a fallback stack, so a browser that never reaches
 Google Fonts gets a plainer board and not a broken one.
 
+## Replay
+
+**Replay the battle**, on the final dispatch next to *See the wreckage*, winds
+the game back to the empty sea and plays every shell forward on the board it
+was fought on.
+
+There is no second renderer here and no second board, and that is the whole
+design. A replay is a **sequence of payloads**: `replay.js` builds, for each
+shell, an object shaped exactly like the one `read_state` returns, and hands it
+to the code that already draws the live game — `scene.render` for the table,
+the fleet plates for the pips, the radio log for the lines. Anything that gets
+better about the board gets better about the replay for free, and nothing has
+two ways of being drawn.
+
+* **What the server sends.** `read_replay` carries the shots and nothing else.
+  Everything a replay has no opinion about — the fleets, the seats, the names,
+  the commander's file — is read off the payload of the finished game already
+  on screen, and winding it back is only a matter of taking the hits off the
+  hulls and the markers off the water. Positions never move, and a game that is
+  over reveals every fleet, so the opening board is the closing one minus what
+  happened to it. It is the one thing `read_state` cannot answer: its log is a
+  window `LOG_ROWS` deep, and a game runs to several hundred shells.
+* **A frame keeps what a shell did not touch.** One shell lands on one board,
+  so the other three fleets, their markers and their seats are the same objects
+  the frame before was holding. Copy-on-write rather than a deep copy per
+  shell — nothing downstream ever writes to a frame.
+* **A frame still says `done`.** A replay is a game being looked back at, not
+  one being played: a board that claimed to be in a battle would light a turn
+  nobody is taking, put a `FIRE HERE` plate on a grid nobody may click, and dim
+  the boards of a sweep nobody is firing.
+* **Two ways of painting a step.** A shell that missed or wounded a hull adds
+  to what is already on the table, which is one splash and one marker
+  (`scene.mark`). A shell that sank something changes the table itself, so
+  those go through `render()` — and then the splash goes on **without** a
+  marker, because the payload it drew from already has that cell fired at. A
+  jump on the track takes the same route, since the board it lands on has
+  nothing to do with the one on screen.
+* **Speed and sound.** Three speeds, starting at 2x, on a base of `REPLAY_STEP`
+  per shell. Below `REPLAY_SOUND_FLOOR` the kit is dropped: four splashes
+  inside half a second arrive as one smear, so the fast speeds are watched
+  rather than listened to.
+* **Space** holds it, the **arrows** step one shell at a time, **Esc** gives
+  the dispatch back. Opening the glossary or the report card holds it too — it
+  is the only thing on this screen that moves on its own, and it would
+  otherwise play the rest of the game out behind a panel.
+* Any real state landing (`setGame`) ends the replay, because it was a look
+  back at a board that has just stopped being the one on screen.
+
 ## Free-for-all
 
 Four boards on one table, `mode = royale`. It is a room like the duel is — a
@@ -203,6 +253,42 @@ The rules, and where they live:
   seat is left; `_is_out` is a fleet on the bottom *or* a player who walked away
   (`left_sides`). Walking out of a free-for-all is not a win for anybody — the
   others are in the middle of a game with each other.
+
+### The admiralty
+
+How well the CPU shoots is picked on the start screen and stored on the game
+(`difficulty`), so it is fixed for the whole of it: a level changed halfway
+through would be a different opponent finishing somebody else's game, and the
+service record counts every game the same. It reaches the record through
+`action_new_game` and, for a free-for-all, `action_create_room` — a duel has no
+CPU in it and the field is inert there. A rematch inherits it rather than
+reopening the question. The browser remembers the last one in `localStorage`.
+
+The three levels are three **searches** and nothing else:
+
+| | Search | Shells to sink a fleet |
+|---|---|---|
+| **Easy** | Fires at the open sea, and only follows up on a hull it has found `EASY_FOLLOW_UP` of the time. It does not join the dots between grids either: in a free-for-all it picks a board at random rather than the one it has already wounded. | ~71 |
+| **Normal** | The parity grid no ship can hide between, plus the cells around a hit until it goes down. What the CPU has always played. | ~56 |
+| **Admiral** | Lays every ship still afloat over the grid in every position it could legally occupy, and fires at the cell the most of them pass through. | ~44 |
+
+The figures are the mean over 600 games against random fleets, and the ladder
+is the point: 17 cells to find, and a green gun takes half as long again as an
+admiral to find them.
+
+Target mode is **not a separate branch** on the top level: a placement that
+would explain a hit already on the board counts `HIT_WEIGHT` times over, so the
+moment a hull is wounded the squares that could continue it dwarf everything
+else — and two hits in a line beat one, because a placement can cover both.
+That is how it finishes ships along their axis without ever being told what an
+axis is.
+
+None of the three is given anything a player watching the same board could not
+have worked out. `_cpu_intel` is where that line is drawn: it reads
+`fleet_<target>`, which holds the truth, but only ever to answer questions the
+table has already answered out loud — a shell that was fired is public, its
+result was announced when it landed, and a ship that went down was named as it
+did. Nothing it returns can point at a hull that has not been hit.
 
 Seats were the part that had to change everywhere. Nothing counts sides any more:
 `_seats()` answers how many a mode has, `_is_room()` whether browsers meet in it,
@@ -307,8 +393,8 @@ the canvas).
 
 | Method | Purpose |
 |---|---|
-| `action_new_game(mode)` | create a local game (`cpu` / `hotseat`), returns `read_state()` |
-| `action_create_room(token, nickname)` | open an online room, caller takes side A |
+| `action_new_game(mode, session_token, difficulty)` | create a local game (`cpu` / `hotseat`), returns `read_state()` |
+| `action_create_room(token, nickname, uid, mode, difficulty)` | open an online room, caller takes side A |
 | `action_join_room(code, token, nickname)` | take side B of that room |
 | `action_place_ship(side, index, cell, direction)` | place one ship, `direction` = `h`/`v` |
 | `action_random_fleet(side)` | scatter a legal fleet |
@@ -317,6 +403,7 @@ the canvas).
 | `action_rename(side, nickname)` | change the name a seat plays under, while the game is still running |
 | `action_leave(side)` / `action_rematch(side)` | give up a room / play again in a new one |
 | `read_state(viewer)` | full client payload, cut for that seat — enemy positions filtered out |
+| `read_replay()` | every shell of a finished game, oldest first, for the replay |
 | `read_record(session_token)` | wins, losses, games played and seconds at the board, for a user or a browser session |
 | `battleship.feedback.action_report(kind, subject, description, ...)` | file a bug or an idea |
 

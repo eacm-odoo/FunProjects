@@ -13,8 +13,14 @@ import { GLOSSARY, GLOSSARY_NOTE } from "./glossary";
 import { loadNavalFonts } from "./fonts";
 import { sound } from "./sound";
 import { api } from "./api";
+import { ReplayTape, REPLAY_SPEEDS, REPLAY_STEP, REPLAY_SOUND_FLOOR } from "./replay";
 
 const NICKNAME_KEY = "battleship_nickname";
+const DIFFICULTY_KEY = "battleship_difficulty";
+// The three the server offers, in the order the picker shows them. A level
+// this browser does not recognise falls back to the middle one rather than
+// travelling: `action_new_game` would refuse it anyway.
+const DIFFICULTIES = ["easy", "normal", "admiral"];
 // Gap between two shells of the same answer. The CPU resolves its whole turn
 // inside the call that carries your shot, so without this the board would show
 // four impacts in one frame — and the flight is 0.55s, so anything under that
@@ -73,11 +79,22 @@ export class BattleshipBoard extends Component {
             codex: null, // name of the class shown in the glossary, or null
             settling: false, // shells still in the air: hold the game-over card
             inspect: false, // the dispatch was pushed aside to look at the board
+            // How the admiralty shoots in the next game this browser opens. It
+            // is a preference and not state: the game on the table carries the
+            // level it was created with, and that one never changes.
+            difficulty: this.storedDifficulty(),
+            replay: null, // {index, playing, speed} while a finished game is replayed
         });
 
         // Shots on their way, and what is waiting for the last one to land.
         this.inFlight = 0;
         this.onSettled = null;
+
+        // The finished game the replay was opened over, so closing it puts the
+        // board back exactly as it was found, and the tape it plays.
+        this.replayBase = null;
+        this.replayTape = null;
+        this.replayTimer = null;
 
         this.channel = null;
         this.heartbeat = null;
@@ -91,7 +108,9 @@ export class BattleshipBoard extends Component {
                 return;
             }
             const gameId = this.props.action?.params?.game_id;
-            this.setGame(gameId ? await api.state(gameId) : await api.newGame("cpu"));
+            this.setGame(gameId
+                ? await api.state(gameId)
+                : await api.newGame("cpu", this.ui.difficulty));
             // Nobody was sent here by a link or by the backend list: the board
             // opens on the start screen, over a game that is already waiting
             // behind it so picking a mode never costs a round trip.
@@ -128,6 +147,7 @@ export class BattleshipBoard extends Component {
             this.bus.unsubscribe("bs_update", this.onUpdate);
             this.listenTo(null);
             this.stopHeartbeat();
+            this.stopReplayTimer();
             this.scene?.destroy();
         });
     }
@@ -603,6 +623,10 @@ export class BattleshipBoard extends Component {
      * came from, and this is the only place that has to agree with it.
      */
     setGame(state) {
+        // A real state landing is the end of any replay: it was a look back at
+        // a board that has just stopped being the one on screen. Whatever
+        // called this draws what comes next, so nothing is repainted here.
+        this.discardReplay();
         if (this.ui.game && this.ui.game.id !== state.id) {
             // A different game is a different board: nothing that was still in
             // the air belongs to it.
@@ -867,6 +891,22 @@ export class BattleshipBoard extends Component {
             }
             return;
         }
+        // The replay owns the board while it is running, and the keys it wants
+        // are the ones a video player would: space holds it, Esc gives the
+        // dispatch back, and the arrows step a shell at a time.
+        if (this.ui.replay) {
+            if (ev.key === "Escape") {
+                this.closeReplay();
+            } else if (ev.key === " ") {
+                ev.preventDefault();
+                this.toggleReplay();
+            } else if (ev.key === "ArrowRight") {
+                this.seekReplay(this.ui.replay.index + 1);
+            } else if (ev.key === "ArrowLeft") {
+                this.seekReplay(this.ui.replay.index - 1);
+            }
+            return;
+        }
         if (this.ui.inspect) {
             if (ev.key === "Escape") {
                 this.closeInspect();
@@ -889,7 +929,7 @@ export class BattleshipBoard extends Component {
         // even though the payload says the turn is yours again.
         if (
             this.ui.pass || this.ui.menu || this.ui.codex || this.ui.report ||
-            this.ui.busy || this.ui.settling || !pick
+            this.ui.busy || this.ui.settling || this.ui.replay || !pick
         ) {
             this.scene.clearGhost();
             this.scene.setHover(null, null);
@@ -1003,7 +1043,9 @@ export class BattleshipBoard extends Component {
             return;
         }
         const room = this.room ? this.game.id : null;
-        await this.apply(api.newGame(mode || (room ? "cpu" : this.game.mode)));
+        await this.apply(
+            api.newGame(mode || (room ? "cpu" : this.game.mode), this.ui.difficulty)
+        );
         if (room) {
             await api.leaveRoom(room).catch(() => {});
         }
@@ -1079,6 +1121,333 @@ export class BattleshipBoard extends Component {
         this.ui.backToStart = false;
     }
 
+    // ---------------------------------------------------------- difficulty
+    /**
+     * The level this browser last played at, or the middle one.
+     *
+     * localStorage can be blocked outright, and it can hold a level from a
+     * version that offered a different set: both come back as "normal" rather
+     * than as an error, because a preference is not worth a broken board.
+     */
+    storedDifficulty() {
+        let stored = null;
+        try {
+            stored = browser.localStorage.getItem(DIFFICULTY_KEY);
+        } catch {
+            stored = null;
+        }
+        return DIFFICULTIES.includes(stored) ? stored : "normal";
+    }
+
+    /** The picker on the start screen: what each level actually does. */
+    get difficulties() {
+        return [
+            {
+                key: "easy",
+                name: _t("Easy"),
+                blurb: _t("A green gun. Fires at the open sea, and often walks away from a hull it has already found."),
+            },
+            {
+                key: "normal",
+                name: _t("Normal"),
+                blurb: _t("Searches the grid no ship can hide between, and finishes whatever it hits."),
+            },
+            {
+                key: "admiral",
+                name: _t("Admiral"),
+                blurb: _t("Works out where your fleet could still be lying, and fires there. It does not miss twice in the same place."),
+            },
+        ];
+    }
+
+    /**
+     * Pick the level the next game opens at.
+     *
+     * It is deliberately not applied to the board behind the screen: that game
+     * already has an opponent, and swapping them halfway through would put a
+     * different admiralty on a record the service file counts all the same. A
+     * player who wants the new level presses one of the mode buttons, which is
+     * a new game anyway.
+     */
+    setDifficulty(key) {
+        if (!DIFFICULTIES.includes(key)) {
+            return;
+        }
+        this.ui.difficulty = key;
+        try {
+            browser.localStorage.setItem(DIFFICULTY_KEY, key);
+        } catch {
+            // A browser that refuses to remember it still plays at it.
+        }
+    }
+
+    /** The level the game on the table was actually created with. */
+    get difficultyName() {
+        const level = this.difficulties.find((one) => one.key === this.game.difficulty);
+        return (level || this.difficulties[1]).name;
+    }
+
+    /** The level the picker is sitting on, for the line underneath it. */
+    get chosenLevel() {
+        const level = this.difficulties.find((one) => one.key === this.ui.difficulty);
+        return level || this.difficulties[1];
+    }
+
+    /**
+     * What the final dispatch says about who was on the other side.
+     *
+     * Worded exactly like the picker on the start screen, so the line that
+     * reports a game and the control that opened it name the same thing.
+     */
+    get levelNote() {
+        return _t("Enemy admiralty: %s.", this.difficultyName);
+    }
+
+    /** True while the level means anything: somebody at the table is a CPU. */
+    get hasCpu() {
+        return this.game.mode === "cpu" || this.seats.some((seat) => seat.cpu);
+    }
+
+    // -------------------------------------------------------------- replay
+    /**
+     * The game, wound back and played forward on the board it was played on.
+     *
+     * There is no second renderer here and no second board: every step hands
+     * `scene.render` and the fleet plates a payload shaped exactly like a live
+     * one, so what a replay shows is what the game showed, only faster. See
+     * `replay.js` for how those payloads are built.
+     */
+    get canReplay() {
+        return this.game.state === "done" && this.salvoCount > 0;
+    }
+
+    async openReplay() {
+        if (this.ui.busy || !this.canReplay) {
+            return;
+        }
+        this.ui.busy = true;
+        try {
+            const tape = await api.replay(this.game.id);
+            if (!this.ui.game || this.ui.game.id !== tape.id) {
+                return; // The board moved on while the shots were on their way.
+            }
+            const base = this.ui.game;
+            const built = new ReplayTape(base, tape.shots);
+            if (!built.length) {
+                return;
+            }
+            this.replayBase = base;
+            this.replayTape = built;
+            this.ui.inspect = false;
+            this.ui.replay = { index: 0, playing: true, speed: 2 };
+            this.paintReplay(0, { animate: false });
+            this.scheduleReplay();
+        } catch (error) {
+            this.notification.add(error.data?.message || error.message, { type: "warning" });
+        } finally {
+            this.ui.busy = false;
+        }
+    }
+
+    /** How long one shell is on screen at the speed currently selected. */
+    get replayStepMs() {
+        return REPLAY_STEP / (this.ui.replay?.speed || 1);
+    }
+
+    scheduleReplay() {
+        this.stopReplayTimer();
+        if (!this.ui.replay?.playing) {
+            return;
+        }
+        this.replayTimer = browser.setTimeout(() => this.replayAdvance(), this.replayStepMs);
+    }
+
+    stopReplayTimer() {
+        if (this.replayTimer) {
+            browser.clearTimeout(this.replayTimer);
+            this.replayTimer = null;
+        }
+    }
+
+    replayAdvance() {
+        const replay = this.ui.replay;
+        if (!replay || !this.replayTape) {
+            return;
+        }
+        replay.index = Math.min(replay.index + 1, this.replayTape.length);
+        this.paintReplay(replay.index);
+        if (replay.index >= this.replayTape.length) {
+            // The last shell has landed. The bar stays up on the finished
+            // board: the way out is a button, never a timer.
+            replay.playing = false;
+            this.stopReplayTimer();
+            return;
+        }
+        this.scheduleReplay();
+    }
+
+    /**
+     * Put the board where it stood once `index` shells had been fired.
+     *
+     * Two ways of getting there, and the difference is only how much is
+     * rebuilt. A shell that missed or wounded a hull adds to what is already
+     * on the table, which is one splash and one marker; a shell that sank
+     * something changes the table itself, and so does a jump to a step nowhere
+     * near the one on screen, so both are drawn from the payload instead.
+     */
+    paintReplay(index, { animate = true } = {}) {
+        const frame = this.replayTape.frameAt(index);
+        const shot = this.replayTape.shotAt(index);
+        this.ui.game = frame;
+        if (!this.scene) {
+            return;
+        }
+        const redraw = !animate || !shot || shot.result === "sunk";
+        if (redraw) {
+            this.scene.render(frame);
+        }
+        if (!shot || !animate) {
+            return;
+        }
+        const hit = shot.result !== "miss";
+        // A redraw has already put a marker on that cell — the payload it drew
+        // from has the shell in it — so the splash goes on without one.
+        this.scene.mark(shot.target, shot.cell, hit, !redraw);
+        if (this.replayStepMs < REPLAY_SOUND_FLOOR) {
+            // Four splashes inside half a second arrive as one smear: the fast
+            // speeds are watched rather than listened to.
+            return;
+        }
+        if (shot.result === "sunk") {
+            sound.sunk();
+        } else if (hit) {
+            sound.hit();
+        } else {
+            sound.miss();
+        }
+    }
+
+    seekReplay(index) {
+        if (!this.ui.replay || !this.replayTape) {
+            return;
+        }
+        const target = Math.max(0, Math.min(Number(index) || 0, this.replayTape.length));
+        this.ui.replay.index = target;
+        // A jump is a discontinuity: whatever was still in the air belonged to
+        // a moment the board is no longer at.
+        this.scene?.clearTransients();
+        this.paintReplay(target, { animate: false });
+        this.scheduleReplay();
+    }
+
+    onReplaySeek(ev) {
+        this.seekReplay(ev.target.value);
+    }
+
+    toggleReplay() {
+        const replay = this.ui.replay;
+        if (!replay) {
+            return;
+        }
+        // Play on the last shell winds back instead: there is nothing left to
+        // advance to, and starting over is all the button can still mean.
+        if (!replay.playing && replay.index >= this.replayTape.length) {
+            this.seekReplay(0);
+        }
+        replay.playing = !replay.playing;
+        this.scheduleReplay();
+    }
+
+    restartReplay() {
+        this.seekReplay(0);
+    }
+
+    /**
+     * Stop the tape where it is, for a panel that is about to cover it.
+     *
+     * The glossary and the report card sit over the board, and a replay is the
+     * one thing on this screen that moves on its own: without this it would
+     * play the rest of the game out behind a panel nobody can see it through.
+     */
+    holdReplay() {
+        if (this.ui.replay?.playing) {
+            this.ui.replay.playing = false;
+            this.stopReplayTimer();
+        }
+    }
+
+    /** Cycle the pace. The shell on the clock takes the new one immediately. */
+    cycleReplaySpeed() {
+        const replay = this.ui.replay;
+        if (!replay) {
+            return;
+        }
+        const at = REPLAY_SPEEDS.indexOf(replay.speed);
+        replay.speed = REPLAY_SPEEDS[(at + 1) % REPLAY_SPEEDS.length];
+        this.scheduleReplay();
+    }
+
+    /** Drop the replay without touching the board: something else is drawing it. */
+    discardReplay() {
+        this.stopReplayTimer();
+        this.ui.replay = null;
+        this.replayTape = null;
+        this.replayBase = null;
+    }
+
+    /** Leave the replay and put the finished board back, dispatch and all. */
+    closeReplay() {
+        const base = this.replayBase;
+        this.discardReplay();
+        if (!base) {
+            return;
+        }
+        this.ui.game = base;
+        this.scene?.clearTransients();
+        this.scene?.render(base);
+    }
+
+    get replayCounter() {
+        return _t("%(index)s / %(total)s", {
+            index: this.ui.replay.index,
+            total: this.replayTape.length,
+        });
+    }
+
+    get replaySpeedLabel() {
+        return _t("%s×", this.ui.replay.speed);
+    }
+
+    get replayPlayLabel() {
+        if (this.ui.replay.playing) {
+            return _t("Hold");
+        }
+        return this.ui.replay.index >= this.replayTape.length ? _t("Again") : _t("Resume");
+    }
+
+    /** The shell on screen, in the words the radio log would have used. */
+    get replayLine() {
+        const shot = this.replayTape?.shotAt(this.ui.replay.index);
+        if (!shot) {
+            return _t("Fleets laid, before the first salvo.");
+        }
+        // Four grids share one set of coordinates, so J8 alone no longer says
+        // whose J8 — the same reason the radio log grew a target column.
+        const where = this.seats.length > 2
+            ? `${shot.target.toUpperCase()}:${shot.coord}`
+            : shot.coord;
+        if (shot.result === "sunk") {
+            return _t("%(who)s → %(where)s · sank the %(ship)s", {
+                who: this.sideLabel(shot.shooter), where, ship: shot.ship_name,
+            });
+        }
+        return _t("%(who)s → %(where)s · %(result)s", {
+            who: this.sideLabel(shot.shooter),
+            where,
+            result: shot.result === "hit" ? _t("hit") : _t("water"),
+        });
+    }
+
     /**
      * Ground the patrols, or send them back up.
      *
@@ -1110,6 +1479,7 @@ export class BattleshipBoard extends Component {
     }
 
     openCodex() {
+        this.holdReplay();
         this.ui.codex = this.codexEntry.name;
     }
 
@@ -1147,7 +1517,9 @@ export class BattleshipBoard extends Component {
     }
 
     createRoom() {
-        return this.enterRoom(api.createRoom(this.ui.nickname, this.ui.roomMode));
+        return this.enterRoom(
+            api.createRoom(this.ui.nickname, this.ui.roomMode, this.ui.difficulty)
+        );
     }
 
     // ------------------------------------------------------------- your name
@@ -1220,7 +1592,7 @@ export class BattleshipBoard extends Component {
         try {
             this.setGame(await api.joinRoom(code, this.ui.nickname));
         } catch (error) {
-            this.setGame(await api.newGame("cpu"));
+            this.setGame(await api.newGame("cpu", this.ui.difficulty));
             this.ui.joinCode = code;
             this.ui.menu = "online";
             this.ui.error = error.data?.message || error.message;
@@ -1314,6 +1686,7 @@ export class BattleshipBoard extends Component {
     }
 
     openReport(kind) {
+        this.holdReplay();
         this.ui.error = "";
         this.ui.report = { kind: kind || "bug", subject: "", body: "" };
     }
