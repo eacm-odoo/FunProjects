@@ -795,6 +795,26 @@ export function spriteSize(name) {
 const cache = new Map();
 
 /**
+ * The palette of a sprite for one tint: palette index (as a string) -> CSS
+ * colour, with 4/5/6 resolved from `tint` exactly as the rasterizer does.
+ *
+ * Exported because `colossus_animator.js` paints effects by *promoting* a cell
+ * along this palette instead of washing additive light over the hull, and the
+ * two must agree on what a "4" looks like: a second copy of these colours would
+ * drift the first time one of them is retuned.
+ *
+ * @param {string} tint hex colour for indices 4/5/6
+ * @returns {Object} index -> CSS colour ("." is absent, it is transparent)
+ */
+export function palette(tint) {
+    return Object.assign({}, BASE, {
+        4: tint,
+        5: mix(tint, "#0a0418", 0.45),
+        6: mix(tint, "#ffffff", 0.55),
+    });
+}
+
+/**
  * Return a canvas with the sprite rasterized.
  * @param {string} name key in SPRITES
  * @param {string} tint hex colour for indices 4/5/6
@@ -819,11 +839,7 @@ export function sprite(name, tint, px, flash) {
     cv.width = Math.max(1, Math.round(w * px));
     cv.height = Math.max(1, Math.round(h * px));
     const g = cv.getContext("2d");
-    const pal = Object.assign({}, BASE, {
-        4: tint,
-        5: mix(tint, "#0a0418", 0.45),
-        6: mix(tint, "#ffffff", 0.55),
-    });
+    const pal = palette(tint);
     for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
             const ch = grid[y][x];

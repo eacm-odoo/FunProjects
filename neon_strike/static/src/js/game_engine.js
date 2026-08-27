@@ -2849,7 +2849,12 @@ export class NeonStrikeEngine {
             }
             if (e.a2 <= 0) {
                 e.a2 = 190;
-                for (const off of [-e.w * 0.22, e.w * 0.22]) {
+                // 0.163 of the hull is where the two siege nozzles of
+                // `colossus0` actually are (15 cells either side of the centre
+                // line). `colossus_animator.js` finds them in the art and
+                // flashes them, so the light is on the barrel the bullets leave
+                // from instead of 49 px inboard of it.
+                for (const off of [-e.w * 0.163, e.w * 0.163]) {
                     for (let s = -1; s <= 1; s++) {
                         this._ebAimed(e.x + off, bottom, 5, s * 0.12);
                     }
@@ -3064,6 +3069,10 @@ export class NeonStrikeEngine {
                 // `telK` outlives the telegraph that set it (see _updateColossus).
                 telK: e.tel > 0 ? e.telK : "",
                 gapX: e.gap,
+                // Centre of mass of whoever is still flying, so the hull can
+                // tip towards them. Same ships `_updateColossus` presses, and a
+                // guest has them from the snapshot: no new bytes on the bus.
+                aimX: this._liveCentroidX(),
             });
         }
         for (const k of Array.from(this._colossusAnims.keys())) {
@@ -3071,6 +3080,23 @@ export class NeonStrikeEngine {
                 this._colossusAnims.delete(k);
             }
         }
+    }
+
+    /**
+     * X of the centre of mass of the ships still flying, or null when they are
+     * all down. Downed ships are left out for the same reason the colossus
+     * motion leaves them out: the slab presses whoever can still dodge.
+     */
+    _liveCentroidX() {
+        let sum = 0;
+        let n = 0;
+        for (const sp of this.ships) {
+            if (!sp.down) {
+                sum += sp.x;
+                n++;
+            }
+        }
+        return n ? sum / n : null;
     }
 
     /** Cosmetic cue for a colossus, mirrored to the guests over `ev`. */
