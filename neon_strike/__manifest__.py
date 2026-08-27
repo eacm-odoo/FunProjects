@@ -3,7 +3,7 @@
 # UI palette follows Odoo brand assets: https://www.odoo.com/page/brand-assets
 {
     "name": "Neon Strike",
-    "version": "19.0.12.0.0",
+    "version": "19.0.13.0.0",
     "category": "Productivity",
     "summary": "Neon arcade space shooter, playable without a login on a public page",
     "description": """
@@ -49,6 +49,9 @@ playable **without an account**: pick a nickname and go.
   announced with a beat where they hold fire
 * Combo system up to x25, hitstop on impact, particles, screen shake and slow
   motion, plus a no-damage bonus for clearing a wave untouched
+* Practice bench in the backend: pick any enemy, boss or colossus from the
+  glossary and fight only that one, wave after wave, without touching the
+  leaderboard
 * In-game feedback panel: players report bugs or ideas with a screenshot, and
   it all lands in a backend menu with the wave and build they were on
 * Single global leaderboard (solo and team) in ``neon.strike.score``

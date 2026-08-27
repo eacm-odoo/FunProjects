@@ -27,6 +27,9 @@
                 <span class="ns_room ms-3" t-if="multiplayer and state.match">
                     Room <b t-out="state.match.code"/>
                 </span>
+                <span class="ns_room ns_practice_tag ms-3" t-if="state.practice">
+                    Practice <b t-out="state.practiceLabel"/>
+                </span>
             </t>
             <span class="ms-auto">
                 <a href="https://www.odoo.com/page/brand-assets" target="_blank" rel="noreferrer" class="ns_brand_link">built on Odoo</a>
@@ -224,12 +227,20 @@
          t-on-click="onGlossaryBackdrop">
         <div class="ns_glossary_panel">
             <div class="ns_glossary_head d-flex align-items-center">
-                <h4 class="ns_glossary_title mb-0">SHIPS, ENEMIES AND POWERS</h4>
+                <h4 class="ns_glossary_title mb-0">
+                    <t t-if="state.picker">PRACTICE · PICK A TARGET</t>
+                    <t t-else="">SHIPS, ENEMIES AND POWERS</t>
+                </h4>
                 <button class="btn btn-sm ns_btn ms-auto" t-on-click="toggleGlossary">
                     <i class="fa fa-times me-1" role="img" aria-label="Close"/>Close
                 </button>
             </div>
             <div class="ns_glossary_body">
+                <div t-if="state.picker" class="ns_practice_note">
+                    Practice mode: pick an enemy, a boss or a colossus and the run
+                    spawns nothing else, wave after wave. Nothing is saved to the
+                    leaderboard.
+                </div>
                 <div class="ns_controls">
                     <span class="ns_key">Drag</span> move ·
                     <span class="ns_key">Space</span> dash ·
@@ -250,6 +261,11 @@
                                 <div class="ns_glossary_label" t-out="item.label"/>
                                 <div class="ns_glossary_sub" t-out="item.sub"/>
                                 <p class="ns_glossary_desc" t-out="item.desc"/>
+                                <button t-if="state.picker and item.practice"
+                                        class="btn btn-sm ns_btn ns_practice_btn w-100"
+                                        t-on-click="() => this.startPractice(item)">
+                                    <i class="fa fa-crosshairs me-1" role="img" aria-label="Practice"/>Practice
+                                </button>
                             </div>
                         </div>
                     </div>

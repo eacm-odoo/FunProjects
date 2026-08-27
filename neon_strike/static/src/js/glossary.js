@@ -13,6 +13,12 @@
  * The boss and colossal boss groups are generated from `bosses.js` and
  * `colossi.js` so their names and behaviour lines never drift from the ones
  * the engine uses.
+ *
+ * An item that carries `practice` can be fought on its own: the card grows a
+ * button and the engine is started with that descriptor (see `practice` in
+ * `game_engine.js`). This catalogue is the only place the list of practisable
+ * targets exists -- the backend *Practice* menu just opens the picker, so
+ * nothing about the roster has to be repeated in Python.
  */
 
 import { BOSSES } from "./bosses";
@@ -36,41 +42,49 @@ export const GLOSSARY = [
             {
                 sprite: "drone0", tint: "#ff5d8f", px: 8,
                 label: "DRONE · A", sub: "diamond chassis · 100 pts",
+                practice: { type: "drone", v: 0 },
                 desc: "Drifts down in a gentle zigzag. One shot kills it early on; it grows a point of hull every 9 waves.",
             },
             {
                 sprite: "drone1", tint: "#ff5d8f", px: 8,
                 label: "DRONE · B", sub: "cross chassis · 100 pts",
+                practice: { type: "drone", v: 1 },
                 desc: "Same threat as A, different chassis.",
             },
             {
                 sprite: "speedy0", tint: "#ffd166", px: 9,
                 label: "SPEEDY · A", sub: "dart · 150 pts",
+                practice: { type: "speedy", v: 0 },
                 desc: "Falls fast and steers towards you. One shot kills it early on; it grows a point of hull every 10 waves.",
             },
             {
                 sprite: "speedy1", tint: "#ffd166", px: 9,
                 label: "SPEEDY · B", sub: "delta · 150 pts",
+                practice: { type: "speedy", v: 1 },
                 desc: "Same threat as A, different chassis.",
             },
             {
                 sprite: "tank0", tint: "#9b5de5", px: 6,
                 label: "TANK · A", sub: "armoured hex · 300 pts",
+                practice: { type: "tank", v: 0 },
                 desc: "Slow, with 4 armour and a point more every 5 waves. Its aimed shot is telegraphed: a line points at you first.",
             },
             {
                 sprite: "tank1", tint: "#9b5de5", px: 6,
                 label: "TANK · B", sub: "turreted hex · 300 pts",
+                practice: { type: "tank", v: 1 },
                 desc: "Same threat as A, different chassis.",
             },
             {
                 sprite: "sniper0", tint: "#4de3c1", px: 8,
                 label: "SNIPER", sub: "aimed cannon · 400 pts",
+                practice: { type: "sniper", v: 0 },
                 desc: "Stops mid-screen and shoots accurately. It warns you for a good three quarters of a second: a dashed sight line settles on you before it fires.",
             },
             {
                 sprite: "kami0", tint: "#ff8f3d", px: 9,
                 label: "KAMIKAZE", sub: "unstable core · 350 pts",
+                practice: { type: "kami", v: 0 },
                 desc: "Chases you, accelerating, and blows up on contact. Dodge it or shoot it down first; it toughens up every 8 waves.",
             },
         ],
@@ -85,6 +99,7 @@ export const GLOSSARY = [
             label: b.name,
             sub: "boss · " + (5000 * b.val).toLocaleString("en-US") + " pts",
             desc: b.desc,
+            practice: { boss: BOSSES.indexOf(b) },
         })),
     },
     {
@@ -93,11 +108,13 @@ export const GLOSSARY = [
             {
                 sprite: "rock0", tint: "#8a8faf", px: 10,
                 label: "ASTEROID · A", sub: "50 pts",
+                practice: { rock: 0 },
                 desc: "Bounces off the side walls. Big ones split in two when broken.",
             },
             {
                 sprite: "rock1", tint: "#8a8faf", px: 10,
                 label: "ASTEROID · B", sub: "50 pts",
+                practice: { rock: 1 },
                 desc: "Same hazard as A, different silhouette.",
             },
         ],
@@ -112,6 +129,7 @@ export const GLOSSARY = [
             label: c.name,
             sub: c.title.toLowerCase() + " · wave " + (COLOSSI.indexOf(c) + 1) * 10,
             desc: c.desc,
+            practice: { colossus: COLOSSI.indexOf(c) },
         })),
     },
     {

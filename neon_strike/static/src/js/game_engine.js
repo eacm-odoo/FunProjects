@@ -46,6 +46,9 @@ const TELEGRAPH_FRAMES = 45;
 // Health fraction where a boss switches to its second phase.
 const BOSS_RAGE_AT = 0.5;
 const COLOSSUS_RAGE_AT = 0.45;
+// Hulls a practice wave queues when the target is a regular enemy. Small on
+// purpose: the point is to watch one of them, not to survive a swarm.
+const PRACTICE_ENEMIES = 6;
 // Bombs are a stock you spend (X), not a capsule that goes off on pickup.
 const BOMB_START = 2;
 const BOMB_MAX = 3;
@@ -175,6 +178,11 @@ export class NeonStrikeEngine {
         // Hull picked by each player. Cosmetic only: every hull flies the same.
         this.hulls = callbacks.hulls || null;
         this.hotseat = !!callbacks.hotseat;
+        // Practice run: one target from the glossary, over and over, instead of
+        // the normal wave table. `{type, v}` for a regular enemy chassis,
+        // `{boss: k}`, `{colossus: k}` or `{rock: v}`. Solo only, and the score
+        // is not submitted (see `onGameOver` in the OWL component).
+        this.practice = callbacks.practice || null;
 
         this.state = "start";
         this.paused = false;
@@ -1148,7 +1156,7 @@ export class NeonStrikeEngine {
         return names && names.length > 1 ? Math.floor(Math.random() * names.length) : 0;
     }
 
-    mkEnemy(type, x, y) {
+    mkEnemy(type, x, y, k) {
         const base = {
             type, x, y,
             r: this._enemyR(type),
@@ -1185,13 +1193,14 @@ export class NeonStrikeEngine {
             // Locks onto a ship and accelerates; dies on contact (generic collision).
             return Object.assign(base, this._hp(2 + Math.floor(w / 8)), { t: 0, val: 350, vx: 0, vy: 1.2, rot: 0 });
         }
-        // Regular boss: `k` picks which one of the family it is.
-        const k = Math.max(0, base.k != null ? base.k : bossForWave(this.wave));
-        const d = BOSSES[k] || BOSSES[0];
+        // Regular boss: `k` picks which one of the family it is. It is only
+        // passed in by a practice run; a normal wave reads it off the rotation.
+        const bk = Math.max(0, k != null ? k : bossForWave(this.wave));
+        const d = BOSSES[bk] || BOSSES[0];
         const hp = Math.round((35 + this.wave * 9 + (this.players - 1) * 25) * d.hp);
         return Object.assign(base, {
-            type: "boss", k, hp, mhp: hp, t: 0,
-            r: d.r, c: d.tint, v: k,
+            type: "boss", k: bk, hp, mhp: hp, t: 0,
+            r: d.r, c: d.tint, v: bk,
             val: Math.round(5000 * d.val), dropAt: 0.75,
             // `gap` is the hole in the next curtain. It is decided one curtain
             // ahead so the telegraph can show where it will be: a wall of
@@ -1258,6 +1267,10 @@ export class NeonStrikeEngine {
             sp.standT = 0;
         }
         const p = this.players;
+        if (this.practice) {
+            this._spawnPracticeWave();
+            return;
+        }
         const ck = colossusForWave(this.wave);
         if (ck >= 0) {
             const d = COLOSSI[ck];
@@ -1320,15 +1333,69 @@ export class NeonStrikeEngine {
         }
     }
 
+    /**
+     * A wave of nothing but the target picked in the glossary. Reached from the
+     * backend *Practice* menu, so a single hull can be watched without playing
+     * ten waves to get to it -- which is most of what it costs to look at a
+     * colossus twice.
+     *
+     * The wave counter still runs, and that is the point: the same target comes
+     * back a little tougher every time instead of being frozen at wave 1. What
+     * does not run is the rest of the run -- no perk phase, no boss escort, no
+     * mixed spawns (see `_updateSpawns` and the perk check in `update`).
+     */
+    _spawnPracticeWave() {
+        const pr = this.practice;
+        if (pr.colossus != null) {
+            const d = COLOSSI[pr.colossus] || COLOSSI[0];
+            this.enemies.push(this.mkColossus(pr.colossus));
+            this.bossAlive = true;
+            this.pop(this.W / 2, this.H / 2 - 60, d.name, d.tint, 40, 130);
+            this.pop(this.W / 2, this.H / 2 - 18, '"' + d.title + '"', "#eaf6ff", 20, 130);
+            this.shake = 22;
+            this.sBigBoom();
+            return;
+        }
+        if (pr.boss != null) {
+            const d = BOSSES[pr.boss] || BOSSES[0];
+            this.enemies.push(this.mkEnemy("boss", this.W / 2, -90, pr.boss));
+            this.bossAlive = true;
+            this.pop(this.W / 2, this.H / 2 - 60, "BOSS", "#ff6b6b", 34, 100);
+            this.pop(this.W / 2, this.H / 2 - 24, d.name, d.tint, 22, 100);
+            return;
+        }
+        this.pop(this.W / 2, this.H / 2 - 50, "Wave " + this.wave, "#8be9ff", 30, 80);
+        if (pr.rock != null) {
+            // Asteroids are not enemies, so the wave would end the frame it
+            // starts: `update` holds it open while any of them is still up.
+            for (let i = 0; i < 4; i++) {
+                this.spawnRock(undefined, undefined, undefined, pr.rock);
+            }
+            return;
+        }
+        for (let i = 0; i < PRACTICE_ENEMIES; i++) {
+            this.pending.push(pr.type);
+        }
+        this.spawnT = 0;
+        this.waveAge = 0;
+        for (let i = 0; i < Math.min(this.pending.length, 3); i++) {
+            this._releaseEnemy(-30 - i * 26);
+        }
+    }
+
     /** Pop one queued enemy onto the field. */
     _releaseEnemy(y) {
         const type = this.pending.shift();
         if (!type) {
             return;
         }
-        this.enemies.push(
-            this.mkEnemy(type, 40 + Math.random() * (this.W - 80), y != null ? y : -30 - Math.random() * 20)
-        );
+        const e = this.mkEnemy(type, 40 + Math.random() * (this.W - 80),
+            y != null ? y : -30 - Math.random() * 20);
+        // A practice run asked for one chassis, not for the random one.
+        if (this.practice && this.practice.v != null && this.practice.type === type) {
+            e.v = this.practice.v;
+        }
+        this.enemies.push(e);
     }
 
     /**
@@ -1370,7 +1437,7 @@ export class NeonStrikeEngine {
         // minute. A thin escort stream keeps things moving (and keeps capsules
         // and score flowing) without competing with the boss pattern.
         const boss = this.enemies.find((e) => this._isBoss(e));
-        if (boss && alive < 3 + this.players) {
+        if (boss && alive < 3 + this.players && !this.practice) {
             this.escortT -= ts;
             if (this.escortT <= 0) {
                 this.escortT = boss.type === "colossus" ? 240 : 180;
@@ -1382,7 +1449,7 @@ export class NeonStrikeEngine {
         }
     }
 
-    spawnRock(x, y, r) {
+    spawnRock(x, y, r, v) {
         const rad = r || 16 + Math.random() * 24;
         this.rocks.push({
             x: x != null ? x : 30 + Math.random() * (this.W - 60),
@@ -1393,7 +1460,7 @@ export class NeonStrikeEngine {
             rot: Math.random() * 6.2832,
             vr: (Math.random() - 0.5) * 0.06,
             hp: Math.max(1, Math.round(rad / 9)),
-            v: Math.floor(Math.random() * ROCK_SPRITES.length),
+            v: v != null ? v : Math.floor(Math.random() * ROCK_SPRITES.length),
         });
     }
 
@@ -1883,10 +1950,13 @@ export class NeonStrikeEngine {
         this._updateDecoys(ts);
         this._updateFx(ts);
 
-        if (this.enemies.length === 0 && this.pending.length === 0) {
+        // Practising asteroids is the one case where nothing on the field is
+        // an enemy, so the wave has to stay open until they are cleared.
+        const holdRocks = this.practice && this.practice.rock != null && this.rocks.length;
+        if (this.enemies.length === 0 && this.pending.length === 0 && !holdRocks) {
             this.waveDelay -= ts;
             if (this.waveDelay <= 0) {
-                if (this.wave >= this.nextPerkWave) {
+                if (this.wave >= this.nextPerkWave && !this.practice) {
                     // Every PERK_WAVES cleared waves, everyone upgrades.
                     this.nextPerkWave += PERK_WAVES;
                     this._openPerkPhase();
@@ -4880,7 +4950,8 @@ export class NeonStrikeEngine {
             g.fillStyle = "rgba(180,210,255,0.7)";
             g.font = "500 13px system-ui,sans-serif";
             g.fillText(
-                "Wave " + this.wave + "  ·  " + NeonStrikeEngine.formatTime(this.playSeconds()),
+                (this.practice ? "Practice · " : "")
+                    + "Wave " + this.wave + "  ·  " + NeonStrikeEngine.formatTime(this.playSeconds()),
                 W / 2, 22
             );
             // Per-player panel (top right).

@@ -82,6 +82,17 @@
         <field name="target">new</field>
     </record>
 
+    <!-- Test bench: the same public page, opened with the glossary acting as a
+         target picker (`?practice=1`). Picking one spawns nothing but that
+         enemy, boss or colossus, wave after wave, and the run never reaches the
+         leaderboard. The roster of targets lives in `glossary.js` alone, which
+         is why there is no selection field to keep in sync here. -->
+    <record id="action_neon_strike_practice_url" model="ir.actions.act_url">
+        <field name="name">Practice</field>
+        <field name="url">/neon?practice=1</field>
+        <field name="target">new</field>
+    </record>
+
     <menuitem id="menu_neon_strike_root"
               name="Neon Strike"
               web_icon="neon_strike,static/description/icon.png"
@@ -91,6 +102,11 @@
               parent="menu_neon_strike_root"
               action="action_neon_strike_play_url"
               sequence="10"/>
+    <menuitem id="menu_neon_strike_practice"
+              name="Practice"
+              parent="menu_neon_strike_root"
+              action="action_neon_strike_practice_url"
+              sequence="15"/>
     <menuitem id="menu_neon_strike_scores"
               name="Leaderboard"
               parent="menu_neon_strike_root"

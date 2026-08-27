@@ -74,6 +74,14 @@ export class NeonStrikeGame extends Component {
             error: "",
             connecting: false,
             glossary: false, // ships and enemies panel over the menu
+            // Practice mode, reached from the backend *Practice* menu
+            // (`/neon?practice=1`): the glossary turns into a target picker and
+            // the run spawns nothing but the one you click. Off on the public
+            // page, which is why it is gated on the query string and not on a
+            // button anybody can find.
+            picker: false,
+            practice: null,      // descriptor from the glossary item
+            practiceLabel: "",
             paused: false,
             // Feedback panel (bug reports and ideas), layered like the glossary.
             feedback: false,
@@ -87,6 +95,11 @@ export class NeonStrikeGame extends Component {
             },
             match: null, // {id, code, is_host, slot, channel, participants, max_players, state}
         });
+
+        if (this._practiceRequested()) {
+            this.state.picker = true;
+            this.state.glossary = true;
+        }
 
         this.engine = null;
         this.backdrop = null;
@@ -152,6 +165,27 @@ export class NeonStrikeGame extends Component {
         } catch (e) {
             return SHIPS[0].id;
         }
+    }
+
+    /** Did the backend open us in practice mode (`/neon?practice=1`)? */
+    _practiceRequested() {
+        try {
+            return new URLSearchParams(window.location.search).get("practice") === "1";
+        } catch (e) {
+            return false;
+        }
+    }
+
+    /**
+     * Start a run against one glossary target. The descriptor travels straight
+     * to the engine; nothing else about the run changes, so what you are
+     * watching is the real AI and not a rehearsal of it.
+     */
+    startPractice(item) {
+        this.state.practice = item.practice;
+        this.state.practiceLabel = item.label;
+        this.state.glossary = false;
+        this.startSolo();
     }
 
     /** The picker cards, rasterized once (same reason as `glossaryGroups`). */
@@ -387,6 +421,10 @@ export class NeonStrikeGame extends Component {
         if (this.state.role === "guest") {
             return;
         }
+        // A practice run is a test bench, not a run: it never reaches the board.
+        if (this.state.practice) {
+            return;
+        }
         if (!score) {
             return;
         }
@@ -433,6 +471,7 @@ export class NeonStrikeGame extends Component {
             localSlot: match ? match.slot : 0,
             names: match ? this._namesBySlot(match.participants) : null,
             hulls,
+            practice: this.state.practice,
             onGameOver: (res) => this.onGameOver(res),
             onLocalInput: (x, y) => this._queueInput(x, y),
             onAction: (action) => this._sendAction(action),
@@ -692,6 +731,13 @@ export class NeonStrikeGame extends Component {
     async backToMenu() {
         if (this.state.role === "solo") {
             this._stopEngine();
+            // Dropped here and not on `restart`, so restarting keeps fighting
+            // the same target while Play goes back to a normal run.
+            this.state.practice = null;
+            this.state.practiceLabel = "";
+            // Straight back to the picker: the whole point of the mode is to
+            // look at the same thing again with one click.
+            this.state.glossary = this.state.picker;
             this.state.screen = "menu";
             this.loadScores();
         } else {
