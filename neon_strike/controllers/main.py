@@ -113,9 +113,9 @@ class NeonStrikeController(http.Controller):
         return match.broadcast_state(self._token(), snapshot or {}) if match else False
 
     @http.route("/neon/score", type="json", auth="public")
-    def neon_score(self, match_id=None, score=0, wave=0, seconds=0, **kw):
+    def neon_score(self, match_id=None, score=0, wave=0, seconds=0, deaths=0, **kw):
         match = self._match(match_id)
-        return match.submit_score(self._token(), score, wave, seconds) if match else False
+        return match.submit_score(self._token(), score, wave, seconds, deaths) if match else False
 
     @http.route("/neon/leave", type="json", auth="public")
     def neon_leave(self, match_id=None, **kw):
@@ -123,7 +123,7 @@ class NeonStrikeController(http.Controller):
         return match.leave(self._token()) if match else False
 
     @http.route("/neon/solo_score", type="json", auth="public")
-    def neon_solo_score(self, nickname=None, score=0, wave=0, seconds=0, **kw):
+    def neon_solo_score(self, nickname=None, score=0, wave=0, seconds=0, deaths=0, **kw):
         score = int(score or 0)
         if not score:
             return False
@@ -135,6 +135,7 @@ class NeonStrikeController(http.Controller):
             "mode": "solo",
             "player_count": 1,
             "duration": max(0, int(seconds or 0)) / 3600.0,
+            "deaths": max(0, int(deaths or 0)),
         })
         return True
 

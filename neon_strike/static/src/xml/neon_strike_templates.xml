@@ -130,7 +130,9 @@
             <aside class="ns_leaderboard p-3">
                 <t t-call="neon_strike.Leaderboard"/>
                 <p class="ns_hint mb-0">
-                    Drag to move · <b>Space</b> dashes (you are untouchable during it) · <b>1-4</b> fire your active perks.
+                    Drag to move · <b>Space</b> dashes (you are untouchable during it) · <b>X</b> spends a bomb · <b>1-4</b> fire your active perks.
+                    Hold <b>Shift</b> to focus: you fly slower and your hitbox is drawn — it is much smaller than the ship.
+                    Skimming past a bullet without being hit builds your combo; clearing a wave untouched pays a bonus.
                     Every 5 waves you keep 1 of 3 permanent upgrades; a colossal boss shows up every 10.
                     Capsules: T triple · S shield · B bomb · + life.
                     <t t-if="multiplayer">Fly next to a downed ally to revive them.</t>
@@ -231,6 +233,8 @@
                 <div class="ns_controls">
                     <span class="ns_key">Drag</span> move ·
                     <span class="ns_key">Space</span> dash ·
+                    <span class="ns_key">Shift</span> focus (slow, shows your hitbox) ·
+                    <span class="ns_key">X</span> bomb ·
                     <span class="ns_key">1</span><span class="ns_key">2</span><span class="ns_key">3</span><span class="ns_key">4</span> active perks ·
                     every 5 waves you keep 1 of 3 upgrades until you die.
                 </div>

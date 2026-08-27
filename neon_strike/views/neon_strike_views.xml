@@ -12,6 +12,9 @@
                 <field name="wave"/>
                 <field name="mode"/>
                 <field name="player_count" string="Players"/>
+                <!-- Lives lost: the same score with two deaths and with twenty
+                     are not the same run, and nothing else in the row says so. -->
+                <field name="deaths" optional="show"/>
                 <!-- The footer sums are the internal stat: how long the run
                      lasted and, multiplied by the players, how much human time
                      it added up to. -->

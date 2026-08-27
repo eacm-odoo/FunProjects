@@ -73,7 +73,7 @@ node --check <(cat static/src/js/game_engine.js)  # copy to .mjs if it fails on 
 
 ## Backlog of ideas (by priority)
 
-Done: **remote co-op up to 4 (Odoo bus, room by code)** (hidden, see above), individual lives + revive, asteroids, combo x25, team score, **public `/neon` page without login (nickname + session token)**, pixel art sprites, in-menu glossary, animated menu backdrop, **hull picker**, **27 backgrounds, one per wave**, **flight animation (banking, flame, retro-thrusters, barrel roll)**, **per-boss animation**.
+Done: **remote co-op up to 4 (Odoo bus, room by code)** (hidden, see above), individual lives + revive, asteroids, combo x25, team score, **public `/neon` page without login (nickname + session token)**, pixel art sprites, in-menu glossary, animated menu backdrop, **hull picker**, **27 backgrounds, one per wave**, **flight animation (banking, flame, retro-thrusters, barrel roll)**, **per-boss animation**, **bullet-hell layer (small hitbox + focus + grazing, telegraphs, bullet colour code, boss phases, hitstop, bomb stock, risk scoring)**.
 
 - **Boss cosmetic cues travel as `bfx` on the `ev` channel**: `_bossCue(e, name, data)` fires the local effect and mirrors it to the guests, for the three things that cannot be observed from position alone (dreadnought burst, aimed salvo, hive launch) plus the prism shockwave. The alternative — deriving them on the guest from the AI's own arithmetic (`floor(e.t) % 85 === 0`) — would desync the animation the first time anyone retunes a boss. `_playEvent` creates the animator on demand, because the cue can arrive in the same snapshot that introduces the boss.
 
@@ -113,6 +113,102 @@ Done: **remote co-op up to 4 (Odoo bus, room by code)** (hidden, see above), ind
 - **Colossus hitbox is a box** (`hw`/`hh`), not a circle: use `_enemyHit(e, x, y, pad)` for bullets and ships. `e.r` stays as a rough circle for splashes, trails and the black hole. `_isBoss(e)` covers boss + colossus wherever the old `type === "boss"` check meant "big".
 - **Beams** (`this.beams`) always telegraph first (`warn` frames of a dashed sight line) and only then damage. `src` anchors them to a hull so they follow it; they are removed when the owner dies (`killEnemy`) and on the perk phase.
 - **Balance numbers live in the data files**, not the engine: perk `mods` in `perks.js`, colossus `hp`/`zoom`/`w` in `colossi.js`. Colossus hit points were tuned for a 25-45 s fight with a reasonable build (`hp + wave * 20 + 50% per extra player`).
+
+## Bullet-hell layer (added in 19.0.11.0.0)
+
+The game had every system a shmup needs except the ones that make one readable
+and fair. This is that pass, and most of it is a contract between what the
+player is shown and what the simulation does.
+
+- **The hitbox is `SHIP_HIT_R` (6.5) and nothing else.** It used to be 16.5 for
+  bullets, 13 for hulls, 12 for rocks and 8 for beams -- four different shapes,
+  all of them at least as wide as the 32 px sprite, i.e. the opposite of the
+  genre. Every one of them now goes through **`_hitR(sp)`**, so there is a
+  single circle to learn, and `_drawHitbox` draws it. If you add a new threat,
+  measure it against `_hitR`, never against a literal.
+- **The dot is drawn even while the hull blinks.** `drawShip` used to `return`
+  early during invulnerability; it now skips only the hull, so where you are is
+  never ambiguous. The blink itself doubles in rhythm for the last ~25 frames
+  and an arc drains around the ship: the old flat 4-on/4-off was identical on
+  the first frame of the window and on the last, which is what made "I was hit
+  right after my invulnerability" feel like the game cheating.
+- **`_setInv(sp, frames)` is the only way to start an invulnerability window**,
+  because it also records `invMax`, which is what the arc and the blink ramp
+  read. Never write `sp.inv =` directly.
+- **Focus (Shift)**: `sp.focus` multiplies the movement lerp by `FOCUS_FACTOR`
+  and switches the hitbox to its explicit form. It is the one *held* input in
+  the game: host/solo read `this.keys.shift` every frame in `update()`, and a
+  guest -- whose channel only carries one-shot actions -- sends `focus1`/`focus0`
+  edges, with `fc` mirrored in the snapshot so a lost edge is visible.
+- **Grazing**: the enemy-bullet loop already walked every bullet against every
+  ship, so the graze test is a second radius on the same distance. `b.gz` is a
+  per-ship bitmask so a bullet counts once, and it is skipped while dashing or
+  invulnerable (otherwise the safest move would also be the best-scoring one).
+  Every `GRAZE_PER_COMBO` grazes is a combo step: that is the payment for
+  flying into a pattern instead of camping the bottom of the arena.
+- **`EB_KINDS` is the bullet vocabulary** (spread / aimed / lance / curtain).
+  `_eb(x, y, vx, vy, k)` takes the kind at the point of fire and it travels as
+  the 3rd slot of `eb` in the snapshot -- **wire format, append only**. Adding a
+  pattern means choosing its kind; adding a kind means an entry here plus the
+  line in the glossary note that teaches it.
+- **`_every(e, key, period, mv)` replaced `Math.floor(e.t) % n === 0`.** The old
+  form fired two or three frames in a row whenever `e.t` advanced by less than
+  1 per frame, which is exactly what slow motion (0.35) and Time Warp (0.4) do:
+  the radial burst tripled itself right after you were hit. Never go back to
+  the modulo. `first` seeds the countdown (the old `% 55 === 27` offsets), and
+  the boss base seeds `a1: 70` so nothing fires untelegraphed on arrival.
+- **Telegraphs**: `_tel(e, left, kind)` turns the frames left on a pattern timer
+  into `tel` (0..1) and `telK`, and `_drawTelegraph` draws it. Call `_tel`
+  *before* `_every` consumes the timer. The strongest warning wins, so a boss
+  running three timers still shows one cue. `tl`/`tk` travel in the snapshot:
+  a guest does not simulate, and deriving the telegraph from the AI's own
+  arithmetic would drift the first time anyone retunes a boss -- the same
+  argument that already justifies `bfx`.
+- **The curtain gap is decided one curtain ahead** (AEGIS and WARDEN), so the
+  telegraph can point at it and `gp` can carry it. Where the hole is *is* the
+  attack. The marker is deliberately narrower (52) than the real gap (62-66):
+  what it points at is always safe.
+- **Boss phases are a health threshold, not a stopwatch.** `_bossRage(e, mv, at)`
+  flips `raged` at `BOSS_RAGE_AT` / `COLOSSUS_RAGE_AT`, sets `hold` (a beat with
+  no fire) and fires a `rage` event. It is deliberately **not** a `bfx` cue:
+  `BossAnimator.emit` has no pose for it and the bus is the thing that makes
+  co-op feel bad. Both health bars now draw a tick at the threshold.
+- **Hitstop** (`this.hitstop`) freezes the whole simulation for a few frames on
+  an impact, checked in `_loopFn` before the slow-motion clock. It never runs on
+  a guest (it would only stutter the interpolation) and is skipped while
+  `bombing`, or a bomb sweeping thirty hulls would stop the game thirty times.
+- **Bombs are a stock**: `sp.bombs`, spent with X (`useBomb`), refilled by the B
+  capsule. `bomb()` sets `this.bombing`, which `killEnemy` reads to pay half and
+  skip the combo -- a bomb is a way out, not a scoring move.
+- **Risk pricing**: point-blank kills pay up to +50%, clearing a wave untouched
+  pays a bonus in `spawnWave`, and being touched at all clears `waveClean` and
+  the banked grazes. The `Y` capsule was multiplied by the combo outright (at
+  wave 30 with x25 a single capsule paid more than a boss); it now scales with
+  it. `C` went from +6 combo to +3 now that grazing feeds the same ladder.
+- **Density has peaks and valleys again.** The spawn logic is built so pressure
+  never drops *inside* a wave, which leaves the gaps *between* them as the only
+  place to breathe: 26 frames -> 48, and 110 after a boss. `killEnemy` also
+  clears `ebullets` when a boss dies -- dying to a wreck's leftovers during the
+  celebration slow motion was the least fair death in the game. In exchange the
+  in-wave ceiling was raised (`minAlive` 11 -> 14, drip floor 10 -> 7), which it
+  had been hitting since wave 24.
+- **Small fry scale in hull, not only in speed** (`_hp` in `mkEnemy`, one step
+  per type). They used to keep the same 1-4 hp for a whole run while the player
+  stacked damage perks every 5 waves, so past wave ~25 a wave was longer but
+  never harder.
+- **`deaths` is persisted** (`neon.strike.score.deaths`, through `/neon/score`
+  and `/neon/solo_score`): the same score with two deaths and with twenty are
+  not the same run. It also softens the next waves a little (`relief` in
+  `spawnWave`), as a floor under the spiral where you die, lose the combo, and
+  die again to the wave you were already struggling with.
+- **`BG_SCRIM`** is a veil drawn between the backdrop and the play field. Nine
+  of the 27 places paint in the same warm reds as enemy fire and scatter 1-3 px
+  motes the exact size of a bullet core, all in `lighter`: on the lava world or
+  under a supernova a shot and the scenery were literally the same pixels.
+
+Balance knobs, if this needs retuning: `SHIP_HIT_R`, `GRAZE_R`,
+`GRAZE_PER_COMBO`, `FOCUS_FACTOR`, `TELEGRAPH_FRAMES`, the `HITSTOP_*` set, the
+`_hp` steps in `mkEnemy` and the `500 * wave` in the no-damage bonus.
 
 ## Multiplayer, temporarily hidden
 

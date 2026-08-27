@@ -25,6 +25,35 @@ import { BossAnimator } from "./boss_animator";
 import { Backdrop, backgroundForWave } from "./backgrounds";
 const REVIVE_FRAMES = 120;
 const COMBO_MAX = 25;
+// The hitbox is deliberately far smaller than the hull: the sprite is ~32
+// logical px wide, this is the circle that actually kills you. It is drawn as
+// a dot in `drawShip`, because a hitbox nobody can see is a hitbox nobody can
+// use. Every other collision radius against a ship is derived from it, so
+// there is exactly one shape to learn.
+const SHIP_HIT_R = 6.5;
+// Grazing: passing this close to an enemy bullet without being hit. Every
+// GRAZE_PER_COMBO grazes are worth one combo step, which is what pays for
+// flying into the pattern instead of camping the bottom of the arena.
+const GRAZE_R = 26;
+const GRAZE_PER_COMBO = 10;
+// Focus (Shift): precision movement. The hitbox does not change size, it just
+// becomes obvious and the ship stops overshooting the cursor.
+const FOCUS_FACTOR = 0.38;
+// Frames of warning before a boss pattern goes off (see `_tel`).
+const TELEGRAPH_FRAMES = 45;
+// Health fraction where a boss switches to its second phase.
+const BOSS_RAGE_AT = 0.5;
+const COLOSSUS_RAGE_AT = 0.45;
+// Bombs are a stock you spend (X), not a capsule that goes off on pickup.
+const BOMB_START = 2;
+const BOMB_MAX = 3;
+// Frames the whole simulation freezes on an impact. Small, but it is the
+// difference between a bullet deleting an enemy and a bullet hitting one.
+const HITSTOP_CHAFF = 1;
+const HITSTOP_HEAVY = 3;
+const HITSTOP_BOSS = 8;
+const HITSTOP_COLOSSUS = 12;
+const HITSTOP_HURT = 6;
 
 // Arena. The logical space is still fixed *per match* (everything is simulated
 // in it, and in co-op the host's one travels in the snapshot), but it is sized
@@ -86,6 +115,29 @@ const PUP_TABLE = {
 const PUP_BUFFS = { R: 600, V: 600, P: 540, H: 600, D: 900, G: 240 };
 // Order of `ship.buffs` in the snapshot bitmask (never reorder, append only).
 const BUFF_KEYS = ["R", "V", "P", "H", "D", "G"];
+// Enemy bullet vocabulary. The colour and the size say what the shot does, so
+// the arena stays readable when three patterns overlap. `k` is the index into
+// this table, it is rolled where the bullet is fired and it travels in the
+// snapshot: this is wire format, append only.
+//   0 spread  - radial or spiral burst, it was not aimed at you: read the gaps
+//   1 aimed   - fired at where you were: keep moving sideways
+//   2 lance   - fast and precise, it is already where it is going
+//   3 curtain - slow heavy wall: find the gap, you cannot outrun it
+const EB_KINDS = [
+    { c: "#ff5d8f", h: "#ffe0ea", r: 6, cr: 3 },
+    { c: "#ffb347", h: "#fff0d2", r: 6.5, cr: 3.4 },
+    { c: "#4de3c1", h: "#e0fff8", r: 5, cr: 2.6 },
+    { c: "#c9a4ff", h: "#f0e6ff", r: 8.5, cr: 4.4 },
+];
+const EB_SPREAD = 0;
+const EB_AIMED = 1;
+const EB_LANCE = 2;
+const EB_CURTAIN = 3;
+// Veil between the backdrop and the play field. Nine of the 27 places (lava,
+// supernova, binary, black hole, graveyard...) paint in the same warm reds and
+// the same 1-3 px motes the enemy bullets use, and in `lighter` they add up
+// until a bullet is indistinguishable from scenery.
+const BG_SCRIM = "rgba(5,6,14,0.30)";
 // Ship pixel size: a 16 px grid -> ~32 logical px wide.
 const SHIP_PX = pxFor("ship0", 30);
 const PUP_PX = pxFor("pupT", 30);
@@ -164,6 +216,19 @@ export class NeonStrikeEngine {
 
         this.frame = 0;
         this.slowMo = 0;
+        // Frames the simulation stays frozen after an impact. Unlike slow
+        // motion this stops everything dead, which is what gives a kill its
+        // weight; it is local (never in the snapshot) and never runs on a
+        // guest, whose whole job is to keep interpolating.
+        this.hitstop = 0;
+        // Lives lost this run and whether the current wave has been cleared
+        // untouched. Both feed the risk economy: a clean wave pays a bonus,
+        // and repeated deaths thin out the next waves a little.
+        this.deaths = 0;
+        this.waveClean = true;
+        // True only while `bomb()` is clearing the field, so those kills can
+        // be paid at a discount: a bomb is a way out, not a scoring move.
+        this.bombing = false;
         // How long this run has actually been played, in ms of wall clock. It
         // only advances while `playing` and not paused, so the pause screen and
         // the upgrade screen do not inflate it. Frames would be wrong here: a
@@ -226,7 +291,7 @@ export class NeonStrikeEngine {
         // Space (dash) and 1..4 (actives) are always bound, not only in hotseat:
         // WASD is the only thing gated by `hotseat`.
         this._kd = (e) => this._keyDown(e);
-        this._ku = (e) => { this.keys[(e.key || "").toLowerCase()] = false; };
+        this._ku = (e) => this._keyUp(e);
         this.cv.addEventListener("pointerdown", this._pd);
         this.cv.addEventListener("pointermove", this._pm);
         window.addEventListener("keydown", this._kd);
@@ -486,15 +551,25 @@ export class NeonStrikeEngine {
     _loopFn() {
         this.frame++;
         this._tickClock();
-        const ts = this.slowMo > 0 ? 0.35 : 1;
-        if (this.slowMo > 0) {
-            this.slowMo--;
-        }
         if (this.paused) {
             // Frozen: no simulation, no interpolation. Only the overlay moves.
             this.render();
             this._raf = requestAnimationFrame(this._loop);
             return;
+        }
+        // Hitstop: a handful of frames where nothing moves at all. It comes
+        // before the slow-motion clock on purpose (it is a hit landing, not a
+        // dramatic pause) and it is skipped on a guest, which does not
+        // simulate and would only stutter its interpolation.
+        if (this.hitstop > 0 && this.role !== "guest") {
+            this.hitstop--;
+            this.render();
+            this._raf = requestAnimationFrame(this._loop);
+            return;
+        }
+        const ts = this.slowMo > 0 ? 0.35 : 1;
+        if (this.slowMo > 0) {
+            this.slowMo--;
         }
         if (this.role === "guest") {
             this._guestUpdate(ts);
@@ -678,6 +753,12 @@ export class NeonStrikeEngine {
             this.sWave();
         } else if (ev.k === "bomb") {
             this.sBigBoom();
+        } else if (ev.k === "rage") {
+            // Boss phase change. The threshold is derivable from `h`/`mh`, but
+            // the beat itself is mirrored so it lands on the same frame here.
+            this.burst(ev.x, ev.y, ev.c || "#ff6b6b", 40, 6);
+            this.flashT = Math.max(this.flashT, 7);
+            this.sBigBoom();
         } else if (ev.k === "zap") {
             this.zaps.push({ x1: ev.x, y1: ev.y, x2: ev.x2, y2: ev.y2, life: 8 });
         } else if (ev.k === "bfx") {
@@ -722,9 +803,16 @@ export class NeonStrikeEngine {
             // it watches the motion below, never causes it, and never travels
             // in the snapshot.
             flight: new ShipFlight(),
-            inv: 0, shield: 0,
+            inv: 0, invMax: 1, shield: 0,
             weapon: "single", weaponT: 0, fireT: 0,
             lives: 3, down: false, reviveProgress: 0,
+            // Bombs (X): the emergency exit. You start with a couple and the
+            // B capsule refills the stock instead of detonating on pickup.
+            bombs: BOMB_START,
+            // Focus (Shift): halves the movement and shows the hitbox.
+            focus: false,
+            // Grazes banked towards the next combo step (see `_grazeTick`).
+            graze: 0, grazeT: 0,
             // Timed capsule buffs (frames left). They stack on top of the
             // perks: `mods`/`flags` are perks only, these are read next to them.
             buffs: { R: 0, V: 0, P: 0, H: 0, D: 0, G: 0 },
@@ -788,6 +876,69 @@ export class NeonStrikeEngine {
 
     _maxLives(sp) {
         return 5 + sp.mods.maxLives;
+    }
+
+    /**
+     * The collision radius of a ship. Everything that can hurt it (bullets,
+     * hulls, rocks, beams) measures against this one number, so what the dot
+     * in `drawShip` promises is what every threat in the game respects.
+     */
+    _hitR(sp) {
+        return Math.max(2, SHIP_HIT_R * (1 + sp.mods.hitbox));
+    }
+
+    /**
+     * Start an invulnerability window. `invMax` is kept so the render can show
+     * how much of it is left instead of blinking at a fixed rate right up to
+     * the frame it ends.
+     */
+    _setInv(sp, frames) {
+        if (frames <= sp.inv) {
+            return;
+        }
+        sp.inv = frames;
+        sp.invMax = frames;
+    }
+
+    /**
+     * A bullet passed close enough to count. Grazes bank towards a combo step,
+     * which is the whole reason to fly into a pattern: the combo multiplies
+     * every point in the game, and camping the bottom of the arena earns none.
+     */
+    _grazeTick(sp, x, y) {
+        sp.graze++;
+        sp.grazeT = 30;
+        if (this.frame % 2 === 0) {
+            this.parts.push({
+                x, y,
+                vx: (Math.random() - 0.5) * 1.5,
+                vy: (Math.random() - 0.5) * 1.5,
+                r: Math.random() * 1.4 + 0.6,
+                c: "#eaf6ff", life: 14, ml: 14,
+            });
+        }
+        if (sp.graze % GRAZE_PER_COMBO === 0 && this.combo < COMBO_MAX) {
+            this.combo++;
+            this.comboT = Math.max(this.comboT, 170);
+            this.pop(sp.x, sp.y - 38, "GRAZE x" + this.combo, "#eaf6ff", 13, 40);
+            this.tone(1500, 0.04, "square", 0.03);
+        }
+    }
+
+    _maxBombs() {
+        return BOMB_MAX;
+    }
+
+    /** X: spend one bomb. It clears the field and buys a moment of safety. */
+    useBomb(slot) {
+        const sp = this._shipBySlot(slot);
+        if (!sp || sp.down || sp.bombs <= 0 || this.state !== "playing") {
+            return;
+        }
+        sp.bombs--;
+        this._setInv(sp, 90);
+        this.pop(sp.x, sp.y - 34, "BOMB", "#ffb347", 18);
+        this.bomb(sp);
     }
 
     /** Give a perk to a ship and apply its immediate effects. */
@@ -866,7 +1017,7 @@ export class NeonStrikeEngine {
         this.state = "playing";
         this.waveDelay = 40;
         for (const sp of this.ships) {
-            sp.inv = Math.max(sp.inv, 60);
+            this._setInv(sp, 60);
         }
     }
 
@@ -969,6 +1120,12 @@ export class NeonStrikeEngine {
         return (x - e.x) ** 2 + (y - e.y) ** 2 < rr * rr;
     }
 
+    /** `hp`/`mhp` pair, so the wave scaling is written once per enemy type. */
+    _hp(n) {
+        const hp = Math.max(1, Math.round(n));
+        return { hp, mhp: hp };
+    }
+
     /** Chassis variant (0/1) based on the sprites available for the type. */
     _enemyVariant(type) {
         const names = ENEMY_SPRITES[type];
@@ -987,25 +1144,30 @@ export class NeonStrikeEngine {
             id: ++this._eid,
             stun: 0,
         };
+        // Small fry used to keep the same hull for the whole run: only their
+        // speed grew, so past wave ~25 a wave was longer but never harder,
+        // while the player kept stacking damage perks every 5 waves. The step
+        // is per type, so the roles stay apart (a drone still dies fast).
+        const w = this.wave;
         if (type === "drone") {
-            return Object.assign(base, { hp: 1, mhp: 1, t: Math.random() * 6.28, val: 100 });
+            return Object.assign(base, this._hp(1 + Math.floor(w / 9)), { t: Math.random() * 6.28, val: 100 });
         }
         if (type === "speedy") {
-            return Object.assign(base, { hp: 1, mhp: 1, t: 0, val: 150 });
+            return Object.assign(base, this._hp(1 + Math.floor(w / 10)), { t: 0, val: 150 });
         }
         if (type === "tank") {
-            return Object.assign(base, { hp: 4, mhp: 4, t: Math.random() * 200, val: 300 });
+            return Object.assign(base, this._hp(4 + Math.floor(w / 5)), { t: Math.random() * 200, val: 300 });
         }
         if (type === "sniper") {
             // Stops mid-screen and punishes with telegraphed, accurate shots.
-            return Object.assign(base, {
-                hp: 3, mhp: 3, t: 0, val: 400,
+            return Object.assign(base, this._hp(3 + Math.floor(w / 7)), {
+                t: 0, val: 400,
                 stopY: 90 + Math.random() * 110, aim: 0,
             });
         }
         if (type === "kami") {
             // Locks onto a ship and accelerates; dies on contact (generic collision).
-            return Object.assign(base, { hp: 2, mhp: 2, t: 0, val: 350, vx: 0, vy: 1.2, rot: 0 });
+            return Object.assign(base, this._hp(2 + Math.floor(w / 8)), { t: 0, val: 350, vx: 0, vy: 1.2, rot: 0 });
         }
         // Regular boss: `k` picks which one of the family it is.
         const k = Math.max(0, base.k != null ? base.k : bossForWave(this.wave));
@@ -1015,7 +1177,19 @@ export class NeonStrikeEngine {
             type: "boss", k, hp, mhp: hp, t: 0,
             r: d.r, c: d.tint, v: k,
             val: Math.round(5000 * d.val), dropAt: 0.75,
-            phase: 0, armor: 0, gap: 140, vx: 0, vy: 0,
+            // `gap` is the hole in the next curtain. It is decided one curtain
+            // ahead so the telegraph can show where it will be: a wall of
+            // bullets you only read once it is on top of you is not a pattern.
+            phase: 0, armor: 0, gap: this.W / 2, vx: 0, vy: 0,
+            // Seeded, not left at zero: an undefined timer fires on its first
+            // frame, so every boss used to open with an untelegraphed pattern
+            // the instant it finished sliding in.
+            a1: 70,
+            // Telegraph (0..1) and which warning to draw, rebuilt every frame.
+            tel: 0, telK: "",
+            // Second phase, on a health threshold: `hold` is the beat where it
+            // stops firing so the change is something you can see happen.
+            raged: 0, hold: 0,
         });
     }
 
@@ -1041,13 +1215,25 @@ export class NeonStrikeEngine {
             r: Math.min(d.w, h) * 0.28, // circle used by splashes and trails
             c: d.tint, field: d.field || 1, v: 0, flash: 0, stun: 0,
             hp, mhp: hp, t: 0, val: d.val, dropAt: 0.75,
-            vx: d.speed, rot: 0, gap: 120,
+            vx: d.speed, rot: 0, gap: this.W / 2,
             a1: 60, a2: 180, a3: 300,
+            tel: 0, telK: "", raged: 0, hold: 0,
         };
     }
 
     spawnWave() {
+        // Pay the wave that just ended before opening the next one. Clearing a
+        // wave without being touched is the only thing in the game that asks
+        // you to play well rather than merely long, so it is what the bonus
+        // rewards -- and losing it is most of what a death now costs.
+        if (this.wave >= 1 && this.waveClean) {
+            const bonus = Math.round(500 * this.wave * (1 + this.combo * 0.06));
+            this.score += bonus;
+            this.pop(this.W / 2, this.H / 2 + 30, "NO DAMAGE  +" + bonus.toLocaleString(), "#7bffb0", 20, 100);
+            this.sPup();
+        }
         this.wave++;
+        this.waveClean = true;
         this.sWave();
         this._ev({ k: "wave" });
         this._syncBackground();
@@ -1078,7 +1264,12 @@ export class NeonStrikeEngine {
             return;
         }
         this.pop(this.W / 2, this.H / 2 - 50, "Wave " + this.wave, "#8be9ff", 30, 80);
-        const n = 5 + this.wave * 2 + p * 2;
+        // Mercy: a run that keeps dying gets slightly shorter waves, down to
+        // three quarters. It is not a difficulty setting, it is a floor under
+        // the spiral where you die, lose the combo, and die again to the same
+        // wave you were already struggling with.
+        const relief = Math.max(0.75, 1 - this.deaths * 0.04);
+        const n = Math.round((5 + this.wave * 2 + p * 2) * relief);
         // The whole wave is queued and released by `_updateSpawns`, which keeps
         // a minimum number of hulls on screen. Parking them all above the top
         // (the old way) made big waves crawl: the tail took ~12 s just to fly
@@ -1137,13 +1328,17 @@ export class NeonStrikeEngine {
         if (this.pending.length) {
             // Later waves keep more hulls on screen at once: that is what makes
             // a round feel frantic instead of a queue of single targets.
-            const minAlive = Math.min(11, 3 + this.players + Math.floor(this.wave / 5));
+            // The old ceiling (11 hulls, one every 10 frames) was reached around
+            // wave 24 and never moved again, so from there on a wave only got
+            // longer. It now keeps climbing; the room to breathe was moved
+            // where it belongs, between waves (see `waveDelay`).
+            const minAlive = Math.min(14, 3 + this.players + Math.floor(this.wave / 5));
             this.spawnT -= ts;
             if (this.spawnT <= 0 || alive < minAlive) {
                 this._releaseEnemy();
                 // Faster drip on later waves, and faster still if the field is
                 // emptying out.
-                this.spawnT = Math.max(10, 34 - this.wave) * (alive < minAlive ? 0.45 : 1);
+                this.spawnT = Math.max(7, 34 - this.wave) * (alive < minAlive ? 0.45 : 1);
             }
             return;
         }
@@ -1270,11 +1465,35 @@ export class NeonStrikeEngine {
             // Kinetic Recharge: kills during the dash give the charge back.
             killer.dashCharges = Math.min(killer.dashMax, killer.dashCharges + 1);
         }
-        const pts = Math.round(e.val * this.combo * (1 + (killer ? killer.mods.scoreMul : 0)));
+        // Hitstop: the frames where the impact reads as an impact instead of
+        // the hull simply ceasing to exist. A bomb sweeping thirty hulls must
+        // not stop the game thirty times, so it is skipped while bombing.
+        if (!this.bombing) {
+            const stop = colossal ? HITSTOP_COLOSSUS
+                : big ? HITSTOP_BOSS
+                    : e.mhp >= 3 ? HITSTOP_HEAVY : HITSTOP_CHAFF;
+            this.hitstop = Math.max(this.hitstop, stop);
+        }
+        // Point blank pays. Killing something from across the arena is free;
+        // killing it in your face is the risk the score is supposed to price,
+        // and until now the combo only measured how fast you were clearing.
+        let risk = 1;
+        if (killer && !this.bombing) {
+            const d = Math.hypot(e.x - killer.x, e.y - killer.y);
+            risk = 1 + Math.max(0, 1 - d / 180) * 0.5;
+        }
+        // A bomb is a way out, not a scoring move: half points, and it does
+        // not build the combo it would otherwise hand you for free.
+        const pts = Math.round(
+            e.val * this.combo * risk * (this.bombing ? 0.5 : 1)
+            * (1 + (killer ? killer.mods.scoreMul : 0))
+        );
         this.score += pts;
-        this.pop(e.x, e.y, "+" + pts.toLocaleString(), "#fff", big ? 24 : 13);
-        this.combo = Math.min(this.combo + 1, COMBO_MAX);
-        this.comboT = 170;
+        this.pop(e.x, e.y, "+" + pts.toLocaleString(), risk > 1.15 ? "#ffd166" : "#fff", big ? 24 : 13);
+        if (!this.bombing) {
+            this.combo = Math.min(this.combo + 1, COMBO_MAX);
+            this.comboT = 170;
+        }
         this.shake = Math.min(this.shake + (big ? 22 : 5), 24);
         if (big) {
             this.sBigBoom();
@@ -1283,6 +1502,16 @@ export class NeonStrikeEngine {
                 this.slowMo = colossal ? 70 : 40;
             }
             this.shake = 26;
+            // Everything the wreck had in the air dies with it. Without this,
+            // the slow motion that celebrates the kill was also the slowest,
+            // least fair way to lose a life in the game.
+            this.ebullets = [];
+            this.beams = this.beams.filter((b) => b.src !== e.id);
+            // The wave after a boss waits. The spawn logic is built so pressure
+            // never drops inside a wave, which leaves the gaps between them as
+            // the only place a run can breathe -- and a peak with no valley
+            // after it stops reading as a peak at all.
+            this.waveDelay = Math.max(this.waveDelay, 110);
             const drops = colossal ? 6 : 3;
             for (let k = 0; k < drops; k++) {
                 this.dropPup(
@@ -1308,6 +1537,11 @@ export class NeonStrikeEngine {
         this.sBigBoom();
         this._ev({ k: "bomb" });
         this.shake = 20;
+        this.hitstop = Math.max(this.hitstop, 6);
+        // `bombing` is read by `killEnemy`: everything caught in the blast is
+        // paid at half price and builds no combo. Set it around the loop, not
+        // inside it, because splashes and chains land in the same sweep.
+        this.bombing = true;
         for (let i = this.enemies.length - 1; i >= 0; i--) {
             const e = this.enemies[i];
             if (this._isBoss(e)) {
@@ -1317,6 +1551,7 @@ export class NeonStrikeEngine {
                 this.killEnemy(e, killer);
             }
         }
+        this.bombing = false;
         this.rocks = [];
         this.ebullets = [];
     }
@@ -1328,28 +1563,35 @@ export class NeonStrikeEngine {
         }
         sp.hurtT = 240; // Adrenaline window (also feeds the HUD)
         sp.regenT = 0;
+        // Being touched at all forfeits the wave bonus and the grazes banked
+        // towards the next combo step: they are paid for staying untouched.
+        this.waveClean = false;
+        sp.graze = 0;
         const invMul = 1 + sp.mods.inv;
         if (sp.shield > 0) {
             sp.shield = 0;
             this.burst(sp.x, sp.y, "#7bffb0", 26, 5);
             this.noise(0.25, 0.2, 2000);
-            sp.inv = 50 * invMul;
+            this._setInv(sp, 50 * invMul);
+            this.hitstop = Math.max(this.hitstop, HITSTOP_CHAFF);
             this.pop(sp.x, sp.y - 30, "Shield down!", "#7bffb0", 14);
             return;
         }
         // Last Stand: cancels one lethal hit per wave.
         if (sp.lives <= 1 && sp.flags.last_stand && !sp.standT) {
             sp.standT = 1;
-            sp.inv = 160 * invMul;
+            this._setInv(sp, 160 * invMul);
             this.burst(sp.x, sp.y, "#ff8fb3", 40, 6);
             this.pop(sp.x, sp.y - 32, "LAST STAND!", "#ff8fb3", 17);
             this.sPup();
             return;
         }
         sp.lives--;
+        this.deaths++;
         this.sHit();
         this._ev({ k: "hit", x: sp.x, y: sp.y, c: sp.color });
         this.shake = 18;
+        this.hitstop = Math.max(this.hitstop, HITSTOP_HURT);
         if (this.players === 1) {
             this.slowMo = 28;
         }
@@ -1363,7 +1605,7 @@ export class NeonStrikeEngine {
             sp.phoenixUsed = true;
             sp.lives = 1;
             sp.shield = 1;
-            sp.inv = 190 * invMul;
+            this._setInv(sp, 190 * invMul);
             this.burst(sp.x, sp.y, "#ffb347", 60, 7);
             this.pop(sp.x, sp.y - 32, "PHOENIX CORE!", "#ffb347", 18);
             this.sPup();
@@ -1385,11 +1627,12 @@ export class NeonStrikeEngine {
                         wave: this.wave,
                         best: this.best,
                         seconds: this.playSeconds(),
+                        deaths: this.deaths,
                     });
                 }
             }
         } else {
-            sp.inv = 110 * (1 + sp.mods.inv);
+            this._setInv(sp, 110 * invMul);
         }
     }
 
@@ -1418,6 +1661,10 @@ export class NeonStrikeEngine {
         this.warpT = 0;
         this.shake = 0;
         this.slowMo = 0;
+        this.hitstop = 0;
+        this.bombing = false;
+        this.deaths = 0;
+        this.waveClean = true;
         this.flashT = 0;
         this.rockT = 180;
         this.bossAlive = false;
@@ -1436,7 +1683,7 @@ export class NeonStrikeEngine {
         this._syncBackground();
         this._initShips();
         for (const sp of this.ships) {
-            sp.inv = 90;
+            this._setInv(sp, 90);
         }
         this.waveDelay = 24;
     }
@@ -1478,6 +1725,15 @@ export class NeonStrikeEngine {
             if (this.keys.d) { sp.tx += spd; }
             sp.tx = Math.max(this.fx0 + 20, Math.min(this.fx1 - 20, sp.tx));
             sp.ty = Math.max(this.fy0 + 70, Math.min(this.fy1 - 24, sp.ty));
+        }
+
+        // Focus (Shift) is a held key, so the local slot reads it straight off
+        // the keyboard every frame. A guest cannot: its input channel only
+        // carries one-shot actions, so it sends the press and the release as
+        // two edges (`focus1`/`focus0`) and the host holds the state for it.
+        const local = this._shipBySlot(this.localSlot);
+        if (local && this.role !== "guest") {
+            local.focus = !!this.keys.shift && !local.down;
         }
 
         // Living ships: movement, dash, trail, fire, perk timers.
@@ -1565,16 +1821,28 @@ export class NeonStrikeEngine {
             }
             if (!done) {
                 for (const sp of this.ships) {
+                    // Intangible ships neither take the hit nor bank the graze:
+                    // dashing through a curtain is already free, and paying it
+                    // twice would make the safest move the best-scoring one.
                     if (sp.down || sp.inv > 0 || sp.dash > 0) {
                         continue;
                     }
                     const dx = b.x - sp.x;
                     const dy = b.y - sp.y;
-                    const rr = 16.5 * (1 + sp.mods.hitbox);
-                    if (dx * dx + dy * dy < rr * rr) {
+                    const d2 = dx * dx + dy * dy;
+                    const rr = this._hitR(sp);
+                    if (d2 < rr * rr) {
                         done = true;
                         this.hurtShip(sp);
                         break;
+                    }
+                    // It went past, close. Counted once per bullet and per
+                    // ship, which is what the `gz` bitmask on the bullet is.
+                    const gr = rr + GRAZE_R;
+                    const bit = 1 << (sp.slot & 7);
+                    if (d2 < gr * gr && !((b.gz || 0) & bit)) {
+                        b.gz = (b.gz || 0) | bit;
+                        this._grazeTick(sp, b.x, b.y);
                     }
                 }
             }
@@ -1606,7 +1874,10 @@ export class NeonStrikeEngine {
                     this._openPerkPhase();
                 } else {
                     this.spawnWave();
-                    this.waveDelay = 26;
+                    // Two thirds of a second of empty sky. It used to be 26
+                    // frames, which is under half of that and reads as one
+                    // continuous wave: the peaks need a floor to stand on.
+                    this.waveDelay = 48;
                 }
             }
         }
@@ -1691,6 +1962,9 @@ export class NeonStrikeEngine {
         if (sp.hurtT > 0) {
             sp.hurtT -= ts;
         }
+        if (sp.grazeT > 0) {
+            sp.grazeT -= ts;
+        }
         if (sp.odT > 0) {
             sp.odT -= ts;
         }
@@ -1750,8 +2024,15 @@ export class NeonStrikeEngine {
             if (sp.flags.adrenaline && sp.hurtT > 0) {
                 k *= 1.4;
             }
-            sp.x += (sp.tx - sp.x) * Math.min(0.55, k) * ts;
-            sp.y += (sp.ty - sp.y) * Math.min(0.55, k) * ts;
+            k = Math.min(0.55, k);
+            // Focus: the cursor still says where to go, the hull just stops
+            // lunging at it. The clamp is applied first so a fast build gets
+            // the same ratio of precision as a slow one.
+            if (sp.focus) {
+                k *= FOCUS_FACTOR;
+            }
+            sp.x += (sp.tx - sp.x) * k * ts;
+            sp.y += (sp.ty - sp.y) * k * ts;
         }
         // The field grows during a colossus fight: this is the only clamp.
         sp.x = Math.max(this.fx0 + 20, Math.min(this.fx1 - 20, sp.x));
@@ -2039,7 +2320,7 @@ export class NeonStrikeEngine {
             this.sPup();
         } else if (id === "bulwark") {
             sp.shield = 1;
-            sp.inv = Math.max(sp.inv, 240);
+            this._setInv(sp, 240);
             this.burst(sp.x, sp.y, "#7bffb0", 30, 5);
             this.pop(sp.x, sp.y - 34, "BULWARK", "#7bffb0", 17);
         } else if (id === "orbital_strike") {
@@ -2221,7 +2502,8 @@ export class NeonStrikeEngine {
                 if (dn.reviveProgress >= REVIVE_FRAMES) {
                     dn.down = false;
                     dn.lives = 1;
-                    dn.inv = 120;
+                    dn.bombs = Math.max(dn.bombs, 1);
+                    this._setInv(dn, 120);
                     dn.reviveProgress = 0;
                     this.burst(dn.x, dn.y, "#7bffb0", 40, 6);
                     this.pop(dn.x, dn.y - 30, dn.name + " revived!", "#7bffb0", 16);
@@ -2238,13 +2520,17 @@ export class NeonStrikeEngine {
     /* Colossal bosses                                                     */
     /* ------------------------------------------------------------------ */
 
-    /** Enemy bullet fired by a boss (slightly faster than the small fry). */
-    _eb(x, y, vx, vy) {
-        this.ebullets.push({ x, y, vx, vy });
+    /**
+     * Enemy bullet. `k` is the entry in EB_KINDS: it decides the colour and
+     * the size, so what the shot is doing is legible from across the arena
+     * instead of every pattern in the game being the same red dot.
+     */
+    _eb(x, y, vx, vy, k) {
+        this.ebullets.push({ x, y, vx, vy, k: k || EB_SPREAD, gz: 0 });
     }
 
     /** Aimed shot from an arbitrary point of the hull. */
-    _ebAimed(x, y, speed, spread) {
+    _ebAimed(x, y, speed, spread, k) {
         const tgt = this.decoys.length ? this._target(x, y) : this._aimShip();
         if (!tgt) {
             return;
@@ -2253,7 +2539,78 @@ export class NeonStrikeEngine {
         const dy = tgt.y - y;
         const d = Math.sqrt(dx * dx + dy * dy) || 1;
         const a = Math.atan2(dy, dx) + (spread || 0);
-        this._eb(x, y, Math.cos(a) * speed, Math.sin(a) * speed);
+        this._eb(x, y, Math.cos(a) * speed, Math.sin(a) * speed, k != null ? k : EB_AIMED);
+    }
+
+    /**
+     * Pattern timer on an enemy. Returns true on the single frame the pattern
+     * fires, and `first` seeds the countdown (the old offsets).
+     *
+     * It replaces `Math.floor(e.t) % n === 0`, which fired two or three frames
+     * in a row whenever `e.t` advanced by less than 1 per frame -- exactly what
+     * slow motion (0.35) and Time Warp (0.4) do. The burst therefore tripled
+     * right after a hit, when the player could least afford it.
+     */
+    _every(e, key, period, mv, first) {
+        if (e[key] == null) {
+            e[key] = first != null ? first : period;
+        }
+        e[key] -= mv;
+        if (e[key] <= 0) {
+            e[key] = period;
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Turn the frames left on a pattern timer into a telegraph: `tel` (0..1)
+     * and `telK` (which warning to draw) on the enemy. The strongest warning
+     * wins, so a boss running three timers still shows one clear cue.
+     *
+     * Every branch calls this with the timer it is about to spend, before
+     * `_every` consumes it, which is what makes the ramp reach 1 on the frame
+     * the pattern actually goes off.
+     */
+    _tel(e, left, kind) {
+        if (left == null || left <= 0 || left > TELEGRAPH_FRAMES) {
+            return;
+        }
+        const v = 1 - left / TELEGRAPH_FRAMES;
+        if (v > (e.tel || 0)) {
+            e.tel = v;
+            e.telK = kind;
+        }
+    }
+
+    /**
+     * Second phase of a boss, on a health threshold instead of a stopwatch.
+     * The transition is a beat of its own: the hull holds fire, the screen
+     * flashes and the cadence comes back faster. Without the pause the change
+     * is invisible in the middle of a firefight, which is why the colossi had
+     * been switching at 45% for five patterns with nothing but a bar turning
+     * red to say so.
+     *
+     * @returns {boolean} whether the second phase is running
+     */
+    _bossRage(e, mv, at) {
+        if (!e.raged && e.mhp && e.hp <= e.mhp * (at || BOSS_RAGE_AT)) {
+            e.raged = 1;
+            e.hold = 50;
+            this.flashT = Math.max(this.flashT, 7);
+            this.shake = Math.min(this.shake + 14, 24);
+            this.burst(e.x, e.y, e.c, 40, 6);
+            this.pop(e.x, e.y - (e.hh || e.r) - 22, "ENRAGED", "#ff6b6b", 20, 90);
+            this.sBigBoom();
+            // One event, not a `bfx` cue: `BossAnimator.emit` has no pose for a
+            // phase change, and the bus is already the thing that makes co-op
+            // feel bad -- there is no point spending bytes nobody reads.
+            this._ev({ k: "rage", x: Math.round(e.x), y: Math.round(e.y), c: e.c });
+        }
+        if (e.hold > 0) {
+            e.hold -= mv;
+        }
+        return !!e.raged;
     }
 
     /** The angle `_ebAimed` fires at, reused by the muzzle flash cosmetics. */
@@ -2305,7 +2662,7 @@ export class NeonStrikeEngine {
                 if (sp.down || sp.inv > 0 || sp.dash > 0) {
                     continue;
                 }
-                if (this._distToSeg(sp.x, sp.y, b.x, b.y, ex, ey) < b.w * 0.5 + 8 * (1 + sp.mods.hitbox)) {
+                if (this._distToSeg(sp.x, sp.y, b.x, b.y, ex, ey) < b.w * 0.5 + this._hitR(sp)) {
                     this.hurtShip(sp);
                 }
             }
@@ -2339,23 +2696,35 @@ export class NeonStrikeEngine {
         } else if (e.x < W / 2 - 105) {
             e.vx = Math.abs(e.vx);
         }
-        const rage = e.hp < e.mhp * 0.45;
+        const rage = this._bossRage(e, mv, COLOSSUS_RAGE_AT);
+        e.tel = 0;
+        if (e.hold > 0) {
+            // The phase change is its own beat: the hull keeps drifting, the
+            // guns stop, and the timers below are not spent.
+            return;
+        }
         e.a1 -= mv;
         e.a2 -= mv;
         e.a3 -= mv;
         const bottom = e.y + e.hh;
         if (e.k === 0) {
             // AEGIS-01: curtain of fire with one gap + twin siege salvos.
+            this._tel(e, e.a1, "curtain");
+            this._tel(e, e.a2, "aimed");
             if (e.a1 <= 0) {
                 e.a1 = rage ? 62 : 95;
-                e.gap = this.fx0 + 60 + ((e.gap + 137) % (this.fx1 - this.fx0 - 120));
                 for (let x = this.fx0 + 10; x < this.fx1; x += 34) {
                     if (Math.abs(x - e.gap) < 62) {
                         continue;
                     }
-                    this._eb(x, bottom, 0, 2.4);
+                    this._eb(x, bottom, 0, 2.4, EB_CURTAIN);
                 }
                 this.sTick();
+                // The next gap is decided here, one curtain ahead, so the
+                // telegraph can point at it. A wall of bullets you can only
+                // read once it is on top of you is not a pattern, it is a die
+                // roll: where the hole is *is* the whole attack.
+                e.gap = this.fx0 + 60 + ((e.gap + 137) % (this.fx1 - this.fx0 - 120));
             }
             if (e.a2 <= 0) {
                 e.a2 = 190;
@@ -2368,12 +2737,13 @@ export class NeonStrikeEngine {
             }
         } else if (e.k === 1) {
             // HYDRA-07: crown spiral + aimed fans from the side heads.
+            this._tel(e, e.a2, "aimed");
             if (e.a1 <= 0) {
                 e.a1 = rage ? 5 : 9;
                 const arms = rage ? 3 : 2;
                 for (let k = 0; k < arms; k++) {
                     const a = e.t * 0.11 + (k / arms) * 6.2832;
-                    this._eb(e.x, e.y - e.h * 0.1, Math.cos(a) * 2.7, Math.sin(a) * 2.7);
+                    this._eb(e.x, e.y - e.h * 0.1, Math.cos(a) * 2.7, Math.sin(a) * 2.7, EB_SPREAD);
                 }
             }
             if (e.a2 <= 0) {
@@ -2386,7 +2756,9 @@ export class NeonStrikeEngine {
                 this.sTick();
             }
         } else if (e.k === 2) {
-            // VULCAN: asteroid barrage, molten rings and two forge beams.
+            // VULCAN: asteroid barrage, molten rings and two forge beams. The
+            // beams telegraph themselves (`warn`), so only the ring needs a cue.
+            this._tel(e, e.a2, "ring");
             if (e.a1 <= 0) {
                 e.a1 = rage ? 46 : 74;
                 this.spawnRock(
@@ -2398,7 +2770,7 @@ export class NeonStrikeEngine {
                 e.a2 = 230;
                 for (let k = 0; k < 18; k++) {
                     const a = (k / 18) * 6.2832 + e.t * 0.01;
-                    this._eb(e.x, e.y, Math.cos(a) * 2.5, Math.sin(a) * 2.5);
+                    this._eb(e.x, e.y, Math.cos(a) * 2.5, Math.sin(a) * 2.5, EB_SPREAD);
                 }
                 this.sBoom();
             }
@@ -2429,6 +2801,7 @@ export class NeonStrikeEngine {
             }
         } else if (e.k === 3) {
             // NYX: four beams turning like clock hands + interceptors.
+            this._tel(e, e.a2, "spawn");
             if (!this.beams.some((b) => b.src === e.id)) {
                 for (let k = 0; k < 4; k++) {
                     this.beams.push(this.mkBeam({
@@ -2448,6 +2821,8 @@ export class NeonStrikeEngine {
         } else {
             // OMEGA: sweeping eye beam, kamikaze seeding, ring bursts and it
             // closes in once it is hurt.
+            this._tel(e, e.a2, "spawn");
+            this._tel(e, e.a3, "ring");
             if (e.a1 <= 0) {
                 e.a1 = 340;
                 const dir = Math.random() < 0.5 ? 1 : -1;
@@ -2467,7 +2842,7 @@ export class NeonStrikeEngine {
                 e.a3 = rage ? 90 : 130;
                 for (let k = 0; k < 12; k++) {
                     const a = (k / 12) * 6.2832 + e.t * 0.02;
-                    this._eb(e.x, e.y, Math.cos(a) * 3, Math.sin(a) * 3);
+                    this._eb(e.x, e.y, Math.cos(a) * 3, Math.sin(a) * 3, EB_SPREAD);
                 }
             }
             if (rage && e.ty < 235) {
@@ -2574,15 +2949,23 @@ export class NeonStrikeEngine {
         }
         // DREADNOUGHT: wide sweep, radial bursts and aimed triples.
         e.x = W / 2 + Math.sin(e.t * 0.016) * (W * 0.32);
-        if (Math.floor(e.t) % 85 === 0) {
-            for (let k = 0; k < 9; k++) {
-                const a = (k / 9) * 6.2832 + e.t * 0.01;
-                this._eb(e.x, e.y, Math.cos(a) * 2.3, Math.sin(a) * 2.3);
+        e.tel = 0;
+        const rage = this._bossRage(e, mv);
+        if (e.hold > 0) {
+            return;
+        }
+        const arms = rage ? 12 : 9;
+        this._tel(e, e.a1, "ring");
+        this._tel(e, e.a2, "aimed");
+        if (this._every(e, "a1", rage ? 62 : 85, mv)) {
+            for (let k = 0; k < arms; k++) {
+                const a = (k / arms) * 6.2832 + e.t * 0.01;
+                this._eb(e.x, e.y, Math.cos(a) * 2.3, Math.sin(a) * 2.3, EB_SPREAD);
             }
             this.sTick();
             this._bossCue(e, "burst");
         }
-        if (Math.floor(e.t) % 55 === 27) {
+        if (this._every(e, "a2", rage ? 40 : 55, mv, 27)) {
             for (let k = -1; k <= 1; k++) {
                 this._ebAimed(e.x, e.y, 3, k * 0.22);
             }
@@ -2599,31 +2982,44 @@ export class NeonStrikeEngine {
     _bossWarden(e, mv) {
         e.x += Math.sin(e.t * 0.011) * 1.5 * mv;
         e.x = Math.max(this.fx0 + 80, Math.min(this.fx1 - 80, e.x));
+        e.tel = 0;
+        // Second phase: the armour spends less time up and more time down, and
+        // both patterns speed up. The fight is about the hurt window, so that
+        // is the dial the phase change turns.
+        const rage = this._bossRage(e, mv);
         e.phase -= mv;
         if (e.phase <= 0) {
             e.armor = e.armor ? 0 : 1;
-            e.phase = e.armor ? 330 : 260;
+            e.phase = e.armor ? (rage ? 240 : 330) : (rage ? 300 : 260);
             this.burst(e.x, e.y, e.armor ? "#4de3c1" : "#ffd166", 20, 4);
             this.pop(e.x, e.y - e.r - 16, e.armor ? "ARMOUR UP" : "ARMOUR DOWN",
                 e.armor ? "#4de3c1" : "#ffd166", 13);
         }
+        if (e.hold > 0) {
+            return;
+        }
         if (e.armor) {
-            if (Math.floor(e.t) % 105 === 0) {
-                e.gap = this.fx0 + 60 + ((e.gap + 151) % (this.fx1 - this.fx0 - 120));
+            this._tel(e, e.a1, "curtain");
+            if (this._every(e, "a1", rage ? 82 : 105, mv)) {
                 for (let x = this.fx0 + 12; x < this.fx1; x += 40) {
                     if (Math.abs(x - e.gap) < 66) {
                         continue;
                     }
-                    this._eb(x, e.y + e.r * 0.6, 0, 2.2);
+                    this._eb(x, e.y + e.r * 0.6, 0, 2.2, EB_CURTAIN);
                 }
                 this.sTick();
+                // Next gap decided now, so the telegraph can point at it.
+                e.gap = this.fx0 + 60 + ((e.gap + 151) % (this.fx1 - this.fx0 - 120));
             }
-        } else if (Math.floor(e.t) % 42 === 0) {
-            for (let k = -2; k <= 2; k++) {
-                this._ebAimed(e.x, e.y, 3.4, k * 0.17);
+        } else {
+            this._tel(e, e.a2, "aimed");
+            if (this._every(e, "a2", rage ? 32 : 42, mv)) {
+                for (let k = -2; k <= 2; k++) {
+                    this._ebAimed(e.x, e.y, 3.4, k * 0.17);
+                }
+                this.sTick();
+                this._bossCue(e, "salvo", { a: Math.round(this._aimAngle(e.x, e.y) * 100) / 100 });
             }
-            this.sTick();
-            this._bossCue(e, "salvo", { a: Math.round(this._aimAngle(e.x, e.y) * 100) / 100 });
         }
     }
 
@@ -2639,6 +3035,16 @@ export class NeonStrikeEngine {
         if (mv <= 0) {
             return;
         }
+        e.tel = 0;
+        // Second phase: it charges sooner and dives harder. The lance keeps its
+        // full 55 frames of warning -- a phase change is allowed to make an
+        // attack worse, never to make it less readable.
+        const rage = this._bossRage(e, mv);
+        // The beat holds the hovering half of the cycle only: a hull stopped
+        // dead halfway through a dive reads as the game having crashed.
+        if (e.hold > 0 && e.phase !== 3) {
+            return;
+        }
         e.phase = e.phase || 1;
         if (e.phase === 1) {
             // Hover over a target and charge the lance.
@@ -2648,7 +3054,7 @@ export class NeonStrikeEngine {
             }
             e.a1 = (e.a1 || 0) - mv;
             if (e.a1 <= 0) {
-                e.a1 = 250;
+                e.a1 = rage ? 190 : 250;
                 this.beams.push(this.mkBeam({
                     src: e.id, oy: e.r * 0.7, a: Math.PI / 2,
                     warn: 55, life: 90, w: 34, spin: 0, c: "#ffd166", len: 900,
@@ -2656,7 +3062,8 @@ export class NeonStrikeEngine {
                 e.phase = 2;
                 e.a2 = 150;
             }
-            if (Math.floor(e.t) % 30 === 0) {
+            this._tel(e, e.a4, "aimed");
+            if (this._every(e, "a4", rage ? 22 : 30, mv)) {
                 this._ebAimed(e.x, e.y, 3.6);
             }
         } else if (e.phase === 2) {
@@ -2666,7 +3073,7 @@ export class NeonStrikeEngine {
                 e.phase = 3;
                 const tgt = this._target(e.x, e.y);
                 e.vx = tgt ? Math.max(-3, Math.min(3, (tgt.x - e.x) * 0.03)) : 0;
-                e.vy = 7;
+                e.vy = rage ? 8.5 : 7;
             }
         } else {
             e.x += e.vx * mv;
@@ -2690,9 +3097,16 @@ export class NeonStrikeEngine {
     _bossHive(e, mv) {
         e.x += Math.sin(e.t * 0.008) * 1.1 * mv;
         e.x = Math.max(this.fx0 + 70, Math.min(this.fx1 - 70, e.x));
+        e.tel = 0;
+        const rage = this._bossRage(e, mv);
+        if (e.hold > 0) {
+            return;
+        }
+        this._tel(e, e.a1, "spawn");
+        this._tel(e, e.a2, "ring");
         e.a1 = (e.a1 || 0) - mv;
         if (e.a1 <= 0) {
-            e.a1 = Math.max(62, 140 - this.wave * 2);
+            e.a1 = Math.max(62, 140 - this.wave * 2) * (rage ? 0.72 : 1);
             const brood = this.wave > 8 ? ["drone", "speedy", "kami"] : ["drone", "speedy"];
             // Three bays past the midgame: the flood is the whole point.
             const bays = this.wave > 12 ? [-e.r * 0.6, 0, e.r * 0.6] : [-e.r * 0.55, e.r * 0.55];
@@ -2705,10 +3119,10 @@ export class NeonStrikeEngine {
             this.burst(e.x, e.y + e.r * 0.5, e.c, 10, 3);
             this.sTick();
         }
-        if (Math.floor(e.t) % 130 === 0) {
+        if (this._every(e, "a2", rage ? 95 : 130, mv)) {
             for (let k = 0; k < 7; k++) {
                 const a = (k / 7) * 6.2832 + e.t * 0.02;
-                this._eb(e.x, e.y, Math.cos(a) * 1.9, Math.sin(a) * 1.9);
+                this._eb(e.x, e.y, Math.cos(a) * 1.9, Math.sin(a) * 1.9, EB_SPREAD);
             }
         }
     }
@@ -2722,14 +3136,22 @@ export class NeonStrikeEngine {
         if (mv <= 0) {
             return;
         }
+        e.tel = 0;
+        const rage = this._bossRage(e, mv);
+        if (e.hold > 0) {
+            return;
+        }
         e.phase = 1;
+        // The blink leaves a shockwave behind, so the ring is worth warning
+        // about: it goes off where the hull still is, not where it lands.
+        this._tel(e, e.a1, "ring");
         e.a1 = (e.a1 || 0) - mv;
         if (e.a1 <= 0) {
-            e.a1 = 150;
+            e.a1 = rage ? 110 : 150;
             // Shockwave where it was, then reappear somewhere else.
             for (let k = 0; k < 14; k++) {
                 const a = (k / 14) * 6.2832;
-                this._eb(e.x, e.y, Math.cos(a) * 2.6, Math.sin(a) * 2.6);
+                this._eb(e.x, e.y, Math.cos(a) * 2.6, Math.sin(a) * 2.6, EB_SPREAD);
             }
             this.burst(e.x, e.y, e.c, 26, 5);
             this._ev({ k: "boom", x: e.x, y: e.y, c: e.c, b: 0 });
@@ -2741,10 +3163,10 @@ export class NeonStrikeEngine {
             this.burst(e.x, e.y, "#ffffff", 20, 4);
             this.sPup();
         }
-        if (Math.floor(e.t) % 7 === 0) {
+        if (this._every(e, "a2", rage ? 5 : 7, mv)) {
             for (let k = 0; k < 3; k++) {
                 const a = e.t * 0.09 + (k / 3) * 6.2832;
-                this._eb(e.x, e.y, Math.cos(a) * 2.9, Math.sin(a) * 2.9);
+                this._eb(e.x, e.y, Math.cos(a) * 2.9, Math.sin(a) * 2.9, EB_SPREAD);
             }
         }
     }
@@ -2781,14 +3203,20 @@ export class NeonStrikeEngine {
                 }
             } else if (e.type === "tank") {
                 e.y += 0.65 * mv;
-                if (e.y > 0 && mv > 0 && Math.floor(e.t) % 150 === 0) {
-                    const tgt = this.decoys.length ? this._target(e.x, e.y) : this._aimShip();
-                    if (tgt) {
-                        const dx = tgt.x - e.x;
-                        const dy = tgt.y - e.y;
-                        const d = Math.sqrt(dx * dx + dy * dy) || 1;
-                        this.ebullets.push({ x: e.x, y: e.y, vx: (dx / d) * 2.6, vy: (dy / d) * 2.6 });
-                        this.sTick();
+                e.tel = 0;
+                if (e.y > 0 && mv > 0) {
+                    // The tank was the only aimed shot in the game with no
+                    // warning at all: it just went off every 150 frames.
+                    this._tel(e, e.a1, "aimed");
+                    if (this._every(e, "a1", 150, mv)) {
+                        const tgt = this.decoys.length ? this._target(e.x, e.y) : this._aimShip();
+                        if (tgt) {
+                            const dx = tgt.x - e.x;
+                            const dy = tgt.y - e.y;
+                            const d = Math.sqrt(dx * dx + dy * dy) || 1;
+                            this._eb(e.x, e.y, (dx / d) * 2.6, (dy / d) * 2.6, EB_AIMED);
+                            this.sTick();
+                        }
                     }
                 }
             } else if (e.type === "sniper") {
@@ -2806,7 +3234,7 @@ export class NeonStrikeEngine {
                             const dx = tgt.x - e.x;
                             const dy = tgt.y - e.y;
                             const d = Math.sqrt(dx * dx + dy * dy) || 1;
-                            this.ebullets.push({ x: e.x, y: e.y, vx: (dx / d) * 5.2, vy: (dy / d) * 5.2 });
+                            this._eb(e.x, e.y, (dx / d) * 5.2, (dy / d) * 5.2, EB_LANCE);
                             this.sTick();
                         }
                     }
@@ -2857,7 +3285,7 @@ export class NeonStrikeEngine {
                 if (sp.down) {
                     continue;
                 }
-                if (this._enemyHit(e, sp.x, sp.y, 13 * (1 + sp.mods.hitbox))) {
+                if (this._enemyHit(e, sp.x, sp.y, this._hitR(sp))) {
                     const ram = sp.dash > 0 && sp.flags.dash_ram;
                     if (!ram) {
                         this.hurtShip(sp);
@@ -2939,7 +3367,7 @@ export class NeonStrikeEngine {
                 }
                 const dx = rk.x - sp.x;
                 const dy = rk.y - sp.y;
-                const rr = rk.r + 12 * (1 + sp.mods.hitbox);
+                const rr = rk.r + this._hitR(sp);
                 if (dx * dx + dy * dy < rr * rr) {
                     // Asteroid Eater (and any dash) shatters the rock for free.
                     if (!sp.flags.rock_eater) {
@@ -3059,8 +3487,11 @@ export class NeonStrikeEngine {
             sp.shield = 1;
             say("Shield!");
         } else if (t === "B") {
-            this.bomb(sp);
-            say("BOMB!", 18);
+            // The capsule refills the stock, it does not detonate: a bomb that
+            // goes off the instant you touch it is a bomb you never chose to
+            // use, and the whole point of the resource is choosing the moment.
+            sp.bombs = Math.min(this._maxBombs(), sp.bombs + 1);
+            say("Bomb +1  ·  X", 16);
         } else if (t === "L") {
             sp.lives = Math.min(this._maxLives(sp), sp.lives + 1);
             say("Extra life!");
@@ -3075,7 +3506,7 @@ export class NeonStrikeEngine {
         } else if (t === "D") {
             say("Wingman!");
         } else if (t === "G") {
-            sp.inv = Math.max(sp.inv, PUP_BUFFS.G);
+            this._setInv(sp, PUP_BUFFS.G);
             this.burst(sp.x, sp.y, PUP_COLORS.G, 22, 4);
             say("Phase shift!");
         } else if (t === "F") {
@@ -3096,11 +3527,19 @@ export class NeonStrikeEngine {
             this.shake = Math.min(this.shake + 10, 24);
             say("Overload!", 17);
         } else if (t === "C") {
-            this.combo = Math.min(this.combo + 6, COMBO_MAX);
+            // Was +6. Grazing now feeds the combo too, and a capsule handing
+            // out a quarter of the whole ladder for free undercuts it.
+            this.combo = Math.min(this.combo + 3, COMBO_MAX);
             this.comboT = 200;
             say("Combo x" + this.combo + "!");
         } else if (t === "Y") {
-            const pts = Math.round(150 * Math.max(1, this.wave) * this.combo * (1 + sp.mods.scoreMul));
+            // The combo used to multiply this outright: at wave 30 with x25 a
+            // single capsule paid more than a boss, so the best scoring move in
+            // the game was walking into a capsule. It now scales with the
+            // combo instead of being multiplied by it.
+            const pts = Math.round(
+                120 * Math.max(1, this.wave) * (1 + this.combo * 0.15) * (1 + sp.mods.scoreMul)
+            );
             this.score += pts;
             this.pop(sp.x, sp.y - 30, "+" + pts.toLocaleString(), PUP_COLORS.Y, 17);
         }
@@ -3199,6 +3638,18 @@ export class NeonStrikeEngine {
             this._setPaused(!this.paused);
         } else if (action === "dash") {
             this.dashShip(slot);
+        } else if (action === "bomb") {
+            this.useBomb(slot);
+        } else if (action === "focus1" || action === "focus0") {
+            // Focus is the one held input in the game, and this channel only
+            // carries one-shot actions: a guest sends the press and the release
+            // as two edges. If a release is ever lost the player is stuck in
+            // focus until the next tap, which is why it is the only input the
+            // engine also mirrors in the snapshot (`fc`).
+            const sp = this._shipBySlot(slot);
+            if (sp) {
+                sp.focus = action === "focus1";
+            }
         } else if (action.startsWith("act")) {
             this.useActive(slot, parseInt(action.slice(3), 10) || 0);
         } else if (action.startsWith("perk")) {
@@ -3226,9 +3677,17 @@ export class NeonStrikeEngine {
             ships: this.ships.map((s) => ({
                 s: s.slot, n: s.name, c: s.color, hl: s.hull,
                 x: Math.round(s.x), y: Math.round(s.y),
-                iv: s.inv > 0 ? 1 : 0, sd: s.shield,
+                // `iv` used to be a bare 0/1, which is why a guest could only
+                // blink at a fixed rate: it now carries the frames left (and
+                // the window they came from) so the blink can speed up as the
+                // window closes. An old reader still sees a truthy number.
+                iv: Math.round(Math.max(0, s.inv)), im: Math.round(s.invMax || 1),
+                sd: s.shield,
                 dn: s.down ? 1 : 0, rp: Math.round(s.reviveProgress),
                 wp: s.weapon === "triple" ? 1 : 0, lv: s.lives,
+                bo: s.bombs, fc: s.focus ? 1 : 0,
+                // Grazes banked towards the next combo step, for the HUD meter.
+                gz: s.graze % GRAZE_PER_COMBO,
                 // Perks (indexes), dash and active cooldowns for the HUD.
                 pk: s.perks.map((id) => PERK_INDEX[id]),
                 ds: s.dashCharges, dm: s.dashMax, dt: s.dash > 0 ? 1 : 0,
@@ -3248,10 +3707,20 @@ export class NeonStrikeEngine {
                 // catalogues. `ar` is the WARDEN armour.
                 ck: e.k,
                 ar: e.armor ? 1 : 0,
+                // Telegraph: intensity, which warning, and where the hole in
+                // the next curtain is. It has to travel -- a guest does not
+                // simulate, and deriving it from the AI's own arithmetic would
+                // drift apart the first time anyone retunes a boss.
+                tl: e.tel ? Math.round(e.tel * 100) : undefined,
+                tk: e.tel ? e.telK : undefined,
+                gp: e.gap != null ? Math.round(e.gap) : undefined,
             })),
             // 3rd slot = style bits: 1 critical, 2 explosive.
             bu: this.bullets.map((b) => [Math.round(b.x), Math.round(b.y), (b.cr ? 1 : 0) | (b.ex ? 2 : 0)]),
-            eb: this.ebullets.map((b) => [Math.round(b.x), Math.round(b.y)]),
+            // 3rd slot = EB_KINDS index (colour and size). Appended at the end
+            // of the tuple, so a reader that does not know about it reads
+            // `undefined` and falls back to kind 0 instead of breaking.
+            eb: this.ebullets.map((b) => [Math.round(b.x), Math.round(b.y), b.k || 0]),
             pu: this.pups.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y), t: p.t, ph: p.ph })),
             rk: this.rocks.map((r) => ({
                 x: Math.round(r.x), y: Math.round(r.y), r: Math.round(r.r),
@@ -3320,12 +3789,16 @@ export class NeonStrikeEngine {
             sp.hull = s.hl != null ? Math.max(0, Math.min(SHIPS.length - 1, s.hl)) : sp.hull;
             sp.tx = s.x;
             sp.ty = s.y;
-            sp.inv = s.iv ? 8 : 0;
+            sp.inv = s.iv || 0;
+            sp.invMax = s.im || Math.max(1, s.iv || 1);
             sp.shield = s.sd;
             sp.down = !!s.dn;
             sp.reviveProgress = s.rp;
             sp.weapon = s.wp ? "triple" : "single";
             sp.lives = s.lv;
+            sp.bombs = s.bo != null ? s.bo : sp.bombs;
+            sp.focus = !!s.fc;
+            sp.graze = s.gz || 0;
             // Perks: rebuild the derived state only when the list changes, and
             // then overwrite the cooldowns with the host's authoritative ones.
             const ids = (s.pk || []).map((i) => (PERKS[i] ? PERKS[i].id : null)).filter(Boolean);
@@ -3357,6 +3830,7 @@ export class NeonStrikeEngine {
                 hp: e.h, mhp: e.mh, c: this._enemyColor(e.t),
                 flash: e.f ? 4 : 0, t: e.tt, v: e.v || 0, rot: e.rt, aim: e.am,
                 stun: e.sn ? 1 : 0, armor: e.ar ? 1 : 0,
+                tel: (e.tl || 0) / 100, telK: e.tk || "", gap: e.gp,
             };
             if (e.t === "boss") {
                 // Radius, colour and hull come from the shared catalogue.
@@ -3379,7 +3853,7 @@ export class NeonStrikeEngine {
             return en;
         });
         this.bullets = snap.bu.map((b) => ({ x: b[0], y: b[1], vx: 0, vy: 0, cr: (b[2] || 0) & 1, ex: (b[2] || 0) & 2 }));
-        this.ebullets = snap.eb.map((b) => ({ x: b[0], y: b[1], vx: 0, vy: 0 }));
+        this.ebullets = snap.eb.map((b) => ({ x: b[0], y: b[1], vx: 0, vy: 0, k: b[2] || 0 }));
         this.pups = snap.pu.map((p) => ({ x: p.x, y: p.y, t: p.t, ph: p.ph, r: 13 }));
         this.rocks = snap.rk.map((r) => ({ x: r.x, y: r.y, r: r.r, rot: r.a, v: r.v || 0 }));
         this.trails = (snap.tr || []).map((t) => ({ x: t[0], y: t[1], life: t[2], ml: 42 }));
@@ -3480,8 +3954,16 @@ export class NeonStrikeEngine {
             const p = this._dronePos(sp);
             drawSprite(g, "drone0", p.x, p.y, { tint: sp.color, px: pxFor("drone0", 18) });
         }
-        if (sp.inv > 0 && (this.frame >> 2) % 2 === 0) {
-            return;
+        // Invulnerable: the blink used to be a flat 4 frames on, 4 off, exactly
+        // the same on the first frame of the window and on the last, so the
+        // moment you became solid again was invisible -- and being hit one
+        // frame after an invulnerability you thought was still running is the
+        // death that reads as the game cheating. It now doubles in rhythm for
+        // the last ~25 frames, and the dot below is drawn either way.
+        let hidden = false;
+        if (sp.inv > 0) {
+            const period = sp.inv > 25 ? 8 : 4;
+            hidden = this.frame % period < period / 2;
         }
         g.save();
         g.translate(sp.x, sp.y);
@@ -3494,28 +3976,72 @@ export class NeonStrikeEngine {
             g.fill();
             g.globalCompositeOperation = "source-over";
         }
+        if (!hidden) {
+            g.globalCompositeOperation = "lighter";
+            g.fillStyle = this.glow(sp.color, 0.12);
+            g.beginPath();
+            g.arc(0, 0, 26, 0, 6.2832);
+            g.fill();
+            g.globalCompositeOperation = "source-over";
+            // Banked hull, engine flame and retro-thrusters. Each slot has its
+            // own hull and the frames are tinted with sp.color, same as the
+            // flat sprite was; the pose comes from the motion `_moveShip` made.
+            sp.flight.draw(g, {
+                sprite: SHIPS[sp.hull].sprite,
+                tint: sp.color,
+                px: SHIP_PX,
+            });
+            if (sp.shield > 0) {
+                g.strokeStyle = "rgba(123,255,176," + (0.5 + Math.sin(this.frame * 0.15) * 0.3) + ")";
+                g.lineWidth = 2;
+                g.beginPath();
+                g.arc(0, 0, 24, 0, 6.2832);
+                g.stroke();
+            }
+        }
+        this._drawHitbox(sp);
+        g.restore();
+    }
+
+    /**
+     * The dot that is actually you. The hull is ~32 logical px wide and the
+     * circle that kills you is 6.5: without drawing it, every near miss is
+     * unreadable and every hit feels arbitrary. It stays at full opacity while
+     * the hull blinks, and focusing draws the exact circle so a gap can be
+     * measured by eye instead of guessed.
+     *
+     * Called inside the ship transform, so it draws around the origin.
+     */
+    _drawHitbox(sp) {
+        const g = this.g;
+        const r = this._hitR(sp);
+        g.globalAlpha = 1;
         g.globalCompositeOperation = "lighter";
-        g.fillStyle = this.glow(sp.color, 0.12);
+        g.fillStyle = "rgba(255,255,255," + (sp.focus ? 0.34 : 0.16) + ")";
         g.beginPath();
-        g.arc(0, 0, 26, 0, 6.2832);
+        g.arc(0, 0, r * (sp.focus ? 2.6 : 2), 0, 6.2832);
         g.fill();
         g.globalCompositeOperation = "source-over";
-        // Banked hull, engine flame and retro-thrusters. Each slot has its own
-        // hull and the frames are tinted with sp.color, same as the flat
-        // sprite was; the pose comes from the motion `_moveShip` produced.
-        sp.flight.draw(g, {
-            sprite: SHIPS[sp.hull].sprite,
-            tint: sp.color,
-            px: SHIP_PX,
-        });
-        if (sp.shield > 0) {
-            g.strokeStyle = "rgba(123,255,176," + (0.5 + Math.sin(this.frame * 0.15) * 0.3) + ")";
-            g.lineWidth = 2;
+        g.fillStyle = sp.focus ? "#ffffff" : "rgba(255,255,255,0.92)";
+        g.beginPath();
+        g.arc(0, 0, r * 0.62, 0, 6.2832);
+        g.fill();
+        if (sp.focus) {
+            g.strokeStyle = "rgba(255,255,255," + (0.6 + Math.sin(this.frame * 0.18) * 0.25) + ")";
+            g.lineWidth = 1.2;
             g.beginPath();
-            g.arc(0, 0, 24, 0, 6.2832);
+            g.arc(0, 0, r, 0, 6.2832);
             g.stroke();
         }
-        g.restore();
+        if (sp.inv > 0 && sp.invMax > 1) {
+            // How much of the window is left, as an arc that drains. The blink
+            // says "invulnerable"; this says "for this much longer".
+            g.strokeStyle = "rgba(94,225,255,0.7)";
+            g.lineWidth = 2;
+            g.beginPath();
+            g.arc(0, 0, 20, -Math.PI / 2, -Math.PI / 2 + Math.min(1, sp.inv / sp.invMax) * 6.2832);
+            g.stroke();
+        }
     }
 
     drawWreck(sp) {
@@ -3548,6 +4074,84 @@ export class NeonStrikeEngine {
         g.restore();
     }
 
+    /**
+     * The shape of what is about to happen, drawn in the fraction of a second
+     * before it does. Beams and the sniper were the only two attacks in the
+     * game that announced themselves; every boss pattern simply went off, and
+     * a dense pattern with no warning reads as unfair rather than hard.
+     *
+     * `tel`/`telK` are written by the AI (see `_tel`) and travel in the
+     * snapshot, so a guest draws the same warning on the same frame.
+     */
+    _drawTelegraph(e) {
+        const t = e.tel || 0;
+        if (t <= 0.02 || !e.telK) {
+            return;
+        }
+        const g = this.g;
+        const a = 0.22 + t * 0.55;
+        const dash = Math.max(3, 14 * (1 - t));
+        const rad = e.type === "colossus" ? Math.max(e.hw, e.hh) : e.r;
+        g.save();
+        g.globalCompositeOperation = "lighter";
+        g.strokeStyle = e.c;
+        g.globalAlpha = a;
+        g.lineWidth = 1.5 + t * 1.5;
+        g.setLineDash([dash, dash]);
+        if (e.telK === "ring") {
+            // A ring closing onto the hull: the burst goes off when it lands.
+            g.beginPath();
+            g.arc(e.x, e.y, rad + 10 + (1 - t) * 120, 0, 6.2832);
+            g.stroke();
+        } else if (e.telK === "aimed") {
+            const tgt = this._target(e.x, e.y);
+            if (tgt) {
+                const ang = Math.atan2(tgt.y - e.y, tgt.x - e.x);
+                const len = 260 + t * 140;
+                g.beginPath();
+                g.moveTo(e.x, e.y);
+                g.lineTo(e.x + Math.cos(ang) * len, e.y + Math.sin(ang) * len);
+                g.stroke();
+            }
+        } else if (e.telK === "curtain") {
+            // The wall, and above all the hole in it. Where the gap is *is* the
+            // attack, so it is marked brighter than the wall itself. The mark
+            // is deliberately narrower than the real hole (52 against the 62-66
+            // the pattern skips): what it points at is always safe.
+            const y = e.y + rad * 0.6;
+            g.beginPath();
+            g.moveTo(this.fx0, y);
+            g.lineTo(this.fx1, y);
+            g.stroke();
+            if (e.gap != null) {
+                g.setLineDash([]);
+                g.globalAlpha = Math.min(1, a + 0.25);
+                g.strokeStyle = "#7bffb0";
+                g.lineWidth = 3;
+                g.beginPath();
+                g.moveTo(e.gap - 52, y);
+                g.lineTo(e.gap + 52, y);
+                g.moveTo(e.gap - 52, y - 9);
+                g.lineTo(e.gap - 52, y + 9);
+                g.moveTo(e.gap + 52, y - 9);
+                g.lineTo(e.gap + 52, y + 9);
+                g.stroke();
+            }
+        } else if (e.telK === "spawn") {
+            // Bays about to open: chevrons pointing the way the brood comes out.
+            g.setLineDash([]);
+            const y = e.y + rad * 0.5;
+            for (const off of [-rad * 0.6, 0, rad * 0.6]) {
+                g.beginPath();
+                g.moveTo(e.x + off - 9, y);
+                g.lineTo(e.x + off, y + 9 + t * 6);
+                g.lineTo(e.x + off + 9, y);
+                g.stroke();
+            }
+        }
+        g.restore();
+    }
+
     /** Enemy sprite name based on type and chassis variant. */
     _enemySprite(e) {
         const names = ENEMY_SPRITES[e.type] || ENEMY_SPRITES.drone;
@@ -3572,13 +4176,20 @@ export class NeonStrikeEngine {
         // Sniper sight line while it charges. The target is recomputed here (it
         // does not travel in the snapshot): ships are already synchronised, so
         // host and guest draw the same sight.
-        if (e.type === "sniper" && e.aim > 40) {
+        //
+        // It used to appear at `aim > 40`, i.e. 30 frames of a 1 px line at
+        // alpha 0.15: technically a telegraph, in practice invisible over a
+        // lit backdrop. It now starts at 25 (45 frames, the same warning every
+        // other pattern gets) and is drawn like something that matters.
+        if (e.type === "sniper" && e.aim > 25) {
             const tgt = this._target(e.x, e.y);
             if (tgt) {
+                const p = Math.min(1, (e.aim - 25) / 45);
                 g.save();
                 g.globalCompositeOperation = "lighter";
-                g.strokeStyle = "rgba(77,227,193," + (0.15 + ((e.aim - 40) / 30) * 0.35) + ")";
-                g.lineWidth = 1;
+                g.strokeStyle = "rgba(77,227,193," + (0.25 + p * 0.55) + ")";
+                g.lineWidth = 1 + p * 1.5;
+                g.setLineDash([Math.max(3, 12 * (1 - p)), 8]);
                 g.beginPath();
                 g.moveTo(e.x, e.y);
                 g.lineTo(tgt.x, tgt.y);
@@ -3586,6 +4197,7 @@ export class NeonStrikeEngine {
                 g.restore();
             }
         }
+        this._drawTelegraph(e);
         if (e.type === "colossus") {
             // Colossal hull: drawn at its full logical width, chunky pixels and
             // a heavy halo. Its health goes to the top bar, not a floating one.
@@ -3654,6 +4266,12 @@ export class NeonStrikeEngine {
             g.fillRect(e.x - w2 / 2, e.y - e.r - 12, w2, 4);
             g.fillStyle = e.type === "boss" ? "#ff6b6b" : "#c9a4ff";
             g.fillRect(e.x - w2 / 2, e.y - e.r - 12, w2 * Math.max(0, e.hp / e.mhp), 4);
+            if (e.type === "boss") {
+                // Tick where the second phase starts, same idea as the colossus
+                // bar: the threshold is something to aim at, not a surprise.
+                g.fillStyle = "rgba(255,255,255,0.6)";
+                g.fillRect(e.x - w2 / 2 + w2 * BOSS_RAGE_AT - 1, e.y - e.r - 14, 2, 8);
+            }
         }
     }
 
@@ -3697,6 +4315,13 @@ export class NeonStrikeEngine {
         // Scenery first, star field on top of it: the stars are the near layer.
         if (this.bg) {
             this.bg.draw(g);
+            // A veil between the scenery and everything that can kill you. Nine
+            // of the 27 places paint in the same warm reds as the enemy bullets
+            // and scatter 1-3 px motes the exact size of a bullet core, all in
+            // `lighter`: on the lava world or under a supernova a shot and the
+            // background were literally the same pixels.
+            g.fillStyle = BG_SCRIM;
+            g.fillRect(-mx, -my, W + mx * 2, H + my * 2);
         }
         for (const s of this.stars) {
             g.fillStyle = "rgba(200,220,255," + (0.25 + s.z * 0.25) + ")";
@@ -3799,15 +4424,20 @@ export class NeonStrikeEngine {
                 g.fillRect(b.x - 1.5, b.y, 3, 12);
             }
         }
+        // Enemy bullets used to be one shape in one colour, so a curtain shot
+        // drifting at 2.2 px/frame and a sniper round at 5.2 looked identical
+        // and asked for opposite answers. The colour and the size now come from
+        // EB_KINDS: what a bullet is doing is legible from across the arena.
         for (const b of this.ebullets) {
+            const kd = EB_KINDS[b.k || 0] || EB_KINDS[0];
             const frozen = this.freezeT > 0;
-            g.fillStyle = frozen ? "rgba(94,225,255,0.3)" : "rgba(255,110,110,0.3)";
+            g.fillStyle = frozen ? "rgba(94,225,255,0.3)" : this.glow(kd.c, 0.34);
             g.beginPath();
-            g.arc(b.x, b.y, 7, 0, 6.2832);
+            g.arc(b.x, b.y, kd.r, 0, 6.2832);
             g.fill();
-            g.fillStyle = frozen ? "#d8f8ff" : "#ffdada";
+            g.fillStyle = frozen ? "#d8f8ff" : kd.h;
             g.beginPath();
-            g.arc(b.x, b.y, 3.5, 0, 6.2832);
+            g.arc(b.x, b.y, kd.cr, 0, 6.2832);
             g.fill();
         }
         this._drawBeams();
@@ -4014,11 +4644,15 @@ export class NeonStrikeEngine {
         g.fillStyle = "rgba(255,255,255,0.14)";
         g.fillRect(x, y, w, 9);
         const pct = Math.max(0, boss.hp / boss.mhp);
-        g.fillStyle = pct < 0.45 ? "#ff6b6b" : d.tint;
+        g.fillStyle = pct < COLOSSUS_RAGE_AT ? "#ff6b6b" : d.tint;
         g.fillRect(x, y, w * pct, 9);
         g.strokeStyle = "rgba(255,255,255,0.25)";
         g.lineWidth = 1;
         g.strokeRect(x, y, w, 9);
+        // Where the second phase starts. A threshold you can see coming is a
+        // thing you can prepare for; the bar quietly turning red was not.
+        g.fillStyle = "rgba(255,255,255,0.55)";
+        g.fillRect(x + w * COLOSSUS_RAGE_AT - 1, y - 3, 2, 15);
     }
 
     /** Bottom-left block: dash charges, actives and perks owned. */
@@ -4040,6 +4674,20 @@ export class NeonStrikeEngine {
             g.fillStyle = ready ? "#c9a4ff" : "rgba(201,164,255,0.22)";
             g.fillRect(x, y - 5, 14, 10);
             x += 18;
+        }
+        x += 12;
+        // Bombs. They are a stock now, so they need somewhere to be counted:
+        // an emergency button you cannot see is one you do not press.
+        g.fillStyle = "rgba(180,210,255,0.65)";
+        g.font = "500 11px system-ui,sans-serif";
+        g.fillText("X", x, y);
+        x += 14;
+        for (let i = 0; i < this._maxBombs(); i++) {
+            g.fillStyle = i < sp.bombs ? "#ffb347" : "rgba(255,179,71,0.2)";
+            g.beginPath();
+            g.arc(x + 5, y, 5, 0, 6.2832);
+            g.fill();
+            x += 14;
         }
         x += 10;
         sp.actives.forEach((a, i) => {
@@ -4097,6 +4745,21 @@ export class NeonStrikeEngine {
                 g.fillRect(14, 52, 60, 3);
                 g.fillStyle = "#ffd166";
                 g.fillRect(14, 52, 60 * (this.comboT / 170), 3);
+            }
+            // Graze meter: how close the next combo step is. Without it the
+            // reward for flying into a pattern is invisible, and an invisible
+            // reward changes nobody's flying.
+            const me = this._shipBySlot(this.localSlot);
+            if (me && !me.down) {
+                const gy = this.combo > 1 ? 70 : 42;
+                g.textAlign = "left";
+                g.fillStyle = me.grazeT > 0 ? "#eaf6ff" : "rgba(180,210,255,0.5)";
+                g.font = "500 11px system-ui,sans-serif";
+                g.fillText("graze", 14, gy);
+                g.fillStyle = "rgba(234,246,255,0.22)";
+                g.fillRect(52, gy - 2, 44, 3);
+                g.fillStyle = "#eaf6ff";
+                g.fillRect(52, gy - 2, 44 * ((me.graze % GRAZE_PER_COMBO) / GRAZE_PER_COMBO), 3);
             }
             g.textAlign = "center";
             g.fillStyle = "rgba(180,210,255,0.7)";
@@ -4161,8 +4824,9 @@ export class NeonStrikeEngine {
             g.fillText("NEON STRIKE", W / 2, H / 2 - 64);
             g.fillStyle = "rgba(180,210,255,0.8)";
             g.font = "400 15px system-ui,sans-serif";
-            g.fillText("Drag to move · auto fire · SPACE to dash", W / 2, H / 2 - 16);
-            g.fillText("Every 5 waves you keep 1 of 3 permanent upgrades", W / 2, H / 2 + 8);
+            g.fillText("Drag to move · auto fire · SPACE dash · X bomb", W / 2, H / 2 - 16);
+            g.fillText("Hold SHIFT to focus: slow, precise, and it shows your hitbox", W / 2, H / 2 + 8);
+            g.fillText("Every 5 waves you keep 1 of 3 permanent upgrades", W / 2, H / 2 + 32);
             if (this.role !== "guest") {
                 g.fillStyle = "rgba(255,255,255," + pul + ")";
                 g.font = "500 18px system-ui,sans-serif";
@@ -4300,9 +4964,33 @@ export class NeonStrikeEngine {
             e.preventDefault();
             return;
         }
+        if (k === "x" || k === "b") {
+            this.audio();
+            this._localAction("bomb");
+            e.preventDefault();
+            return;
+        }
+        if (k === "shift") {
+            // Held, unlike everything else here. On host/solo `update()` reads
+            // the key directly every frame; a guest has no channel for a held
+            // input, so it sends the press and the release as two edges.
+            // `e.repeat` matters: auto-repeat would otherwise flood the bus.
+            if (this.role === "guest" && !e.repeat) {
+                this._localAction("focus1");
+            }
+            return;
+        }
         if (digit >= 1 && digit <= MAX_ACTIVES) {
             this.audio();
             this._localAction("act" + (digit - 1));
+        }
+    }
+
+    _keyUp(e) {
+        const k = (e.key || "").toLowerCase();
+        this.keys[k] = false;
+        if (k === "shift" && this.role === "guest") {
+            this._localAction("focus0");
         }
     }
 

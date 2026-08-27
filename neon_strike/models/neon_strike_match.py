@@ -218,11 +218,12 @@ class NeonStrikeMatch(models.Model):
         self.env["bus.bus"]._sendone(self._channel(), "ns_state", snapshot)
         return True
 
-    def submit_score(self, token, score, wave, seconds=0):
+    def submit_score(self, token, score, wave, seconds=0, deaths=0):
         """The host saves the team score when the match ends.
 
         ``seconds`` is how long the run actually lasted, measured by the host
         (the only client that simulates), and it is stored in hours.
+        ``deaths`` is how many lives the team lost on the way there.
         """
         self.ensure_one()
         if not self._is_host(token):
@@ -237,6 +238,7 @@ class NeonStrikeMatch(models.Model):
             "mode": "coop" if count > 1 else "solo",
             "player_count": count,
             "duration": max(0, int(seconds or 0)) / 3600.0,
+            "deaths": max(0, int(deaths or 0)),
             "match_id": self.id,
         })
         if self.state != "over":

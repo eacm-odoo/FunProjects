@@ -36,6 +36,12 @@ class NeonStrikeScore(models.Model):
         required=True,
     )
     player_count = fields.Integer(string="Players", default=1)
+    deaths = fields.Integer(
+        string="Lives Lost",
+        help="How many lives the team lost during the run. A high score with "
+             "few deaths is a different achievement from the same score after "
+             "a dozen of them, and only this column tells them apart.",
+    )
     duration = fields.Float(
         string="Duration",
         help="How long the run lasted, in hours (shown as h:mm with the "

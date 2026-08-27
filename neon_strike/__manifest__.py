@@ -3,7 +3,7 @@
 # UI palette follows Odoo brand assets: https://www.odoo.com/page/brand-assets
 {
     "name": "Neon Strike",
-    "version": "19.0.10.0.0",
+    "version": "19.0.11.0.0",
     "category": "Productivity",
     "summary": "Neon arcade space shooter, playable without a login on a public page",
     "description": """
@@ -35,7 +35,17 @@ playable **without an account**: pick a nickname and go.
 * 50 permanent perks: pick 1 of 3 every 5 waves and keep it for the whole run
 * Free dash on the Space bar plus active perks bound to the 1-4 keys
 * 5 colossal bosses that do not fit the arena: the camera pulls back to frame them
-* Combo system up to x25, particles, screen shake and slow motion
+* Bullet-hell fundamentals: the hitbox is a 6.5 px dot drawn on the hull (the
+  ship sprite is five times wider), Shift focuses for precision movement and
+  shows it, and skimming past enemy fire without being hit builds the combo
+* Enemy fire is colour coded by what it does -- spread, aimed, lance, curtain --
+  and every boss pattern telegraphs itself before it goes off, gap included
+* Bombs are a stock you spend with X, not a capsule that detonates on pickup;
+  bombed kills pay half and build no combo
+* Bosses and colossi switch to a second, faster phase on a health threshold,
+  announced with a beat where they hold fire
+* Combo system up to x25, hitstop on impact, particles, screen shake and slow
+  motion, plus a no-damage bonus for clearing a wave untouched
 * In-game feedback panel: players report bugs or ideas with a screenshot, and
   it all lands in a backend menu with the wave and build they were on
 * Single global leaderboard (solo and team) in ``neon.strike.score``

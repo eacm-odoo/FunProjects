@@ -382,8 +382,8 @@ export class NeonStrikeGame extends Component {
         }
     }
 
-    async onGameOver({ score, wave, seconds }) {
-        this.state.last = { score, wave, seconds };
+    async onGameOver({ score, wave, seconds, deaths }) {
+        this.state.last = { score, wave, seconds, deaths };
         if (this.state.role === "guest") {
             return;
         }
@@ -392,9 +392,9 @@ export class NeonStrikeGame extends Component {
         }
         try {
             if (this.state.role === "host" && this.state.match) {
-                await rpc("/neon/score", { match_id: this.state.match.id, score, wave, seconds });
+                await rpc("/neon/score", { match_id: this.state.match.id, score, wave, seconds, deaths });
             } else {
-                await rpc("/neon/solo_score", { nickname: this.state.nickname, score, wave, seconds });
+                await rpc("/neon/solo_score", { nickname: this.state.nickname, score, wave, seconds, deaths });
             }
             await this.loadScores();
         } catch (e) {
