@@ -769,6 +769,20 @@ function expand(def) {
     return def._grid;
 }
 
+/**
+ * The expanded character grid of a sprite, mirroring resolved: one string per
+ * row, one char per logical pixel, "." for transparent. Shared (and cached on
+ * the definition), so callers must treat it as read only. `colossus_animator`
+ * uses it to know which cells an effect may touch without re-reading the art.
+ *
+ * @param {string} name key in SPRITES
+ * @returns {string[]}
+ */
+export function spriteGrid(name) {
+    const def = SPRITES[name];
+    return def ? expand(def) : [];
+}
+
 export function spriteSize(name) {
     const def = SPRITES[name];
     if (!def) {

@@ -3,7 +3,7 @@
 # UI palette follows Odoo brand assets: https://www.odoo.com/page/brand-assets
 {
     "name": "Neon Strike",
-    "version": "19.0.11.0.0",
+    "version": "19.0.12.0.0",
     "category": "Productivity",
     "summary": "Neon arcade space shooter, playable without a login on a public page",
     "description": """
@@ -34,7 +34,10 @@ playable **without an account**: pick a nickname and go.
   piercing, homing, wingman, phase, freeze, overload, combo surge and payday
 * 50 permanent perks: pick 1 of 3 every 5 waves and keep it for the whole run
 * Free dash on the Space bar plus active perks bound to the 1-4 keys
-* 5 colossal bosses that do not fit the arena: the camera pulls back to frame them
+* 5 colossal bosses that do not fit the arena: the camera pulls back to frame
+  them, and AEGIS-01 now flies with weight -- it eases out of every reversal,
+  leans toward whoever is still alive, plants itself before each curtain, opens
+  a shutter over the hole it is about to leave and comes apart as it dies
 * Bullet-hell fundamentals: the hitbox is a 6.5 px dot drawn on the hull (the
   ship sprite is five times wider), Shift focuses for precision movement and
   shows it, and skimming past enemy fire without being hit builds the combo
@@ -76,6 +79,8 @@ Built with Odoo. Brand guide: https://www.odoo.com/page/brand-assets
             "neon_strike/static/src/js/bosses.js",
             "neon_strike/static/src/js/boss_animator.js",
             "neon_strike/static/src/js/colossi.js",
+            "neon_strike/static/src/js/aegis_motion.js",
+            "neon_strike/static/src/js/colossus_animator.js",
             "neon_strike/static/src/js/backgrounds.js",
             "neon_strike/static/src/js/menu_backdrop.js",
             "neon_strike/static/src/js/glossary.js",

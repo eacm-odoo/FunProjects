@@ -24,10 +24,12 @@ export const COLOSSI = [
         field: 1.34,   // how much wider the playable field gets (see _applyField)
         hp: 300,       // starting hull; `+ wave * 28` on top (see mkColossus)
         val: 20000,
-        // Vertical band it patrols and how fast it slides sideways.
+        // Vertical band it patrols and how fast it slides sideways. AEGIS is
+        // the one colossus that ignores `speed`: it flies the motion profile in
+        // `aegis_motion.js`, whose `descend.restY` mirrors the `y` below.
         y: 150,
         speed: 0.9,
-        desc: "Siege slab wider than the arena. It sweeps a curtain of fire with a single gap and answers with twin siege salvos.",
+        desc: "Siege slab wider than the arena. It leans toward whoever is still flying, plants itself before sweeping a curtain of fire with a single gap, and answers with twin siege salvos.",
     },
     {
         id: "hydra",

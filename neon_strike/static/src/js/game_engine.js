@@ -22,6 +22,8 @@ import { COLOSSI, colossusForWave } from "./colossi";
 import { SHIPS, SHIP_COLORS } from "./ships";
 import { ShipFlight } from "./ship_flight";
 import { BossAnimator } from "./boss_animator";
+import { COLOSSUS_ANIM_KINDS, ColossusAnimator } from "./colossus_animator";
+import { AegisMotion } from "./aegis_motion";
 import { Backdrop, backgroundForWave } from "./backgrounds";
 const REVIVE_FRAMES = 120;
 const COMBO_MAX = 25;
@@ -253,6 +255,10 @@ export class NeonStrikeEngine {
         // object: a guest rebuilds `this.enemies` from every snapshot, which
         // would reset the pose ~15 times a second.
         this._bossAnims = new Map();
+        // Same thing for the colossi, keyed by colossus index. Only the ones
+        // with a section in `COLOSSUS_ANIM_KINDS` get an animator; the rest are
+        // drawn plain.
+        this._colossusAnims = new Map();
         // Entities created by perks (dash trails, turrets, singularities, decoys).
         this.trails = [];
         this.turrets = [];
@@ -770,6 +776,16 @@ export class NeonStrikeEngine {
                 this._bossAnims.set(ev.bk, anim);
             }
             anim.emit(ev.n, ev);
+        } else if (ev.k === "cfx" && ev.ck < COLOSSUS_ANIM_KINDS.length) {
+            // Same, for a colossus. The guard matches `_colossusCue`: an index
+            // with no section would get an animator posed as AEGIS and, since
+            // `_updateColossusAnims` skips it, frozen there.
+            let anim = this._colossusAnims.get(ev.ck);
+            if (!anim) {
+                anim = new ColossusAnimator(ev.ck, (COLOSSI[ev.ck] || COLOSSI[0]).tint);
+                this._colossusAnims.set(ev.ck, anim);
+            }
+            anim.emit(ev.n);
         }
     }
 
@@ -1657,6 +1673,7 @@ export class NeonStrikeEngine {
         this.zaps = [];
         this.beams = [];
         this._bossAnims.clear();
+        this._colossusAnims.clear();
         this.freezeT = 0;
         this.warpT = 0;
         this.shake = 0;
@@ -1859,6 +1876,7 @@ export class NeonStrikeEngine {
         this._updateBeams(ts);
         // After the beams: the LANCER charge glow reads their `warn` frames.
         this._updateBossAnims(ts);
+        this._updateColossusAnims(ts);
         this._updateTrails(ts);
         this._updateTurrets(ts);
         this._updateHoles(ts);
@@ -2690,13 +2708,45 @@ export class NeonStrikeEngine {
             e.y += 1.3 * mv;
             return;
         }
-        e.x += e.vx * mv * 0.55;
-        if (e.x > W / 2 + 105) {
-            e.vx = -Math.abs(e.vx);
-        } else if (e.x < W / 2 - 105) {
-            e.vx = Math.abs(e.vx);
+        // Last frame's telegraph. `tel` is cleared below before the new one is
+        // computed and `telK` is only ever raised, never cleared, so this is the
+        // only place both are still true together.
+        const telK = e.tel > 0 ? e.telK : "";
+        if (e.k === 0) {
+            // AEGIS-01 flies its own motion profile (see `aegis_motion.js`):
+            // weighted reversals, a capped pull toward the ships, a brace on the
+            // curtain telegraph and one shove during the enrage beat. It is
+            // created here, after the entrance, so it starts from where the
+            // entrance left the hull.
+            if (!e.mo) {
+                e.mo = new AegisMotion(e.x, e.y);
+            }
+            const p = e.mo.step(mv * FRAME_SECONDS, {
+                x: e.x, y: e.y,
+                fx0: this.fx0, fx1: this.fx1,
+                hp01: e.mhp ? e.hp / e.mhp : 1,
+                raged: !!e.raged,
+                holding: e.hold > 0,
+                telK,
+                // Downed ships are left out: the slab presses whoever is still
+                // flying, not the wreck of someone waiting for a revive.
+                ships: this.ships.filter((sp) => !sp.down),
+            });
+            e.x = p.x;
+            e.y = p.y;
+        } else {
+            e.x += e.vx * mv * 0.55;
+            if (e.x > W / 2 + 105) {
+                e.vx = -Math.abs(e.vx);
+            } else if (e.x < W / 2 - 105) {
+                e.vx = Math.abs(e.vx);
+            }
         }
+        const wasRaged = e.raged;
         const rage = this._bossRage(e, mv, COLOSSUS_RAGE_AT);
+        if (!wasRaged && e.raged) {
+            this._colossusCue(e, "rage");
+        }
         e.tel = 0;
         if (e.hold > 0) {
             // The phase change is its own beat: the hull keeps drifting, the
@@ -2720,6 +2770,7 @@ export class NeonStrikeEngine {
                     this._eb(x, bottom, 0, 2.4, EB_CURTAIN);
                 }
                 this.sTick();
+                this._colossusCue(e, "curtain");
                 // The next gap is decided here, one curtain ahead, so the
                 // telegraph can point at it. A wall of bullets you can only
                 // read once it is on top of you is not a pattern, it is a die
@@ -2734,6 +2785,7 @@ export class NeonStrikeEngine {
                     }
                 }
                 this.sTick();
+                this._colossusCue(e, "salvo");
             }
         } else if (e.k === 1) {
             // HYDRA-07: crown spiral + aimed fans from the side heads.
@@ -2910,6 +2962,58 @@ export class NeonStrikeEngine {
                 this._bossAnims.delete(k);
             }
         }
+    }
+
+    /**
+     * Same as `_updateBossAnims` for the colossi. Only the indexes with a
+     * section in `COLOSSUS_ANIM_KINDS` get one, so adding the animation of the
+     * next colossus is one entry there plus its tuning block.
+     */
+    _updateColossusAnims(ts) {
+        if (!this._colossusAnims.size && !this.enemies.some((e) => e.type === "colossus")) {
+            return;
+        }
+        const dt = ts * FRAME_SECONDS;
+        const alive = new Set();
+        for (const e of this.enemies) {
+            const k = e.k || 0;
+            if (e.type !== "colossus" || k >= COLOSSUS_ANIM_KINDS.length) {
+                continue;
+            }
+            alive.add(k);
+            let anim = this._colossusAnims.get(k);
+            if (!anim) {
+                anim = new ColossusAnimator(k, e.c);
+                this._colossusAnims.set(k, anim);
+            }
+            anim.observe(dt, {
+                x: e.x,
+                y: e.y,
+                hp01: e.mhp ? e.hp / e.mhp : 1,
+                tel: e.tel || 0,
+                // `telK` outlives the telegraph that set it (see _updateColossus).
+                telK: e.tel > 0 ? e.telK : "",
+                gapX: e.gap,
+            });
+        }
+        for (const k of Array.from(this._colossusAnims.keys())) {
+            if (!alive.has(k)) {
+                this._colossusAnims.delete(k);
+            }
+        }
+    }
+
+    /** Cosmetic cue for a colossus, mirrored to the guests over `ev`. */
+    _colossusCue(e, name) {
+        const k = e.k || 0;
+        if (k >= COLOSSUS_ANIM_KINDS.length) {
+            return;
+        }
+        const anim = this._colossusAnims.get(k);
+        if (anim) {
+            anim.emit(name);
+        }
+        this._ev({ k: "cfx", ck: k, n: name });
     }
 
     /** Cosmetic cue for a boss, mirrored to the guests over the `ev` channel. */
@@ -3604,6 +3708,7 @@ export class NeonStrikeEngine {
         // Bosses are not simulated here, but their animation is derived from the
         // snapshot positions, so it ticks on a guest exactly as on the host.
         this._updateBossAnims(ts);
+        this._updateColossusAnims(ts);
         this._updateFx(ts);
         if (this.shake > 0) {
             this.shake *= 0.88;
@@ -4202,7 +4307,7 @@ export class NeonStrikeEngine {
             // Colossal hull: drawn at its full logical width, chunky pixels and
             // a heavy halo. Its health goes to the top bar, not a floating one.
             const d = COLOSSI[e.k] || COLOSSI[0];
-            const p = 1 + Math.sin(e.t * 0.05) * 0.012;
+            const px = pxFor(d.sprite, e.w);
             g.save();
             g.globalCompositeOperation = "lighter";
             g.fillStyle = this.glow(e.c, 0.1);
@@ -4210,15 +4315,25 @@ export class NeonStrikeEngine {
             g.ellipse(e.x, e.y, e.w * 0.55, e.h * 0.6, 0, 0, 6.2832);
             g.fill();
             g.restore();
-            g.save();
-            g.translate(e.x, e.y);
-            g.scale(p, p);
             // NEVER the white flash silhouette here: a colossus is under fire
             // every frame, so it would sit permanently washed out (and it would
             // double the sprite cache for a canvas this big). The hit feedback
             // is the white burst at the point of impact plus the top bar.
-            drawSprite(g, d.sprite, 0, 0, { tint: e.c, px: pxFor(d.sprite, e.w) });
-            g.restore();
+            const anim = this._colossusAnims.get(e.k || 0);
+            if (anim) {
+                // Per-colossus animation: lean, breathing, the gap shutter, the
+                // bottom-edge sweep, plumes and the failing hull (see
+                // `colossus_animator.js`). The pose was computed in the
+                // simulation, so this only reads it.
+                anim.draw(g, { sprite: d.sprite, px, x: e.x, y: e.y });
+            } else {
+                const p = 1 + Math.sin(e.t * 0.05) * 0.012;
+                g.save();
+                g.translate(e.x, e.y);
+                g.scale(p, p);
+                drawSprite(g, d.sprite, 0, 0, { tint: e.c, px });
+                g.restore();
+            }
             return;
         }
         if (e.type === "boss") {
