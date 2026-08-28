@@ -3,10 +3,10 @@
  * Neon Strike - flight and combat animation for the colossal bosses.
  *
  * Ported from the design studies for AEGIS-01 (the Study, then the Animation
- * Sheet that reworked it) and for HYDRA-07 (its own Animation Sheet), which
- * arrived already respecting the render-only contract. Same shape as
- * `boss_animator.js`, one size up. Two of the five colossi are covered; the
- * other three fall through to the plain hull draw until they get a section of
+ * Sheet that reworked it), for HYDRA-07 and for VULCAN (each its own Animation
+ * Sheet), which arrived already respecting the render-only contract. Same shape
+ * as `boss_animator.js`, one size up. Three of the five colossi are covered;
+ * the other two fall through to the plain hull draw until they get a section of
  * their own (`COLOSSUS_ANIM_KINDS` is what decides).
  *
  * The sheet's one big idea is the **brightness ramp**: an effect never mixes a
@@ -67,14 +67,57 @@
  * coming spiral will turn*; and two heads that light, open and flash a beat
  * apart, because the stagger is the thing that makes two aimed cones readable.
  *
+ * VULCAN arrived as the third sheet, and it went the HYDRA way again: it
+ * described a **heat cycle** the engine did not have (see the VULCAN block in
+ * `game_engine.js`), so the engine moved to meet it. What is animation here is
+ * the one thing the sheet is emphatic about -- that the player must be able to
+ * read the heat by looking at the boss and not at a HUD -- and the hull turns
+ * out to have exactly the art for it. `colossus2` paints its slot as three
+ * concentric layers, and on this ramp each one can say something the others
+ * cannot: the dark frame has six rungs of headroom and is the gauge, the neon
+ * ring has two and carries the top of it by making the white middle visibly
+ * *grow*, and the white middle has none at all and so takes no part -- it is
+ * already at the top of the ramp. Trying to use it as the cold end of the gauge
+ * is what the trough test in this port caught: it repainted 106 cells on every
+ * idle frame and left VULCAN never once looking like its own sprite.
+ *
+ * Two more things fell out of the art the way the nozzles and the heads did:
+ * the **six chimneys** are the narrow stacks that rise above the top edge (the
+ * exact mirror of the nozzle rule, which reads the columns that hang below the
+ * bottom one), and the **two fans** are the accent blobs the slot is not made
+ * of -- every other hull in the bank paints its accent as single cells or
+ * one-row bars, so "blob away from the core" is the whole test. The fans are
+ * the fight's lever, so `hullParts` hands the engine their *housing* rather
+ * than the blade, and the animator lights exactly that radius: what you can
+ * shoot and what lights up stay one answer. The **forge mouths** are the two
+ * ends of the bottom lip, and the beams were moved to leave from them -- the
+ * same correction the AEGIS salvo got.
+ *
+ * Three departures of its own:
+ *
+ *   7. **No four legs.** The sheet walks on four, swinging each one on its own
+ *      timer. The hull has two feet and is one cached raster, so the walk is
+ *      the *hull* -- a bob and a settle quantised to whole cells, plus the foot
+ *      that just landed lighting up and throwing dust. The gait runs off
+ *      distance travelled rather than a clock, which is what makes it slow into
+ *      every reversal and stop dead while the feet are planted for free.
+ *   8. **No DEATH, again**, so the chimneys bursting one by one has no home;
+ *      the same idea is re-homed onto the one failure the engine does own, and
+ *      the stacks stop smoking one at a time as the hull is chewed down.
+ *   9. **No fan hitbox of the sheet's making.** Its fans are a debug toggle
+ *      with no rule behind them. Here they have hull points, they buy heat in
+ *      proportion to the damage spent on them, and breaking one seizes it --
+ *      which is gameplay, and lives in `game_engine.js` where it belongs.
+ *
  * Everything else is **render only**: the engine (or, on a guest, the host
  * snapshot) owns position, hull points, every bullet and the telegraph. This
  * reads state that already travels -- x, y, hp01, tel, telK, `gap` (the hole in
  * the *next* curtain), the crown's angle and whether it is emitting (`sa`,
- * `sp`), the side heads (`hd`) and where the live ships are -- and derives the
- * rest from observed motion. Three of the sheet's states cost no cue at all:
- * a head's hull points travel, so a drop is a hit, zero is a destroyed head and
- * the countdown under it is the rebuild.
+ * `sp`), the side heads (`hd`), VULCAN's heat, phase, volley count and fans
+ * (`ht`, `vp`, `vn`, `vf`) and where the live ships are -- and derives the rest
+ * from observed motion. Three of HYDRA's states cost no cue at all, and so do
+ * three of VULCAN's: a part's hull points travel, so a drop is a hit, zero is a
+ * destroyed head or a seized fan, and the countdown under it is the rebuild.
  *
  * State cannot live on the enemy object: a guest rebuilds `this.enemies` from
  * scratch on every snapshot, so the engine keeps these animators in a map keyed
@@ -105,6 +148,8 @@ const DEAD_CHARS = "23";
 const CORE_CHARS = "70";
 /** The neon accent: the one index the sprite bank paints magenta on any hull. */
 const ACCENT_CHAR = "8";
+/** Dark accent: the index the frame of VULCAN's slot (and its feet) is drawn in. */
+const DARK_ACCENT_CHAR = "9";
 /**
  * The three rungs that are shades of the hull's own tint (5 dark, 4 flat, 6
  * light). They belong on any hull whether or not the art happens to use them;
@@ -125,6 +170,35 @@ const RING_INNER = 0.62;
  * what lights up are the same cells, read from the same art.
  */
 const HEAD_SPAN = 3;
+/**
+ * A chimney is a *narrow* stack rising above the hull's top edge: at most this
+ * fraction of the hull's width and at least CHIM_MIN_H cells tall. Both tests
+ * are what make the rule specific to a hull that really has stacks -- without
+ * them AEGIS's shoulder (28 of 92 columns) and HYDRA's whole crown (52 of 92)
+ * come back as one enormous chimney. On VULCAN it finds exactly the six the art
+ * is drawn with, in three heights.
+ */
+const CHIM_MAX_W = 0.12;
+const CHIM_MIN_H = 3;
+/**
+ * A fan is a *blob* of the neon accent away from the core window: this many
+ * cells at least, spanning at least FAN_MIN_SPAN in both directions. Every
+ * other hull in the bank paints its accent as single cells (AEGIS's shoulder
+ * lights, OMEGA's rim) or as one-row bars (HYDRA's chest grilles), so the two
+ * tests are the whole difference between "this hull has fans" and "this hull
+ * has an accent". VULCAN's are 11 cells in a 5x3 box, one per shoulder.
+ */
+const FAN_MIN_CELLS = 6;
+const FAN_MIN_SPAN = 3;
+/**
+ * How far out of the accent blade the fan's housing reaches, in cells. The
+ * blade alone is 5x3 cells -- 48x29 px on an 800 px hull, a finer target than
+ * anything else in the game -- and the fans are the *lever* of the whole fight,
+ * so they have to be hittable. 2 cells makes the pod 9x7 (86x67 px, in the same
+ * class as HYDRA's side heads), and the animator lights exactly this radius, so
+ * what you can shoot and what lights up stay one answer.
+ */
+const FAN_PAD = 2;
 
 /**
  * Reference speeds are the ones `aegis_motion.js` actually produces, measured
@@ -274,10 +348,121 @@ export const COLOSSUS_ANIM = {
         rage: { holdSec: 0.83, flareSec: 0.9, ringCells: 6, archPx: 9 },
         charge: { max: 0.5, bands: 12, falloff: 1.2 },
     },
+    VULCAN: {
+        breathe: { amp: 0.009, rate: 0.5, loadTilt: 0.5 },
+        // VULCAN walks its lane at 25 px/s and never presses the ships (see
+        // `vulcan_motion.js`), so unlike AEGIS the drift is the *only* term of
+        // the lean and `aimGain` is 0 on purpose: the catalogue promises a
+        // machine that shoots the arena, not one that tracks you. `velRefPx` is
+        // 60, so |vx01| peaks at 0.42 and the shear peaks near 0.013 rad.
+        lean: { maxRad: 0.03, velGain: 1, aimGain: 0, aimSpanPx: 300, aimSmooth: 2.2, smooth: 4 },
+        recoil: { px: 16, fall: 3 },
+        // The walk. It runs off *distance travelled*, not a clock: the cadence
+        // then slows into every reversal and stops dead while the feet are
+        // planted, with no extra state and nothing on the bus -- and a guest,
+        // whose x arrives rounded at ~15 Hz, still accumulates the same total.
+        // 22 px per footfall against a 25 px/s cruise is a step every 0.88 s,
+        // which is what a hull 800 px wide should feel like.
+        gait: { stridePx: 22, bobCells: 1, settleCells: 1.2, settleRate: 3.4,
+                dustCells: 3, dustSpread: 2.4, footLift: 0.5, limpRad: 0.018 },
+        // The slot, read as the three concentric layers the art paints, because
+        // on this ramp they are the only way a hull can show a level at all:
+        //
+        //   frame  dark accent, rung 1, six rungs of headroom -- the gauge. Its
+        //          fourth is the bank's fixed grey-blue, so the drive is capped
+        //          under it: 0.34 lights violet at heat 0.22 and warm brown at
+        //          0.63 and never puts grey on an orange hull.
+        //   ring   neon accent, rung 5: light tint at k = 0.17, white at 0.5.
+        //          0.62 puts those at heat 0.27 and 0.81, so the top of the
+        //          gauge is the white middle visibly *growing* from 18 cells
+        //          wide to 28 -- the only way a window already at the top of
+        //          the ramp can read as "more open".
+        //   glass  the white middle, rung 8. It cannot brighten at all, so it
+        //          takes no part in the gauge: `coldDip` is only ever used for
+        //          the arrival and to cut the volley pips out of it. It was
+        //          tried as the cold end of the same gauge -- the middle pulled
+        //          down to light tint at rest -- and that is the trough mistake
+        //          the AEGIS port is a monument to: it repainted 106 cells on
+        //          every idle frame and left VULCAN never once looking like its
+        //          own sprite. The art is the baseline; heat only ever adds.
+        slot: { frame: 0.34, ring: 0.62, coldDip: -0.26, falloff: 0.3,
+                openRate: 3.2, ventLift: 0.62, enterDim: 0.5 },
+        // The two shoulder fans. `idle` has to stay under the metal's first
+        // rung (0.125) or the pod sits permanently one rung brighter, which is
+        // not a fan turning over but a hull that is wrong; the pulse is what
+        // crosses it. `blade` is the bright spot orbiting inside the pod, which
+        // is the only way a cached raster can spin anything.
+        // `pulse` peaks at 0.21, which is the first thing that matters: the
+        // accent blade sits on the tint's rung and only repaints past 0.17, so
+        // a smaller pulse left the pods painting 2 cells at idle and the lever
+        // of the whole fight was invisible. The trough is still 0.05, under the
+        // metal's first step at 0.125, so the pod does fall all the way back to
+        // the sprite -- which is what makes it a breath and not a hull that is
+        // permanently one rung brighter.
+        fans: { idle: 0.05, pulse: 0.16, rate: [0.9, 1.05], phase: [0, 0.5],
+                heat: 0.4, vent: 0.5, rage: 0.08, falloff: 0.45, dim: 1,
+                blade: 0.5, bladeCold: 0.3, bladeR: 0.5,
+                spinIdle: 0.3, spinHeat: 1.5, spinVent: 2.4,
+                flashSec: 0.18, flameCells: 3,
+                // Local damage: the fans are the lever, so a hit on one has to
+                // be visible on that fan alone. Same four frames HYDRA's heads
+                // get, and for the same reason.
+                hurtSec: 0.07,
+                // Jammed: pulled back down the ramp (the only direction that
+                // reads as "off"), sparks at the rim, and the clearing grows
+                // back the way a rebuilt head does.
+                jam: 0.5, stumpRate: 11, stumpCells: 2,
+                clearFront: 0.2, clearLift: 0.75 },
+        // Smoke off the six stacks. Denser with heat, and the stacks go out one
+        // by one as the hull fails -- the sheet blows them up in its DEATH
+        // state, which this port has no room for (see the header), so the same
+        // idea is re-homed onto the one failure the engine actually owns.
+        chimneys: { period: 0.85, idle: 0.5, heat: 1.9, overheat: 0.8,
+                    // 3 against the 7 it started at: six stacks are VULCAN's
+                    // whole silhouette, and at full overheat the taller version
+                    // cost 240 `fillRect`s a frame on its own.
+                    maxCells: 3, outerPhase: 0.5, tiltCells: 2, jitter: 0.3,
+                    deadCells: 60 },
+        // The forge mouths at the ends of the bottom lip. `warn` is the sight
+        // line the engine draws; this is the mouth lighting up under it, and
+        // then burning while the beam is live.
+        forge: { warn: 0.4, live: 1, rows: 4, spread: 2 },
+        // The brace, on VULCAN's own two telegraphs: the sheet vibrates the
+        // hull through the overheat ("el casco vibra") and gives the volley
+        // charge a recoil, and those are exactly the beats `ring` and `volley`
+        // mark. `emitDrop` is unused (VULCAN has no plumes) but the block has
+        // to be here, because `pose()` and `draw()` read it for every kind.
+        plant: { squareUp: 0.4, judderCells: 1, judderHz: 8.5, emitDrop: 0 },
+        // VULCAN draws no core window -- the slot is three layers on its own
+        // machinery -- but `pose()` computes `core`/`coreBias` for every kind,
+        // and `coreBias` is what slides the gauge towards the side the hull
+        // leans to. So: a flat block that produces no light of its own.
+        core: { base: 0, pulse: 0, rate: 0.4, sat: 0, squeeze: 0,
+                biasCells: 1.6, flashSec: 0.12, jitter: 0, dim: 0 },
+        // The overheat: light through the plating. Taken from the *end* of the
+        // hull's stable dark-cell order so it cannot fight `_drawDamage`, which
+        // burns them out from the front.
+        crack: { cells: 14, lift: 0.85, rate: 19 },
+        damage: {
+            start: 0.3,
+            shakePx: 5, shakeHz: 17,
+            deadCells: 26,
+            ventRate: 9, sparkLife: 0.55, sparkSpeed: 26,
+        },
+        entry: { vy: 45, span: 33 },
+        rage: { holdSec: 0.83, flareSec: 0.9, ringCells: 6 },
+        charge: { max: 0.5, bands: 12, falloff: 1.3 },
+    },
 };
 
 /** Index into COLOSSI -> section above. A colossus with no section is drawn plain. */
-export const COLOSSUS_ANIM_KINDS = ["AEGIS", "HYDRA"];
+export const COLOSSUS_ANIM_KINDS = ["AEGIS", "HYDRA", "VULCAN"];
+/**
+ * VULCAN's phases, mirroring the V_* constants in `game_engine.js`. The
+ * animator only ever compares against these, so the two lists are the whole
+ * coupling between the director and its animation.
+ */
+const V = { REST: 0, BEAM_WARN: 1, BEAM: 2, OVERHEAT: 3, VENT: 4, ROCK_WARN: 5, ROCKS: 6 };
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -499,6 +684,195 @@ function headsOf(grid, cols, rows) {
 }
 
 /**
+ * The chimneys: narrow stacks of plating rising above the hull's top edge.
+ *
+ * The exact mirror of the nozzle rule, which reads the columns that hang
+ * *below* the bottom edge -- a stack is a run of columns whose highest cell is
+ * above the first row wide enough to be the hull proper. CHIM_MAX_W and
+ * CHIM_MIN_H are what keep it to a hull that really has stacks (see there).
+ *
+ * `outer` is set on the pair furthest from the centre line, so smoke can be
+ * phase shifted the way AEGIS's plumes are: six stacks breathing as one lamp is
+ * what a chimney must never look like.
+ */
+function chimneysOf(cols, highest, topEdgeRow) {
+    const runs = [];
+    for (let c = 0; c < cols; c++) {
+        if (highest[c] < 0 || highest[c] >= topEdgeRow) {
+            continue;
+        }
+        const last = runs[runs.length - 1];
+        if (last && c - last.c1 <= 1) {
+            last.c1 = c;
+        } else {
+            runs.push({ c0: c, c1: c });
+        }
+    }
+    const out = [];
+    for (const n of runs) {
+        let top = topEdgeRow;
+        for (let c = n.c0; c <= n.c1; c++) {
+            top = Math.min(top, highest[c]);
+        }
+        n.top = top;
+        n.h = topEdgeRow - top;
+        n.x = (n.c0 + n.c1 + 1) / 2;
+        if (n.c1 - n.c0 + 1 <= cols * CHIM_MAX_W && n.h >= CHIM_MIN_H) {
+            out.push(n);
+        }
+    }
+    if (out.length < 2) {
+        return null;
+    }
+    const byDist = out.map((n, i) => i)
+        .sort((a, b) => Math.abs(out[b].x - cols / 2) - Math.abs(out[a].x - cols / 2));
+    out.forEach((n) => { n.outer = 0; });
+    byDist.slice(0, 2).forEach((i) => { out[i].outer = 1; });
+    return out;
+}
+
+/**
+ * The slot: the core window read as the three concentric layers the art paints
+ * it with, because on this ramp they are the only way a hull can show a
+ * *level*. Measured on `colossus2`:
+ *
+ *   - `frame`, the dark accent around it (rung 1), has six rungs of headroom
+ *     and is therefore the gauge -- but the fourth of them is the bank's fixed
+ *     grey-blue, so whatever drives it has to stay under that (see the VULCAN
+ *     block's `slot.frame`);
+ *   - `ring`, the neon accent (rung 5), has two: light tint at k = 0.17 and
+ *     white at 0.5, which is what makes the white middle visibly *grow*;
+ *   - `glass`, the hot white middle (rung 8), is already at the top of the ramp
+ *     and cannot brighten at all. Only a negative k moves it, which is exactly
+ *     what "the forge is cold" has to look like.
+ *
+ * `ring` is the accent touching the glass, so the shoulder fans -- the same
+ * index, elsewhere on the hull -- are not part of it, and `frame` is the dark
+ * accent touching either. That is what keeps the feet, drawn in the same index,
+ * out of a thermometer.
+ */
+function slotOf(grid, cols, rows, core) {
+    if (!core.length) {
+        return null;
+    }
+    const isCore = (c, r) => c >= 0 && c < cols && r >= 0 && r < rows
+        && CORE_CHARS.indexOf(grid[r][c]) >= 0;
+    const inner = new Set();
+    for (let i = 0; i < core.length; i += 2) {
+        inner.add(core[i] + "," + core[i + 1]);
+    }
+    const seen = new Uint8Array(cols * rows);
+    const ring = [];
+    const fans = [];
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            if (grid[r][c] !== ACCENT_CHAR || seen[r * cols + c]) {
+                continue;
+            }
+            seen[r * cols + c] = 1;
+            const stack = [c, r];
+            const cells = [];
+            let touches = false;
+            while (stack.length) {
+                const y = stack.pop();
+                const x = stack.pop();
+                cells.push(x, y);
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        const nx = x + dx;
+                        const ny = y + dy;
+                        if (isCore(nx, ny)) {
+                            touches = true;
+                        }
+                        if (nx < 0 || nx >= cols || ny < 0 || ny >= rows
+                                || grid[ny][nx] !== ACCENT_CHAR || seen[ny * cols + nx]) {
+                            continue;
+                        }
+                        seen[ny * cols + nx] = 1;
+                        stack.push(nx, ny);
+                    }
+                }
+            }
+            const box = cellBox(cells);
+            if (touches) {
+                ring.push(...cells);
+                for (let i = 0; i < cells.length; i += 2) {
+                    inner.add(cells[i] + "," + cells[i + 1]);
+                }
+            } else if (cells.length / 2 >= FAN_MIN_CELLS
+                    && box.c1 - box.c0 + 1 >= FAN_MIN_SPAN
+                    && box.r1 - box.r0 + 1 >= FAN_MIN_SPAN) {
+                const pod = {
+                    c0: Math.max(0, box.c0 - FAN_PAD), c1: Math.min(cols - 1, box.c1 + FAN_PAD),
+                    r0: Math.max(0, box.r0 - FAN_PAD), r1: Math.min(rows - 1, box.r1 + FAN_PAD),
+                };
+                pod.cx = (pod.c0 + pod.c1) / 2;
+                pod.cy = (pod.r0 + pod.r1) / 2;
+                pod.rx = (pod.c1 - pod.c0) / 2 + 0.5;
+                pod.ry = (pod.r1 - pod.r0) / 2 + 0.5;
+                fans.push({
+                    cells, box, pod,
+                    r: Math.max(box.rx, box.ry),
+                    podR: Math.max(pod.rx, pod.ry),
+                });
+            }
+        }
+    }
+    const frame = [];
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            if (grid[r][c] !== DARK_ACCENT_CHAR) {
+                continue;
+            }
+            let adj = false;
+            for (let dy = -1; dy <= 1 && !adj; dy++) {
+                for (let dx = -1; dx <= 1 && !adj; dx++) {
+                    if (inner.has((c + dx) + "," + (r + dy))) {
+                        adj = true;
+                    }
+                }
+            }
+            if (adj) {
+                frame.push(c, r);
+            }
+        }
+    }
+    fans.sort((a, b) => a.box.c0 - b.box.c0);
+    return {
+        glass: core, ring, frame,
+        gbox: cellBox(core),
+        box: cellBox([...core, ...ring, ...frame]),
+        fans: fans.length >= 2 ? fans : null,
+    };
+}
+
+/**
+ * The forge mouths: the two ends of the hull's bottom lip, i.e. the widest run
+ * of plating on the bottom edge row.
+ *
+ * `_updateColossus` used to fire VULCAN's beams from 0.4 of the hull's width,
+ * 49 px inboard of anything the art draws and a third of the way up it. Same
+ * answer as AEGIS's siege salvo: when the art and the muzzle disagree, move the
+ * muzzle, so the light is on the mouth the beam actually leaves from.
+ */
+function forgesOf(grid, cols, edgeRow) {
+    let best = null;
+    let start = -1;
+    for (let c = 0; c <= cols; c++) {
+        const filled = c < cols && grid[edgeRow][c] !== ".";
+        if (filled && start < 0) {
+            start = c;
+        } else if (!filled && start >= 0) {
+            if (!best || c - 1 - start > best.c1 - best.c0) {
+                best = { c0: start, c1: c - 1 };
+            }
+            start = -1;
+        }
+    }
+    return best ? [{ c: best.c0, r: edgeRow }, { c: best.c1, r: edgeRow }] : null;
+}
+
+/**
  * Everything about a hull grid that never changes, worked out once: the ramp
  * rung of every cell, the lowest occupied row of each column (where a plume
  * hangs), the last row wide enough to count as the bottom edge (where the
@@ -532,11 +906,16 @@ function hullGeometry(name) {
     const cols = rows ? grid[0].length : 0;
     const cells = new Int8Array(cols * rows).fill(-1);
     const lowest = new Int16Array(cols).fill(-1);
+    const highest = new Int16Array(cols).fill(-1);
     const dead = [];
     const core = [];
     const vents = [];
     const used = new Uint8Array(TOP + 1);
     let edgeRow = rows - 1;
+    // The *first* row wide enough to be the hull proper, i.e. where a chimney
+    // stops being a chimney. `edgeRow` below is the last one, where a nozzle
+    // starts being a nozzle: the same test read from the two ends.
+    let topEdgeRow = -1;
     for (let r = 0; r < rows; r++) {
         let filled = 0;
         for (let c = 0; c < cols; c++) {
@@ -549,6 +928,9 @@ function hullGeometry(name) {
             cells[r * cols + c] = rung;
             used[rung] = 1;
             lowest[c] = r;
+            if (highest[c] < 0) {
+                highest[c] = r;
+            }
             if (DEAD_CHARS.indexOf(ch) >= 0) {
                 dead.push([cellNoise(c, r), c, r]);
             }
@@ -561,6 +943,9 @@ function hullGeometry(name) {
         }
         if (cols && filled / cols >= 0.6) {
             edgeRow = r;
+            if (topEdgeRow < 0) {
+                topEdgeRow = r;
+            }
         }
     }
     dead.sort((a, b) => a[0] - b[0]);
@@ -624,13 +1009,20 @@ function hullGeometry(name) {
         rungs[i] = best;
     }
 
+    const slot = slotOf(grid, cols, rows, core);
     geo = {
-        cols, rows, cells, lowest, edgeRow, rungs, vents,
+        cols, rows, cells, lowest, highest, edgeRow, topEdgeRow, rungs, vents,
         dead: dead.map((d) => [d[1], d[2]]),
         core, coreBox, nozzles, barrels,
         crown: crownOf(grid, cols, rows),
         heads: headsOf(grid, cols, rows),
         ventBox: cellBox(vents),
+        // VULCAN's three: the stacks, the slot read as concentric layers and
+        // the fans (the accent blobs the slot itself is not made of).
+        chimneys: chimneysOf(cols, highest, topEdgeRow < 0 ? 0 : topEdgeRow),
+        slot,
+        fans: slot ? slot.fans : null,
+        forges: cols ? forgesOf(grid, cols, edgeRow) : null,
     };
     geometry.set(name, geo);
     return geo;
@@ -644,31 +1036,51 @@ function hullGeometry(name) {
  * This is the one thing the animator exports that the *simulation* reads, and
  * it is deliberate: HYDRA's spiral leaves from the lens between the crown's
  * eyes, its fans from the glass in each side head, and its side heads can be
- * shot off. All four of those want the same answer to "where is that part", and
- * a second copy of it in the engine would drift from the art the first time the
- * sprite is retouched. Pure and cached, so host and guest agree.
+ * shot off; VULCAN's beams leave from the two ends of its bottom lip, its
+ * volley from the slot and its shoulder fans can be jammed. All of those want
+ * the same answer to "where is that part", and a second copy of it in the
+ * engine would drift from the art the first time the sprite is retouched. Pure
+ * and cached, so host and guest agree.
+ *
+ * A hull only carries the keys it actually has: HYDRA has `crown`/`heads`,
+ * VULCAN has `fans`/`core`/`forges`, AEGIS has none of them and gets null.
  *
  * @param {string} name sprite key
- * @returns {Object|null} { crown: {x, y}, heads: [{x, y, hw, hh, mx, my}] } or
- *      null for a hull with no parts (AEGIS). `mx`/`my` is the mouth, `x`/`y`
- *      with `hw`/`hh` the box the head fills.
+ * @returns {Object|null} `{ crown: {x, y}, heads: [{x, y, hw, hh, mx, my}] }`
+ *      and/or `{ fans: [{x, y, hw, hh}], core: {x, y, hw, hh}, forges: [{x, y}] }`,
+ *      or null for a hull with no parts at all. `mx`/`my` is a mouth, `x`/`y`
+ *      with `hw`/`hh` the box the part fills.
  */
 export function hullParts(name) {
     const geo = hullGeometry(name);
-    if (!geo.crown || !geo.heads) {
-        return null;
-    }
     const fx = (c) => c / geo.cols - 0.5;
     const fy = (r) => r / geo.rows - 0.5;
-    return {
-        crown: { x: fx(geo.crown.coreBox.cx + 0.5), y: fy(geo.crown.coreBox.cy + 0.5) },
-        heads: geo.heads.map((head) => ({
-            x: fx(head.box.cx + 0.5), y: fy(head.box.cy + 0.5),
-            hw: (head.box.c1 - head.box.c0 + 1) / 2 / geo.cols,
-            hh: (head.box.r1 - head.box.r0 + 1) / 2 / geo.rows,
+    const boxOf = (b) => ({
+        x: fx(b.cx + 0.5), y: fy(b.cy + 0.5),
+        hw: (b.c1 - b.c0 + 1) / 2 / geo.cols,
+        hh: (b.r1 - b.r0 + 1) / 2 / geo.rows,
+    });
+    const parts = {};
+    if (geo.crown && geo.heads) {
+        parts.crown = {
+            x: fx(geo.crown.coreBox.cx + 0.5), y: fy(geo.crown.coreBox.cy + 0.5),
+        };
+        parts.heads = geo.heads.map((head) => Object.assign(boxOf(head.box), {
             mx: fx(head.gbox.cx + 0.5), my: fy(head.gbox.cy + 0.5),
-        })),
-    };
+        }));
+    }
+    if (geo.fans && geo.slot) {
+        // The housing, not the blade: see FAN_PAD.
+        parts.fans = geo.fans.map((fan) => boxOf(fan.pod));
+        // The white middle, not the whole slot: this is the box the vent window
+        // doubles the damage inside, so it has to be the part the player can
+        // see is open, and the frame around it never lights white.
+        parts.core = boxOf(geo.slot.gbox);
+        if (geo.forges) {
+            parts.forges = geo.forges.map((f) => ({ x: fx(f.c + 0.5), y: fy(f.r + 0.5) }));
+        }
+    }
+    return Object.keys(parts).length ? parts : null;
 }
 
 function hexToRgb(h) {
@@ -735,6 +1147,31 @@ export class ColossusAnimator {
         this.headState = [
             { k: 0, dead: false, grow: 1, hurt: 0 },
             { k: 0, dead: false, grow: 1, hurt: 0 },
+        ];
+        // VULCAN: the heat cycle. `heat` and `phase` are read straight off the
+        // engine (both travel); everything else here is derived -- the gait
+        // from distance travelled, the hood and the forge from the phase, the
+        // fans from one number each on HYDRA's pattern.
+        this.heat = 0;
+        this.phase = null;
+        this.volley = 0;
+        this.volleyTel = 0;
+        this.gait = 0;
+        this.foot = 0;
+        this.fall = -1;         // seconds since the last footfall, < 0 idle
+        this.fallFoot = 0;
+        this.settle = 0;
+        this.open = 0;          // 0..1 the slot's hood
+        this.ventE = 0;         // 0..1 venting
+        this.crackE = 0;        // 0..1 overheating
+        this.forgeE = 0;        // 0..1 the forge mouths lit
+        this.fanSpin = 0;
+        this.fanFlash = [0, 0];
+        this.fanHurt = [0, 0];
+        this.fanHp = [null, null];
+        this.fanState = [
+            { jam: false, clear: 1, hurt: 0 },
+            { jam: false, clear: 1, hurt: 0 },
         ];
         this.sparks = [];
         this._spawn = 0;
@@ -806,7 +1243,11 @@ export class ColossusAnimator {
         // A telegraph braces the whole hull; only the curtain one opens the
         // shutter, because only the curtain has a hole to point at.
         const tel = smoothstep(clamp01(s.tel || 0));
-        const brace = s.telK === "curtain" || s.telK === "aimed" ? tel : 0;
+        // AEGIS braces on its curtain and its salvo, HYDRA on its fan, VULCAN on
+        // the overheat and the volley charge. No colossus sets a kind that is
+        // not its own, so this list is additive.
+        const brace = s.telK === "curtain" || s.telK === "aimed"
+            || s.telK === "ring" || s.telK === "volley" ? tel : 0;
         this.plant = ease(this.plant, brace, brace > this.plant ? g.boolIn : g.boolOut, dt);
         const shutter = s.telK === "curtain" ? tel : 0;
         this.port = ease(this.port, shutter, shutter > this.port ? g.boolIn : g.boolOut, dt);
@@ -851,6 +1292,8 @@ export class ColossusAnimator {
         }
         if (this.kind === "HYDRA") {
             this._observeHydra(dt, s);
+        } else if (this.kind === "VULCAN") {
+            this._observeVulcan(dt, s, dx);
         }
         this._vent(dt);
         return this;
@@ -933,6 +1376,127 @@ export class ColossusAnimator {
         }
     }
 
+    /**
+     * VULCAN: the heat cycle, the walk and the two fans.
+     *
+     * `heat` and `phase` are the only two things read rather than derived, and
+     * they travel for exactly that reason -- the hull's whole visual language
+     * is the gauge in the slot and the beat the machine is on, and neither can
+     * be worked out from a position. Everything else falls out:
+     *
+     *   - the **gait** accumulates *distance travelled*, not time, so the
+     *     cadence eases into every reversal and stops dead while the feet are
+     *     planted, with no extra state and nothing on the bus. It also survives
+     *     a guest's ~15 Hz whole-pixel positions, because the total distance
+     *     does even when the per-frame difference is 0 for three frames;
+     *   - the **hood**, the **forge** and the **cracks** are levels eased off
+     *     the phase, so the animation cannot disagree with the fight;
+     *   - the **fans** come off one signed number each, exactly as HYDRA's side
+     *     heads do: a drop is a hit, zero is a jam, the countdown under it is
+     *     the clearing.
+     */
+    _observeVulcan(dt, s, dx) {
+        const t = this.t;
+        const g = this.g0;
+        const ph = s.phase == null ? V.REST : s.phase;
+        this.heat = clamp01(s.heat == null ? 0 : s.heat);
+        this.phase = ph;
+        this.volley = s.volley || 0;
+        // How far into the volley charge we are, which is how many pips are
+        // lit. Straight off the telegraph the engine already sends, so the pips
+        // on the hull and the pips under it fill on the same frame.
+        this.volleyTel = s.telK === "volley" ? clamp01(s.tel || 0) : 0;
+
+        // The walk. Only a teleport is not travel: the entrance is straight
+        // down, so it contributes no |dx| and needs no gate of its own -- and
+        // gating this on `landed` was a real host/guest split, because a guest
+        // derives that from a velocity it only sees at ~15 Hz and so never
+        // latched it. Summing |dx| is safe there for the opposite reason: the
+        // rounding in the snapshot is on the position, not on the step, so the
+        // total distance survives even when three frames in four move by 0.
+        if (Math.abs(dx) <= g.teleportPx) {
+            const stride = 2 * t.gait.stridePx;
+            const before = this.gait;
+            this.gait = (this.gait + Math.abs(dx) / stride) % 1;
+            if (Math.floor(before * 2) !== Math.floor(this.gait * 2)) {
+                this.fall = 0;
+                this.fallFoot = Math.floor(this.gait * 2) & 1;
+            }
+        }
+        if (this.fall >= 0) {
+            this.fall += dt;
+            if (this.fall > 0.5) {
+                this.fall = -1;
+            }
+        }
+
+        // Planted: the sheet is explicit that it does not walk while it vents,
+        // and `vulcan_motion.js` really does stop it, so this only has to be
+        // what stopping *looks* like -- it sinks onto its feet.
+        const planted = ph === V.OVERHEAT || ph === V.VENT || ph === V.ROCK_WARN;
+        this.settle = ease(this.settle, planted ? 1 : 0, t.gait.settleRate, dt);
+
+        // The hood over the slot: open to throw a volley and open to vent, shut
+        // for everything else. `openRate` rather than the boolean rates because
+        // it is a shutter with mass, not a lamp.
+        const wantOpen = ph === V.ROCK_WARN || ph === V.ROCKS || ph === V.VENT ? 1 : 0;
+        this.open = ease(this.open, wantOpen, t.slot.openRate, dt);
+        this.ventE = ease(this.ventE, ph === V.VENT ? 1 : 0,
+            ph === V.VENT ? g.boolIn : g.boolOut, dt);
+        this.crackE = ease(this.crackE, ph === V.OVERHEAT ? 1 : 0,
+            ph === V.OVERHEAT ? g.boolIn : g.boolOut, dt);
+        // The mouths light under the sight line and burn while the beam is live.
+        const wantForge = ph === V.BEAM ? t.forge.live : ph === V.BEAM_WARN ? t.forge.warn : 0;
+        this.forgeE = ease(this.forgeE, wantForge,
+            wantForge > this.forgeE ? g.boolIn : g.boolOut, dt);
+
+        // The blades. They turn faster as the forge heats and faster again while
+        // it is actually dumping, which is the one thing on the hull that says
+        // the exhaust is working.
+        const f = t.fans;
+        const rev = f.spinIdle + this.heat * f.spinHeat + this.ventE * f.spinVent;
+        this.fanSpin = (this.fanSpin + rev * dt) % 1;
+        this._observeFans(dt, s);
+        this.rage01 = ease(this.rage01, s.raged ? 1 : 0, g.boolOut, dt);
+    }
+
+    /**
+     * The two shoulder fans, all of it observed off `vf`: points while the fan
+     * works, minus the frames left of the jam once it does not. Same trick as
+     * HYDRA's heads and for the same reason -- a hit on a fan happens as often
+     * as the player can put a bullet on one, so it could never be a cue.
+     */
+    _observeFans(dt, s) {
+        const t = this.t.fans;
+        const jam = s.fanJam || 720;
+        for (let i = 0; i < 2; i++) {
+            if (this.fanFlash[i] > 0) {
+                this.fanFlash[i] -= dt;
+            }
+            if (this.fanHurt[i] > 0) {
+                this.fanHurt[i] -= dt;
+            }
+            const f = s.fans && s.fans[i];
+            const st = this.fanState[i];
+            if (!f) {
+                st.jam = false;
+                st.clear = 1;
+                continue;
+            }
+            const was = this.fanHp[i];
+            if (was != null && f.hp < was && f.hp > 0) {
+                this.fanHurt[i] = t.hurtSec;
+            }
+            this.fanHp[i] = f.hp;
+            st.jam = f.hp <= 0;
+            st.clear = st.jam ? clamp01(1 - f.t / jam) : 1;
+            if (st.jam) {
+                this.fanFlash[i] = 0;
+            }
+            st.hurt = clamp01(this.fanHurt[i] / t.hurtSec);
+        }
+    }
+
     /** Venting sparks, in cell space, while the hull is failing. */
     _vent(dt) {
         const t = this.t;
@@ -986,6 +1550,22 @@ export class ColossusAnimator {
             // move on a cached raster.
             this.recoil = 1;
             this.headFlash[name === "fanL" ? 0 : 1] = this.t.heads.flashSec;
+        } else if ((name === "vent" || name === "backfire") && this.t.fans) {
+            // One wave of rings leaving. Both shoulders fire together, so both
+            // flash together -- and when neither can (every fan jammed) the
+            // heat comes out of the slot instead, which is a flash on the core
+            // and a recoil on the whole hull.
+            this.recoil = name === "backfire" ? 1 : 0.5;
+            if (name === "vent") {
+                this.fanFlash = [this.t.fans.flashSec, this.t.fans.flashSec];
+            } else {
+                this.coreFlash = 0.14;
+            }
+        } else if (name === "spit" && this.t.gait) {
+            // The volley: the sheet's one dry, seco beat. The recoil is the
+            // whole hull, and the feet take it.
+            this.recoil = 1;
+            this.coreFlash = 0.1;
         } else if (name === "rage") {
             this.flare = 0;
             this.hold = this.t.rage.holdSec;
@@ -1039,9 +1619,62 @@ export class ColossusAnimator {
                 heads.push({ k, dead: st.dead, grow: st.grow, hurt: st.hurt });
             }
         }
+        // VULCAN only: the three layers of the slot, the fans and the walk.
+        let slot = null;
+        let fans = null;
+        let walk = null;
+        if (this.kind === "VULCAN") {
+            const sl = t.slot;
+            const open = this.open;
+            slot = {
+                open,
+                // The gauge. The frame carries the bottom of it, the ring the
+                // top, and the middle is the only one that can move *down*.
+                frame: sl.frame * this.heat,
+                ring: Math.max(sl.ring * this.heat, this.ventE * sl.ventLift),
+                cold: -this.enter * sl.enterDim,
+                // The pips: how many rocks are coming, as dark dots left behind
+                // in a middle that has dipped for the charge (see `_drawSlot`).
+                pips: this.phase === V.ROCK_WARN ? this.volley : 0,
+                lit: this.phase === V.ROCK_WARN
+                    ? Math.min(this.volley, Math.floor(this.volleyTel * this.volley) + 1)
+                    : 0,
+                flash: this.coreFlash > 0,
+            };
+            const fn = t.fans;
+            fans = [];
+            for (let i = 0; i < 2; i++) {
+                const st = this.fanState[i];
+                const w = this.time * fn.rate[i] + fn.phase[i];
+                let k = fn.idle + fn.pulse * (0.5 + 0.5 * Math.sin(w * 6.2832))
+                    + this.heat * fn.heat + this.ventE * fn.vent + this.rage01 * fn.rage;
+                if (this.fanFlash[i] > 0) {
+                    k = Math.max(k, 1);
+                }
+                k = k * (1 - 0.5 * this.dmg) - this.enter * fn.dim;
+                fans.push({ k, jam: st.jam, clear: st.clear, hurt: st.hurt });
+            }
+            const gt = t.gait;
+            walk = {
+                // Quantised to whole cells for the same reason the damage shake
+                // is: at this scale anything smaller reads as the sprite
+                // vibrating rather than as a hull putting a foot down.
+                bob: -Math.abs(Math.sin(this.gait * 6.2832)) * gt.bobCells,
+                settle: this.settle * gt.settleCells,
+                gait: this.gait,
+                fall: this.fall,
+                fallFoot: this.fallFoot,
+                // The limp: one constant tilt under the rage threshold, on top
+                // of the drift lean. The sheet tilts by 0.16 rad, which on a
+                // slab 800 px wide would tear every column apart.
+                limp: this.rage01 * gt.limpRad,
+            };
+        }
         return {
             vx: this.vx, vy: this.vy, vx01: this.vx01,
             lean: this.lean,
+            slot, fans, walk,
+            heat: this.heat, crack: this.crackE, forge: this.forgeE,
             recoilPx: this.recoil * t.recoil.px,
             breathe: 1 + Math.sin(this.time * 6.2832 * t.breathe.rate) * t.breathe.amp * load,
             sweep: this.sweep, plant: this.plant, port: this.port, charge: this.charge,
@@ -1108,19 +1741,36 @@ export class ColossusAnimator {
             sy += Math.round(Math.cos(this.time * t.plant.judderHz * 9.7) * j * 0.5) * cell;
         }
 
+        // The walk rides on the same quantisation as the shake: the hull dips a
+        // whole cell as a foot lands and sinks another as the feet plant, so
+        // the weight is in the pixel grid rather than in a sub-pixel wobble.
+        let wy = 0;
+        let limp = 0;
+        if (p.walk) {
+            wy = Math.round(p.walk.bob + p.walk.settle) * cell;
+            limp = p.walk.limp;
+        }
+
         g.save();
         g.imageSmoothingEnabled = false;
-        g.translate(o.x + sx, o.y - p.recoilPx - p.archPx + sy);
+        g.translate(o.x + sx, o.y - p.recoilPx - p.archPx + sy + wy);
         g.scale(p.breathe, p.breathe);
         // Shear the columns instead of rotating the bitmap: a slab this wide
         // pulls apart visibly past ~0.03 rad, and a rotation would soften every
         // pixel edge in the hull.
-        g.transform(1, 0, -p.lean, 1, 0, 0);
+        g.transform(1, 0, -p.lean - limp, 1, 0, 0);
         g.translate(-w / 2, -h / 2);
         g.drawImage(cv, 0, 0, w, h);
 
         this._drawDamage(g, geo, cell, p);
-        if (this.kind === "HYDRA") {
+        if (this.kind === "VULCAN") {
+            this._drawChimneys(g, geo, cell, p);
+            this._drawSlot(g, geo, cell, p);
+            this._drawFans(g, geo, cell, p);
+            this._drawForges(g, geo, cell, p);
+            this._drawCracks(g, geo, cell, p);
+            this._drawFeet(g, geo, cell, p);
+        } else if (this.kind === "HYDRA") {
             this._drawVents(g, geo, cell, p);
             this._drawCrown(g, geo, cell, p);
             this._drawHeads(g, geo, cell, p);
@@ -1342,6 +1992,330 @@ export class ColossusAnimator {
                     g.fillRect((c + tilt) * cell, (base + 1 + k) * cell, cell, cell);
                 }
             }
+        }
+        g.globalAlpha = 1;
+    }
+
+    /**
+     * VULCAN's slot: the three-layer gauge (see the VULCAN block's `slot`).
+     *
+     * The frame carries the bottom of the heat reading, the neon ring the top,
+     * and the white middle -- which cannot brighten, being already at the top
+     * of the ramp -- carries the *cold* end by being pulled down towards the
+     * light tint between cycles. Together they are the one thing on the hull
+     * that lets the player read the heat without a HUD, which is what the sheet
+     * asks for; separately, none of them could, because no single index in this
+     * art has both headroom and a floor.
+     *
+     * The hood is not a shutter drawn over the slot: `open` widens the falloff
+     * so the light reaches further out of the middle, and the volley pips are
+     * cut *out* of it -- the middle dips for the charge and the lit pips are the
+     * cells left at white. One pip per rock, which is the promise the telegraph
+     * under the hull is also keeping.
+     */
+    _drawSlot(g, geo, cell, p) {
+        const slot = geo.slot;
+        if (!slot || !p.slot) {
+            return;
+        }
+        const t = this.t.slot;
+        const S = p.slot;
+        const box = slot.box;
+        const cx = box.cx + p.coreBias;
+        const reach = 1 + S.open * 0.35;
+        const level = (c, r, k) => {
+            if (k === 0) {
+                return 0;
+            }
+            const dx = (c - cx) / box.rx;
+            const dy = (r - box.cy) / box.ry;
+            const d = Math.min(1, Math.sqrt(dx * dx + dy * dy) / reach);
+            return k * (1 - t.falloff * d);
+        };
+        for (let i = 0; i < slot.frame.length; i += 2) {
+            this._promote(g, geo, cell, slot.frame[i], slot.frame[i + 1],
+                level(slot.frame[i], slot.frame[i + 1], S.frame));
+        }
+        for (let i = 0; i < slot.ring.length; i += 2) {
+            this._promote(g, geo, cell, slot.ring[i], slot.ring[i + 1],
+                level(slot.ring[i], slot.ring[i + 1], S.ring));
+        }
+        // The middle. A flash is the only thing that leaves it alone outright.
+        if (S.flash) {
+            return;
+        }
+        const gbox = slot.gbox;
+        const span = Math.max(1, gbox.c1 - gbox.c0 + 1);
+        for (let i = 0; i < slot.glass.length; i += 2) {
+            const c = slot.glass[i];
+            const r = slot.glass[i + 1];
+            if (S.pips) {
+                const pip = Math.floor(((c - gbox.c0) / span) * S.pips);
+                if (pip < S.lit) {
+                    continue;           // a lit pip: the art's own white
+                }
+                this._promote(g, geo, cell, c, r, t.coldDip);
+                continue;
+            }
+            this._promote(g, geo, cell, c, r, level(c, r, S.cold));
+        }
+    }
+
+    /**
+     * VULCAN's two shoulder fans: the lever, so they have to be the most
+     * legible thing on the hull after the slot.
+     *
+     * A blade cannot turn on a cached raster, so what turns is the light inside
+     * the housing -- a bright cell orbiting the pod, at a rate that rises with
+     * the heat and rises again while the exhaust is actually dumping. The pod
+     * itself is the same disc-with-falloff HYDRA's heads use, over the cells
+     * `hullParts` hands the engine as the hitbox, so what you can shoot is what
+     * lights up.
+     */
+    _drawFans(g, geo, cell, p) {
+        const fans = geo.fans;
+        if (!fans || !p.fans) {
+            return;
+        }
+        const t = this.t.fans;
+        for (let i = 0; i < fans.length && i < 2; i++) {
+            const fan = fans[i];
+            const f = p.fans[i];
+            if (f.jam) {
+                this._drawJammedFan(g, geo, cell, fan, i, f);
+            }
+            // A hit is that fan alone going white for four frames. The hull has
+            // no flash of its own on purpose (it is under fire every frame), so
+            // this is the one place the feedback belongs -- and it is the one
+            // the player is aiming at.
+            if (f.hurt > 0.01) {
+                for (let n = 0; n < fan.cells.length; n += 2) {
+                    this._promote(g, geo, cell, fan.cells[n], fan.cells[n + 1], f.hurt * 0.95);
+                }
+            }
+            if (f.k <= 0.02 || f.jam) {
+                continue;
+            }
+            const pod = fan.pod;
+            for (let c = pod.c0; c <= pod.c1; c++) {
+                for (let r = pod.r0; r <= pod.r1; r++) {
+                    const dx = (c - pod.cx) / pod.rx;
+                    const dy = (r - pod.cy) / pod.ry;
+                    const d = Math.sqrt(dx * dx + dy * dy);
+                    if (d > 1) {
+                        continue;
+                    }
+                    this._promote(g, geo, cell, c, r, f.k * (1 - t.falloff * d));
+                }
+            }
+            // The blade: one cell of light going round inside the housing, and
+            // the one thing on the fan that reads *both* halves of the state --
+            // it turns faster and burns brighter as the forge heats. Scaled by
+            // the heat rather than flat, because flat put a permanently white
+            // cell on each shoulder: at rest the sheet's blade is the accent's
+            // own colour, so at heat 0 this lands under the 0.17 step and paints
+            // nothing at all.
+            const a = (this.fanSpin + i * 0.5) * 6.2832;
+            const bc = Math.round(pod.cx + Math.cos(a) * pod.rx * t.bladeR);
+            const br = Math.round(pod.cy + Math.sin(a) * pod.ry * t.bladeR);
+            const hot = Math.max(p.heat, p.crack, this.ventE);
+            this._promote(g, geo, cell, bc, br,
+                Math.max(f.k, t.blade * (t.bladeCold + (1 - t.bladeCold) * hot)));
+            if (this.fanFlash[i] > 0) {
+                this._drawFanFlame(g, geo, cell, fan, clamp01(this.fanFlash[i] / t.flashSec));
+            }
+        }
+    }
+
+    /**
+     * A jammed fan, and its clearing. Pulled *down* the ramp -- the only
+     * direction that reads as "off" on plating this dark -- with sparks at the
+     * rim, and the clearing grows back behind a lit front the way a rebuilt
+     * HYDRA head does. All three states come off the one number the fan travels
+     * as, so none of them costs a cue.
+     */
+    _drawJammedFan(g, geo, cell, fan, i, f) {
+        const t = this.t.fans;
+        const box = fan.box;
+        const span = Math.max(1, box.r1 - box.r0 + 1);
+        for (let n = 0; n < fan.cells.length; n += 2) {
+            const d = (fan.cells[n + 1] - box.r0) / span;
+            if (d <= f.clear - t.clearFront) {
+                continue;               // cleared: the sprite's own colour
+            }
+            if (d <= f.clear) {
+                this._promote(g, geo, cell, fan.cells[n], fan.cells[n + 1], t.clearLift);
+                continue;
+            }
+            this._promote(g, geo, cell, fan.cells[n], fan.cells[n + 1], -t.jam);
+        }
+        // Time-hashed rather than drawn from the particle system: the draw must
+        // not consume the simulation's noise.
+        for (let k = 0; k < t.stumpCells; k++) {
+            const ph = this.time * t.stumpRate + k * 2.39 + i * 1.7;
+            const a = 1 - (ph % 1);
+            if (a < 0.2) {
+                continue;
+            }
+            g.globalAlpha = clamp01(a * 0.85);
+            g.fillStyle = this.ramp[a > 0.6 ? TOP : RUNG[4]];
+            g.fillRect(Math.round(box.cx + Math.sin(ph * 3.1 + k) * 3) * cell,
+                Math.round(box.r0 - (1 - a) * 3) * cell, cell, cell);
+        }
+        g.globalAlpha = 1;
+    }
+
+    /** The ring leaving a fan: cells outboard of the housing, going white. */
+    _drawFanFlame(g, geo, cell, fan, a) {
+        const t = this.t.fans;
+        const out = fan.pod.cx < geo.cols / 2 ? -1 : 1;
+        for (let k = 1; k <= t.flameCells; k++) {
+            const f = 1 - (k - 1) / t.flameCells;
+            g.globalAlpha = a * f;
+            g.fillStyle = this.ramp[k > 2 ? RUNG[4] : k > 1 ? TOP - 1 : TOP];
+            const c = Math.round(fan.pod.cx + out * (fan.pod.rx + k));
+            for (let r = Math.round(fan.pod.r0); r <= Math.round(fan.pod.r1); r++) {
+                g.fillRect(c * cell, r * cell, cell, cell);
+            }
+        }
+        g.globalAlpha = 1;
+    }
+
+    /**
+     * Smoke off the six stacks, above the hull's top edge.
+     *
+     * Read out of the art the same way AEGIS's plumes are read out of the
+     * columns that hang below its bottom edge -- these are the ones that rise
+     * above the top one. The inner and outer pairs are phase shifted, because
+     * six stacks pulsing together is a lamp, not a foundry; and they go out one
+     * by one as the hull fails, which is where the sheet's DEATH state (the
+     * chimneys bursting in sequence) ends up in a port that has no DEATH.
+     */
+    _drawChimneys(g, geo, cell, p) {
+        const chim = geo.chimneys;
+        if (!chim) {
+            return;
+        }
+        const t = this.t.chimneys;
+        const out = Math.round(chim.length * p.dmg * (t.deadCells / 100));
+        for (let i = 0; i < chim.length; i++) {
+            if (i < out) {
+                continue;               // burnt out: no smoke from this one
+            }
+            const n = chim[i];
+            const ph = (i * 0.31 + (n.outer ? t.outerPhase : 0)) % 1;
+            const w = (this.time / t.period + ph) % 1;
+            let lvl = t.idle + t.heat * p.heat + t.overheat * p.crack;
+            lvl *= 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(w * 6.2832));
+            lvl += Math.sin(this.time * 17 + i * 2.1) * 0.5 * t.jitter;
+            const len = Math.round(clamp(lvl, 0, 2.2) * t.maxCells);
+            for (let k = 0; k < len; k++) {
+                const a = 1 - k / len;
+                // Solid ramp rungs so the smoke stays pixel art: metal at the
+                // mouth, then mid hull, then a dark tail that fades out.
+                const rung = a > 0.66 ? RUNG[3] : a > 0.33 ? RUNG[2] : RUNG[9];
+                const tilt = Math.round(-p.vx01 * t.tiltCells * (k / Math.max(1, len - 1)));
+                const taper = Math.floor(k / 3);
+                g.globalAlpha = a > 0.2 ? 1 : 0.5;
+                g.fillStyle = this.ramp[rung];
+                for (let c = n.c0 + taper; c <= n.c1 - taper; c++) {
+                    g.fillRect((c + tilt) * cell, (n.top - 1 - k) * cell, cell, cell);
+                }
+            }
+        }
+        g.globalAlpha = 1;
+    }
+
+    /**
+     * The two forge mouths at the ends of the hull's bottom lip: lit under the
+     * sight line, burning while the beam is live. `parts.forges` is where
+     * `_vulcanBeams` actually anchors the beams, so this is light on the mouth
+     * the beam leaves from rather than 49 px inboard of it.
+     */
+    _drawForges(g, geo, cell, p) {
+        const forges = geo.forges;
+        if (!forges || p.forge <= 0.02) {
+            return;
+        }
+        const t = this.t.forge;
+        const flick = p.forge * (0.75 + 0.25 * Math.sin(this.time * 29));
+        for (const f of forges) {
+            const c0 = Math.max(0, f.c - t.spread);
+            const c1 = Math.min(geo.cols - 1, f.c + t.spread);
+            for (let c = c0; c <= c1; c++) {
+                const base = geo.lowest[c];
+                if (base < 0) {
+                    continue;
+                }
+                const fall = 1 - Math.abs(c - f.c) / (t.spread + 1);
+                this._promote(g, geo, cell, c, base, flick * fall);
+                if (base > 0) {
+                    this._promote(g, geo, cell, c, base - 1, flick * fall * 0.6);
+                }
+            }
+            // The flame under the mouth, outside the silhouette.
+            const base = geo.lowest[f.c] < 0 ? f.r : geo.lowest[f.c];
+            for (let k = 1; k <= t.rows; k++) {
+                g.globalAlpha = flick * (1 - (k - 1) / (t.rows + 1));
+                g.fillStyle = this.ramp[k > 2 ? RUNG[4] : k > 1 ? TOP - 1 : TOP];
+                g.fillRect(f.c * cell, (base + k) * cell, cell, cell);
+            }
+        }
+        g.globalAlpha = 1;
+    }
+
+    /**
+     * The overheat: light coming through the plating. Taken from the *end* of
+     * the hull's stable dark-cell order, so it can never fight `_drawDamage`,
+     * which burns the same list out from the front.
+     */
+    _drawCracks(g, geo, cell, p) {
+        if (p.crack <= 0.02) {
+            return;
+        }
+        const t = this.t.crack;
+        const n = Math.min(geo.dead.length, Math.round(t.cells * p.crack));
+        for (let i = 0; i < n; i++) {
+            const d = geo.dead[geo.dead.length - 1 - i];
+            // Each crack breathes on its own hash, so they do not blink as one.
+            const a = 0.55 + 0.45 * Math.sin(this.time * t.rate + i * 1.9);
+            this._promote(g, geo, cell, d[0], d[1], t.lift * p.crack * a);
+        }
+    }
+
+    /**
+     * The footfall: the foot that just landed lights up and throws dust under
+     * itself. The feet are the two nozzle clusters -- the columns that hang
+     * below the bottom edge -- so, as with everything else here, which cells
+     * they are comes out of the art.
+     */
+    _drawFeet(g, geo, cell, p) {
+        const feet = geo.nozzles;
+        if (!feet || !feet.length || !p.walk || p.walk.fall < 0) {
+            return;
+        }
+        const t = this.t.gait;
+        const a = clamp01(1 - p.walk.fall / 0.5);
+        const n = feet[p.walk.fallFoot % feet.length];
+        for (let c = n.c0; c <= n.c1; c++) {
+            const base = geo.lowest[c];
+            if (base < 0) {
+                continue;
+            }
+            for (let r = Math.max(0, geo.edgeRow); r <= base; r++) {
+                this._promote(g, geo, cell, c, r, t.footLift * a);
+            }
+        }
+        // Dust, time-hashed off the footfall rather than the particle system.
+        for (let k = 0; k < t.dustCells; k++) {
+            const ph = k * 2.39 + p.walk.fallFoot * 1.7;
+            const spread = (Math.sin(ph * 3.7) * t.dustSpread) * (1 - a);
+            g.globalAlpha = clamp01(a * 0.7);
+            g.fillStyle = this.ramp[a > 0.6 ? RUNG[3] : RUNG[2]];
+            const c = Math.round(n.x + spread);
+            const base = geo.lowest[clamp(c, 0, geo.cols - 1)];
+            g.fillRect(c * cell, ((base < 0 ? geo.rows : base) + 1 + Math.floor((1 - a) * 2)) * cell,
+                cell, cell);
         }
         g.globalAlpha = 1;
     }

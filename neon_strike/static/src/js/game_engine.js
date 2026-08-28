@@ -24,6 +24,7 @@ import { ShipFlight } from "./ship_flight";
 import { BossAnimator } from "./boss_animator";
 import { COLOSSUS_ANIM_KINDS, ColossusAnimator, hullParts } from "./colossus_animator";
 import { AegisMotion } from "./aegis_motion";
+import { VulcanMotion } from "./vulcan_motion";
 import { Backdrop, backgroundForWave } from "./backgrounds";
 const REVIVE_FRAMES = 120;
 const COMBO_MAX = 25;
@@ -86,6 +87,89 @@ const HYDRA_HEAD = {
     val: 0.06,          // of the colossus's score, each
     dead: 900,          // 15 s hanging inert...
     regrow: 40,         // ...and the rebuild, eyes last
+};
+// VULCAN. Its three attacks were three independent timers; the design sheet
+// made them one **heat cycle**, and that is what this is:
+//
+//   REST -> BEAM_WARN -> BEAM (heat climbs) -> OVERHEAT -> VENT (heat dumps,
+//   the core is open) -> ROCK_WARN -> ROCKS (heat drifts down) -> REST
+//
+// Heat is the clock, and the player owns a lever on it: the two shoulder fans.
+// A hit on one adds `VULCAN_FAN.heat`, which brings the overheat forward, and
+// the overheat **kills the beams on the spot** -- so shooting the fans is both
+// how you cut a beam phase short and how you buy the next window at the core.
+// Everything the fight is about is in that one loop, which is why the phases
+// live in an array instead of three `a1/a2/a3` countdowns.
+//
+// It reads at a glance off the hull because the art has a three-layer slot
+// (dark frame, neon ring, white middle) with exactly the ramp headroom to be a
+// gauge -- see `slotOf` in `colossus_animator.js`.
+const V_REST = 0;
+const V_BEAM_WARN = 1;
+const V_BEAM = 2;
+const V_OVERHEAT = 3;
+const V_VENT = 4;
+const V_ROCK_WARN = 5;
+const V_ROCKS = 6;
+const VULCAN = {
+    // Frames each phase lasts. BEAM is a ceiling, not a duration: heat normally
+    // ends it first, and that is the point of the lever.
+    len: [46, 60, 300, 40, 130, 35, 26],
+    raged: [30, 46, 300, 28, 104, 26, 26],
+    // Heat per 60 fps frame, by phase. The beam rate is what sets the cycle:
+    // 1/210 is 3.5 s of forge from cold to overheat.
+    // -1/128 against a 130 frame vent: a full window empties the gauge exactly
+    // as it closes, and a window shortened by a jammed fan leaves heat behind,
+    // so a broken exhaust means the forge never quite cools. That is the cost
+    // of the overshoot, and it costs nothing to express.
+    heat: [-1 / 900, 1 / 900, 1 / 210, 1 / 600, -1 / 128, -1 / 260, -1 / 260],
+    ragedHeat: 1.3,     // multiplier on a *rising* rate only
+    // The volley: how many rocks, and therefore how many pips the telegraph
+    // lights. "Number of lit dots = number of projectiles" is a promise, so the
+    // count is decided when the charge opens and travels as `vn`.
+    volley: [3, 6], ragedVolley: [5, 8],
+    rock: { speed: 1.5, spread: 0.42, jitter: 0.07, r: [15, 31] },
+    // Molten rings, one burst per live fan per wave, thrown down and outwards.
+    // The pocket they leave is the middle -- which is exactly where the core
+    // window is, so the attack and the reward are the same piece of geometry.
+    ring: { n: 13, speed: 2.3, arc: 4.2, waves: 2, gap: 52, spin: 0.24,
+            // The backfire: with every fan jammed the heat has nowhere to go,
+            // so it comes out of the slot instead -- a full circle from the
+            // middle of the hull, which is exactly where the core window has
+            // been inviting the player to stand. Without it, jamming both fans
+            // is the *safe* play (no rings at all during a window), and the
+            // overshoot penalty rewards the overshoot. Fewer bullets than two
+            // working shoulders throw, out of the worst possible place.
+            backN: 16, backSpeed: 2.1 },
+    // The two forge beams. `warn` matches BEAM_WARN so the sight line and the
+    // phase are the same beat, and the origin comes from `parts.forges` (the
+    // ends of the hull's bottom lip) instead of a fraction nothing draws.
+    beam: { w: 30, spin: 0.0055, ragedSpin: 0.0075, life: 1200 },
+    // The vent window: hits inside the core box count double while the slot is
+    // open. `COLOSSI[2].hp` carries a modest lift for it rather than a full
+    // one -- a player who never uses the window should not be paying for it.
+    vent: { coreMul: 2 },
+};
+// The fans are the lever, and jamming one is the overshoot penalty: it stops
+// taking heat (so you lose the lever), and the machine loses that much of its
+// exhaust, so the vent window itself gets shorter. All you win is one ring
+// fewer. Chip them; do not break them.
+const VULCAN_FAN = {
+    hp: 0.055,          // of the hull's own maximum, each
+    // The exchange rate: damage spent on a fan buys heat in proportion, so
+    // taking one down to half its points buys half of `heatFull`. Per *damage*
+    // and not per hit, which is the only version that is not either useless or
+    // broken -- a flat amount per hit is worth nothing to a single shot and
+    // instant overheat to a rapid-fire build, and the lever has to read the
+    // same whatever the player is flying.
+    heatFull: 0.9,
+    // ...and it repairs, or the lever is spent after seven hits and the fight
+    // goes back to its own clock for the rest of the run. 8 s from nothing to
+    // whole, which sustained fire outpaces easily -- so chipping is a lever you
+    // keep, and jamming is still what happens if you commit to it.
+    repair: 1 / 480,    // of its maximum per frame
+    jam: 720,           // 12 s seized
+    ventShare: 0.3,     // of the vent window one jammed fan takes away
 };
 // Hulls a practice wave queues when the target is a regular enemy. Small on
 // purpose: the point is to watch one of them, not to survive a swarm.
@@ -1369,6 +1453,23 @@ export class NeonStrikeEngine {
                 ph: 0, pt: HYDRA_REST, sa: 0, spin: 1, spiral: 0, fq: [0, 1],
             });
         }
+        // VULCAN runs the heat cycle, and its two shoulder fans are the lever
+        // on it (see VULCAN_FAN). `parts` comes out of the art the same way
+        // HYDRA's does, so the fan you can hit is the housing that lights up,
+        // the core box the vent window doubles damage in is the white middle,
+        // and the beams leave from the ends of the bottom lip.
+        if (k === 2) {
+            const parts = hullParts(d.sprite);
+            const fanHp = Math.max(1, Math.round(hp * VULCAN_FAN.hp));
+            Object.assign(e, {
+                parts,
+                fans: (parts && parts.fans ? parts.fans : []).map(() => ({
+                    hp: fanHp, mhp: fanHp, t: 0,
+                })),
+                ph: V_REST, pt: VULCAN.len[V_REST], ptMax: VULCAN.len[V_REST],
+                heat: 0, vn: 0, vw: 0,
+            });
+        }
         return e;
     }
 
@@ -1575,9 +1676,10 @@ export class NeonStrikeEngine {
         }
     }
 
+    /** @returns {Object} the rock, so a caller that aims one can set its drift. */
     spawnRock(x, y, r, v) {
         const rad = r || 16 + Math.random() * 24;
-        this.rocks.push({
+        const rk = {
             x: x != null ? x : 30 + Math.random() * (this.W - 60),
             y: y != null ? y : -40,
             vx: (Math.random() - 0.5) * 1.6,
@@ -1587,7 +1689,9 @@ export class NeonStrikeEngine {
             vr: (Math.random() - 0.5) * 0.06,
             hp: Math.max(1, Math.round(rad / 9)),
             v: v != null ? v : Math.floor(Math.random() * ROCK_SPRITES.length),
-        });
+        };
+        this.rocks.push(rk);
+        return rk;
     }
 
     /**
@@ -2443,6 +2547,23 @@ export class NeonStrikeEngine {
                 return false;
             }
         }
+        if (e.fans && hx != null) {
+            // VULCAN's shoulder fans sit inside the chest's box, so this is a
+            // routing question and not a second hitbox: a hit that lands on one
+            // feeds the heat cycle instead of the hull (see `_damageFan`).
+            const i = this._fanAt(e, hx, hy, 4);
+            if (i >= 0) {
+                this._damageFan(e, i, dmg);
+                return false;
+            }
+            // The vent window: while the slot is open, the white middle of it
+            // counts double. This is the only damage multiplier in the game and
+            // it is deliberately a *place* rather than a state -- the invitation
+            // is worth nothing if it does not ask you to fly somewhere.
+            if (this._ventOpen(e) && this._coreHit(e, hx, hy)) {
+                dmg *= VULCAN.vent.coreMul;
+            }
+        }
         e.hp -= e.armor ? dmg * 0.35 : dmg;
         if (e.hp <= 0) {
             this.killEnemy(e, killer);
@@ -2942,6 +3063,23 @@ export class NeonStrikeEngine {
             });
             e.x = p.x;
             e.y = p.y;
+        } else if (e.k === 2) {
+            // VULCAN walks its lane (see `vulcan_motion.js`): acceleration
+            // limited travel with a settle, and feet that plant for the phases
+            // the sheet plants them for. Created here, after the entrance, so
+            // it starts from where the entrance left the hull.
+            if (!e.mo) {
+                e.mo = new VulcanMotion(e.x, e.y);
+            }
+            const p = e.mo.step(mv * FRAME_SECONDS, {
+                x: e.x,
+                fx0: this.fx0, fx1: this.fx1,
+                hp01: e.mhp ? e.hp / e.mhp : 1,
+                raged: !!e.raged,
+                planted: e.ph === V_OVERHEAT || e.ph === V_VENT || e.ph === V_ROCK_WARN,
+            });
+            e.x = p.x;
+            e.y = p.y;
         } else {
             e.x += e.vx * mv * 0.55;
             if (e.x > W / 2 + 105) {
@@ -3003,49 +3141,7 @@ export class NeonStrikeEngine {
         } else if (e.k === 1) {
             this._hydra(e, mv, rage);
         } else if (e.k === 2) {
-            // VULCAN: asteroid barrage, molten rings and two forge beams. The
-            // beams telegraph themselves (`warn`), so only the ring needs a cue.
-            this._tel(e, e.a2, "ring");
-            if (e.a1 <= 0) {
-                e.a1 = rage ? 46 : 74;
-                this.spawnRock(
-                    this.fx0 + 60 + Math.random() * (this.fx1 - this.fx0 - 120),
-                    e.y + e.hh, 18 + Math.random() * 16
-                );
-            }
-            if (e.a2 <= 0) {
-                e.a2 = 230;
-                for (let k = 0; k < 18; k++) {
-                    const a = (k / 18) * 6.2832 + e.t * 0.01;
-                    this._eb(e.x, e.y, Math.cos(a) * 2.5, Math.sin(a) * 2.5, EB_SPREAD);
-                }
-                this.sBoom();
-            }
-            if (e.a3 <= 0) {
-                e.a3 = rage ? 250 : 330;
-                // Two forge beams, alternating pattern so the fight keeps
-                // asking a different question:
-                //  - scissors: they start crossed and sweep through each other;
-                //  - sweep: both rake the arena the same way, like a wiper.
-                e.pat = (e.pat || 0) ^ 1;
-                const spin = (rage ? 0.0075 : 0.0055);
-                for (const side of [-1, 1]) {
-                    this.beams.push(this.mkBeam({
-                        src: e.id,
-                        ox: side * e.w * 0.4,
-                        oy: e.h * 0.25,
-                        // Scissors: each claw aims across to the far side.
-                        a: e.pat
-                            ? Math.PI / 2 + side * 0.95
-                            : Math.PI / 2 - 0.85,
-                        warn: 60,
-                        life: 210,
-                        w: 30,
-                        spin: e.pat ? -side * spin : spin,
-                        c: "#ffb347",
-                    }));
-                }
-            }
+            this._vulcan(e, mv, rage);
         } else if (e.k === 3) {
             // NYX: four beams turning like clock hands + interceptors.
             this._tel(e, e.a2, "spawn");
@@ -3325,6 +3421,338 @@ export class NeonStrikeEngine {
     }
 
     /**
+     * VULCAN's heat cycle: one director instead of three timers.
+     *
+     * `heat` is the clock and `ph`/`pt` the phase it is spending, and the whole
+     * fight is the loop in the VULCAN block above. Two things make it a fight
+     * rather than a sequence:
+     *
+     *   - a hit on a shoulder fan adds heat, so the player decides *when* the
+     *     overheat comes -- and the overheat cuts the beams off mid-sweep, so
+     *     the lever is defensive as well as an invitation;
+     *   - the vent that follows opens the core (double damage inside it) while
+     *     the rings leave from the shoulders, which means the safe pocket and
+     *     the reward are the same piece of the arena.
+     *
+     * `heat` and `ph` travel (`ht`, `vp`): the whole visual language of the hull
+     * is read off them, and neither can be derived from a position. `pt` does
+     * not -- a guest reads the telegraph, which does.
+     */
+    _vulcan(e, mv, rage) {
+        this._vulcanFans(e, mv);
+        const len = rage ? VULCAN.raged : VULCAN.len;
+        // Heat first, so a fan hit landing this frame can still end the beam.
+        let d = VULCAN.heat[e.ph];
+        if (d > 0 && rage) {
+            d *= VULCAN.ragedHeat;
+        }
+        e.heat = Math.max(0, Math.min(1, e.heat + d * mv));
+        e.pt -= mv;
+        switch (e.ph) {
+            case V_BEAM_WARN:
+                // The beams telegraph themselves: `mkBeam`'s `warn` draws the
+                // sight line the sheet calls innegociable, and it is the same
+                // 60 frames as this phase, so the two cannot drift apart.
+                if (e.pt <= 0) {
+                    this._vulcanPhase(e, V_BEAM, len);
+                }
+                break;
+            case V_BEAM:
+                // Heat ends it, not the clock. `len` is only a ceiling, for the
+                // case where every fan is jammed and nothing is feeding it.
+                if (e.heat >= 1 || e.pt <= 0) {
+                    this._vulcanPhase(e, V_OVERHEAT, len);
+                }
+                break;
+            case V_OVERHEAT:
+                // The 40 frames of "something is about to burst" *are* the
+                // warning for the rings, and the existing ring telegraph -- a
+                // circle closing onto the hull -- is already the right picture
+                // for two vents about to blow outwards.
+                this._tel(e, e.pt, "ring");
+                if (e.pt <= 0) {
+                    this._vulcanPhase(e, V_VENT, len);
+                }
+                break;
+            case V_VENT:
+                // Two waves of rings a beat apart, for the same reason HYDRA's
+                // two fans are staggered: one wall of bullets cannot be read.
+                if (e.vw < VULCAN.ring.waves
+                        && e.pt <= e.ptMax - e.vw * VULCAN.ring.gap) {
+                    this._vulcanRing(e, e.vw);
+                    e.vw++;
+                }
+                if (e.pt <= 0) {
+                    this._vulcanPhase(e, V_ROCK_WARN, len);
+                }
+                break;
+            case V_ROCK_WARN:
+                // The one telegraph that carries a *number*: how many pips are
+                // lit is how many rocks are coming (see `_drawTelegraph`).
+                this._tel(e, e.pt, "volley");
+                if (e.pt <= 0) {
+                    this._vulcanPhase(e, V_ROCKS, len);
+                }
+                break;
+            case V_ROCKS:
+                if (e.pt <= 0) {
+                    this._vulcanPhase(e, V_REST, len);
+                }
+                break;
+            default:
+                if (e.pt <= 0) {
+                    this._vulcanPhase(e, V_BEAM_WARN, len);
+                }
+        }
+    }
+
+    /**
+     * Enter a phase, and do the one-shot it opens with. Every transition goes
+     * through here so the phase, its clock and the thing it fires cannot end up
+     * describing different beats.
+     */
+    _vulcanPhase(e, ph, len) {
+        e.ph = ph;
+        e.pt = len[ph];
+        e.ptMax = e.pt;
+        if (ph === V_BEAM_WARN) {
+            this._vulcanBeams(e, !!e.raged, len[V_BEAM_WARN], len[V_BEAM]);
+        } else if (ph === V_OVERHEAT) {
+            // The forge fails: the beams cut out where they are. This is what
+            // the fans buy, and it is why hitting them is worth the trip.
+            for (let i = this.beams.length - 1; i >= 0; i--) {
+                if (this.beams[i].src === e.id) {
+                    this.beams.splice(i, 1);
+                }
+            }
+            this.noise(0.4, 0.5, 900);
+        } else if (ph === V_VENT) {
+            // Fewer working fans, less exhaust, shorter window -- the whole
+            // cost of having broken one.
+            const jammed = e.fans.reduce((n, f) => n + (f.hp <= 0 ? 1 : 0), 0);
+            const total = Math.max(1, e.fans.length);
+            e.pt = Math.round(e.pt * (1 - VULCAN_FAN.ventShare * (jammed / total)));
+            e.ptMax = e.pt;
+            e.vw = 0;
+            this.sBoom();
+        } else if (ph === V_ROCK_WARN) {
+            const span = e.raged ? VULCAN.ragedVolley : VULCAN.volley;
+            e.vn = span[0] + Math.floor(Math.random() * (span[1] - span[0] + 1));
+        } else if (ph === V_ROCKS) {
+            this._vulcanVolley(e);
+        }
+    }
+
+    /**
+     * The two forge beams, from the ends of the hull's bottom lip.
+     *
+     * `parts.forges` is read out of the art, so the light `colossus_animator.js`
+     * puts on those two cells is on the mouth the beam actually leaves from --
+     * the same correction the AEGIS salvo got. The two patterns stay: scissors
+     * start crossed and sweep through each other, sweep rakes the arena one way
+     * like a wiper, and alternating them is what keeps the fight asking a
+     * different question every cycle.
+     */
+    _vulcanBeams(e, rage, warn, life) {
+        e.pat = (e.pat || 0) ^ 1;
+        const spin = rage ? VULCAN.beam.ragedSpin : VULCAN.beam.spin;
+        const forges = e.parts && e.parts.forges;
+        for (const side of [-1, 1]) {
+            const f = forges && forges[side < 0 ? 0 : 1];
+            this.beams.push(this.mkBeam({
+                src: e.id,
+                ox: f ? f.x * e.w : side * e.w * 0.4,
+                oy: f ? f.y * e.h : e.h * 0.25,
+                a: e.pat ? Math.PI / 2 + side * 0.95 : Math.PI / 2 - 0.85,
+                warn,
+                // Outlived by the phase on purpose: the overheat is what ends a
+                // sweep, and `life` is only there so a beam cannot survive its
+                // owner's cycle if anything ever cuts the phase short.
+                life: life + VULCAN.beam.life,
+                w: VULCAN.beam.w,
+                spin: e.pat ? -side * spin : spin,
+                c: "#ffb347",
+            }));
+        }
+    }
+
+    /**
+     * One wave of molten rings: a burst out of every live fan, thrown down and
+     * outwards. A jammed fan has no ring -- that is the one thing breaking it
+     * wins you.
+     */
+    _vulcanRing(e, wave) {
+        const R = VULCAN.ring;
+        let fired = false;
+        for (let i = 0; i < e.fans.length; i++) {
+            if (e.fans[i].hp <= 0) {
+                continue;
+            }
+            const b = e.parts.fans[i];
+            const x = e.x + b.x * e.w;
+            const y = e.y + b.y * e.h;
+            for (let n = 0; n < R.n; n++) {
+                const a = Math.PI / 2 + (n / (R.n - 1) - 0.5) * R.arc + wave * R.spin;
+                this._eb(x, y, Math.cos(a) * R.speed, Math.sin(a) * R.speed, EB_SPREAD);
+            }
+            fired = true;
+        }
+        // Both shoulders together, and the two *waves* a beat apart instead:
+        // unlike HYDRA's two aimed cones these are one symmetric pattern whose
+        // whole content is the pocket they leave in the middle, and staggering
+        // them would blur the very shape the player is reading.
+        if (fired) {
+            this.shake = Math.min(this.shake + 6, 24);
+            this._colossusCue(e, "vent");
+            return;
+        }
+        const core = e.parts && e.parts.core;
+        const x = e.x + (core ? core.x * e.w : 0);
+        const y = e.y + (core ? core.y * e.h : 0);
+        for (let n = 0; n < R.backN; n++) {
+            const a = (n / R.backN) * 6.2832 + wave * R.spin;
+            this._eb(x, y, Math.cos(a) * R.backSpeed, Math.sin(a) * R.backSpeed, EB_SPREAD);
+        }
+        this.shake = Math.min(this.shake + 8, 24);
+        this._colossusCue(e, "backfire");
+    }
+
+    /**
+     * The volley: `vn` rocks out of the open slot, fanned out. They are the
+     * engine's own asteroids, so they keep bouncing off the field walls and
+     * sitting in the arena afterwards -- the sheet's "ocupan territorio y
+     * persisten como escombro" for free.
+     */
+    _vulcanVolley(e) {
+        const R = VULCAN.rock;
+        const core = e.parts && e.parts.core;
+        const x = e.x + (core ? core.x * e.w : 0);
+        const y = e.y + (core ? core.y * e.h : 0);
+        const n = Math.max(1, e.vn);
+        for (let i = 0; i < n; i++) {
+            // Down and outwards, never lobbed: the engine's asteroids carry no
+            // gravity (`_updateRocks` moves them at a constant velocity and only
+            // culls them below the field), so anything thrown upwards would
+            // climb out of the arena and stay in the list for the whole run.
+            // Fanned like this the outer rocks rake sideways and bounce off the
+            // field walls, which is the "ocupan territorio" the sheet wants.
+            const a = Math.PI / 2 + (i - (n - 1) / 2) * R.spread
+                + (Math.random() - 0.5) * R.jitter;
+            const sp = R.speed * (0.85 + Math.random() * 0.3);
+            const rk = this.spawnRock(x, y, R.r[0] + Math.random() * (R.r[1] - R.r[0]));
+            // Thrown, not dropped: `spawnRock` rolls a drift, this aims it.
+            rk.vx = Math.cos(a) * sp * 1.9;
+            rk.vy = Math.sin(a) * sp;
+        }
+        this.shake = Math.min(this.shake + 9, 24);
+        this.sBoom();
+        this._colossusCue(e, "spit");
+    }
+
+    /**
+     * The shoulder fans between hits: a jammed one counting down to clearing
+     * itself, a working one slowly repairing.
+     *
+     * The repair is what makes the fans a lever the player keeps rather than a
+     * budget of seven hits: without it, a fight past the first minute has no
+     * way left to hurry the cycle at all.
+     */
+    _vulcanFans(e, mv) {
+        for (const f of e.fans) {
+            if (f.hp <= 0) {
+                f.t -= mv;
+                if (f.t <= 0) {
+                    f.hp = f.mhp;
+                    f.t = 0;
+                }
+                continue;
+            }
+            if (f.hp < f.mhp) {
+                f.hp = Math.min(f.mhp, f.hp + f.mhp * VULCAN_FAN.repair * mv);
+            }
+        }
+    }
+
+    /**
+     * Which live shoulder fan a point falls on, or -1. Unlike HYDRA's heads the
+     * fans sit *inside* the chest's own box, so this is only ever a routing
+     * question in `_damageEnemy` -- `_enemyHit` already covers them.
+     */
+    _fanAt(e, x, y, pad) {
+        if (!e.fans || !e.parts || !e.parts.fans) {
+            return -1;
+        }
+        for (let i = 0; i < e.fans.length; i++) {
+            if (e.fans[i].hp <= 0) {
+                continue;
+            }
+            const b = e.parts.fans[i];
+            if (Math.abs(x - (e.x + b.x * e.w)) < b.hw * e.w + pad
+                    && Math.abs(y - (e.y + b.y * e.h)) < b.hh * e.h + pad) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * A shoulder fan taking a hit: the lever, and its overshoot penalty.
+     *
+     * Fan damage does not come off the hull, for the same reason head damage
+     * does not: what it buys has to be something you chose to fly out and spend
+     * fire on. What it buys is heat -- and heat is time off the beam phase and
+     * the next window at the core. Breaking one is the mistake: it stops taking
+     * heat at all and it shortens the very window you were buying, so it pays
+     * no score and says so.
+     */
+    _damageFan(e, i, dmg) {
+        const f = e.fans[i];
+        if (f.hp <= 0) {
+            return;
+        }
+        f.hp -= dmg;
+        const b = e.parts.fans[i];
+        const fx = e.x + b.x * e.w;
+        const fy = e.y + b.y * e.h;
+        // Whatever landed on the fan buys its share of the gauge, including the
+        // part of the last hit that overshot: the trade has to be the same
+        // whether you finish a fan or stop one point short of it.
+        e.heat = Math.min(1, (e.heat || 0)
+            + (Math.min(dmg, f.hp + dmg) / f.mhp) * VULCAN_FAN.heatFull);
+        if (f.hp > 0) {
+            this.burst(fx, fy, "#ffffff", 8, 3);
+            return;
+        }
+        f.hp = 0;
+        f.t = VULCAN_FAN.jam;
+        this.burst(fx, fy, e.c, 34, 5);
+        this.burst(fx, fy, "#6b7099", 14, 3.5);
+        this.shake = Math.min(this.shake + 8, 24);
+        this.sBoom();
+        this.pop(fx, fy - 26, "VENT JAMMED", "#6b7099", 16, 80);
+        this._ev({ k: "boom", x: fx, y: fy, c: e.c, b: 1 });
+    }
+
+    /** Is VULCAN's slot open, i.e. is the double-damage window up? */
+    _ventOpen(e) {
+        return e.k === 2 && e.ph === V_VENT && !e.hold;
+    }
+
+    /**
+     * Did a hit land in the white middle of VULCAN's slot? Same box the animator
+     * grows white while it vents, out of the same `hullParts` answer, so what is
+     * worth double is exactly what the hull shows is open.
+     */
+    _coreHit(e, x, y) {
+        const b = e.parts && e.parts.core;
+        if (!b) {
+            return false;
+        }
+        return Math.abs(x - (e.x + b.x * e.w)) < b.hw * e.w
+            && Math.abs(y - (e.y + b.y * e.h)) < b.hh * e.h;
+    }
+
+    /**
      * Same as `_updateBossAnims` for the colossi. Only the indexes with a
      * section in `COLOSSUS_ANIM_KINDS` get one, so adding the animation of the
      * next colossus is one entry there plus its tuning block.
@@ -3366,6 +3794,17 @@ export class NeonStrikeEngine {
                 arms: raged ? HYDRA_SPIRAL.ragedArms : HYDRA_SPIRAL.arms,
                 heads: e.heads,
                 headRegrow: HYDRA_HEAD.regrow,
+                // VULCAN only. The heat and the phase are the whole language of
+                // the hull -- the slot is a gauge, the chimneys smoke harder,
+                // the feet plant -- and the fans give the animator the hit
+                // flash, the seized fan and the clearing off one number each,
+                // exactly as HYDRA's heads do. All of it travels (`ht`, `vp`,
+                // `vn`, `vf`).
+                heat: e.heat,
+                phase: e.heat != null ? e.ph : null,
+                volley: e.vn || 0,
+                fans: e.fans,
+                fanJam: VULCAN_FAN.jam,
                 raged,
                 tel: e.tel || 0,
                 // `telK` outlives the telegraph that set it (see _updateColossus).
@@ -4227,6 +4666,21 @@ export class NeonStrikeEngine {
                 hd: e.heads ? e.heads.map((h) => Math.round(h.hp > 0 ? h.hp : -h.t)) : undefined,
                 sp: e.spiral ? 1 : undefined,
                 sa: e.sa != null ? Math.round(e.sa * 100) / 100 : undefined,
+                // VULCAN's heat cycle. `ht` is the heat (0..100) and `vp` the
+                // phase: the entire visual language of the hull is read off
+                // those two and neither can be derived from a position -- the
+                // slot is a gauge, the fans light while they vent, the feet
+                // plant. `vn` is how many rocks the volley telegraph promises,
+                // which has to be the number that is actually coming. `vf` is
+                // one number per shoulder fan on exactly HYDRA's `hd` pattern:
+                // its points while it works, minus the frames left of the jam
+                // once it does not, so the hit flash, the seized fan and the
+                // clearing all come for free. `pt` deliberately does not
+                // travel: a guest reads the telegraph, not the clock.
+                ht: e.heat != null ? Math.round(e.heat * 100) : undefined,
+                vp: e.heat != null ? e.ph : undefined,
+                vn: e.vn || undefined,
+                vf: e.fans ? e.fans.map((f) => Math.round(f.hp > 0 ? f.hp : -f.t)) : undefined,
             })),
             // 3rd slot = style bits: 1 critical, 2 explosive.
             bu: this.bullets.map((b) => [Math.round(b.x), Math.round(b.y), (b.cr ? 1 : 0) | (b.ex ? 2 : 0)]),
@@ -4372,6 +4826,19 @@ export class NeonStrikeEngine {
                         heads: e.hd.map((v) => ({ hp: v > 0 ? v : 0, mhp, t: v > 0 ? 0 : -v })),
                         spiral: e.sp ? 1 : 0,
                         sa: e.sa || 0,
+                    });
+                }
+                if (e.ht != null) {
+                    // VULCAN, same unpacking for the fans as HYDRA's heads.
+                    const mhp = Math.max(1, Math.round((e.mh || 1) * VULCAN_FAN.hp));
+                    Object.assign(en, {
+                        parts: hullParts(d.sprite),
+                        heat: e.ht / 100,
+                        ph: e.vp || 0,
+                        vn: e.vn || 0,
+                        fans: (e.vf || []).map((v) => ({
+                            hp: v > 0 ? v : 0, mhp, t: v > 0 ? 0 : -v,
+                        })),
                     });
                 }
             }
@@ -4662,6 +5129,26 @@ export class NeonStrikeEngine {
                 g.lineTo(e.gap + 52, y + 9);
                 g.stroke();
             }
+        } else if (e.telK === "volley") {
+            // The one telegraph that carries a number: one pip per rock in the
+            // volley that is coming, filling left to right as the slot charges.
+            // The sheet is explicit that the count has to be readable, and `vn`
+            // travels for exactly that reason.
+            g.setLineDash([]);
+            const n = e.vn || 0;
+            const y = e.y + rad * 0.5;
+            const step = 22;
+            const lit = Math.min(n, Math.floor(t * n) + 1);
+            for (let i = 0; i < n; i++) {
+                const x = e.x + (i - (n - 1) / 2) * step;
+                const on = i < lit;
+                g.globalAlpha = on ? Math.min(1, a + 0.3) : a * 0.5;
+                g.fillStyle = on ? "#fff0d2" : e.c;
+                g.beginPath();
+                g.arc(x, y, on ? 5 : 3.5, 0, 6.2832);
+                g.fill();
+            }
+            g.globalAlpha = a;
         } else if (e.telK === "spawn") {
             // Bays about to open: chevrons pointing the way the brood comes out.
             g.setLineDash([]);

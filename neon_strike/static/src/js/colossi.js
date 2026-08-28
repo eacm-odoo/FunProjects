@@ -53,11 +53,20 @@ export const COLOSSI = [
         tint: "#ffb347",
         w: 800,
         field: 1.4,
-        hp: 800,
+        // 1000 rather than the 800 it was tuned at, because the vent window is
+        // a damage multiplier and this is what pays for it. Measured on the
+        // bench: a player who camps the core through every vent and ignores the
+        // fans puts out x1.246 of what the old VULCAN took, so half of that
+        // (+12% at wave 30) is the lift -- the best case stays about 11%
+        // shorter, which is the reward, and nobody who never uses the window
+        // pays more than the extra pressure the cycle brings anyway.
+        hp: 1000,
         val: 28000,
+        // Mirrored by `VULCAN_MOTION.descend.restY`: it walks its own lane
+        // (see `vulcan_motion.js`) and the profile takes over from the entrance.
         y: 160,
         speed: 0.75,
-        desc: "A walking foundry. It hurls asteroid barrages, vents molten rings and cuts the arena with two forge beams.",
+        desc: "A walking foundry on a heat cycle: two forge beams that heat it until it overheats and cuts them off, molten rings out of the shoulder vents with the core left open and worth double, then an asteroid volley whose charge tells you how many are coming. Damage spent on a shoulder fan buys heat and brings the overheat forward -- break one and it seizes, the window shrinks and the heat blows out of the core instead.",
     },
     {
         id: "nyx",
