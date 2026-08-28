@@ -46,6 +46,12 @@ const TELEGRAPH_FRAMES = 45;
 // Health fraction where a boss switches to its second phase.
 const BOSS_RAGE_AT = 0.5;
 const COLOSSUS_RAGE_AT = 0.45;
+// HYDRA-07's crown spiral: how fast the arm angle turns (rad/frame) and how
+// many arms there are, calm and enraged. The ring of light `colossus_animator`
+// runs around the crown lights the same sectors, so both read this instead of
+// each keeping a copy -- retuning the spiral must not leave the light pointing
+// somewhere the bullets are not.
+const HYDRA_SPIRAL = { rate: 0.11, arms: 2, ragedArms: 3 };
 // Hulls a practice wave queues when the target is a regular enemy. Small on
 // purpose: the point is to watch one of them, not to survive a swarm.
 const PRACTICE_ENEMIES = 6;
@@ -2863,24 +2869,36 @@ export class NeonStrikeEngine {
                 this._colossusCue(e, "salvo");
             }
         } else if (e.k === 1) {
-            // HYDRA-07: crown spiral + aimed fans from the side heads.
+            // HYDRA-07: crown spiral + aimed fans from the side heads. Both
+            // leave from where `colossus1` actually has a mouth, the same trade
+            // AEGIS's siege salvo made: 0.234 of the hull above the middle is
+            // the lens between the crown's eyes, and 0.408 out / 0.328 down is
+            // the glass in each side head. `colossus_animator.js` reads all
+            // three out of the art and lights them, so the light sits on the
+            // mouth the bullets leave from -- which moved the spiral 36 px up
+            // into the crown and each fan 22 px out and 13 px down.
             this._tel(e, e.a2, "aimed");
             if (e.a1 <= 0) {
                 e.a1 = rage ? 5 : 9;
-                const arms = rage ? 3 : 2;
+                const arms = rage ? HYDRA_SPIRAL.ragedArms : HYDRA_SPIRAL.arms;
                 for (let k = 0; k < arms; k++) {
-                    const a = e.t * 0.11 + (k / arms) * 6.2832;
-                    this._eb(e.x, e.y - e.h * 0.1, Math.cos(a) * 2.7, Math.sin(a) * 2.7, EB_SPREAD);
+                    const a = e.t * HYDRA_SPIRAL.rate + (k / arms) * 6.2832;
+                    this._eb(e.x, e.y - e.h * 0.234, Math.cos(a) * 2.7, Math.sin(a) * 2.7, EB_SPREAD);
                 }
             }
             if (e.a2 <= 0) {
                 e.a2 = rage ? 110 : 165;
-                for (const off of [-e.w * 0.38, e.w * 0.38]) {
+                for (const off of [-e.w * 0.408, e.w * 0.408]) {
                     for (let s = -2; s <= 2; s++) {
-                        this._ebAimed(e.x + off, e.y + e.h * 0.28, 3.6, s * 0.16);
+                        this._ebAimed(e.x + off, e.y + e.h * 0.328, 3.6, s * 0.16);
                     }
                 }
                 this.sTick();
+                // Both mouths flash and the hull recoils. It has to be a cue:
+                // the fan lasts one frame, and the snapshot a guest would have
+                // to spot it in arrives up to four frames later, by which time
+                // the bullets it should be flashing for are 14 px out.
+                this._colossusCue(e, "fan");
             }
         } else if (e.k === 2) {
             // VULCAN: asteroid barrage, molten rings and two forge beams. The
@@ -3061,10 +3079,22 @@ export class NeonStrikeEngine {
                 anim = new ColossusAnimator(k, e.c);
                 this._colossusAnims.set(k, anim);
             }
+            const hp01 = e.mhp ? e.hp / e.mhp : 1;
+            // The second phase, derived rather than read: `e.raged` never
+            // travels, but `hp`/`mhp` do, so both roles cross the threshold on
+            // the same frame off the same numbers the AI uses.
+            const raged = hp01 <= COLOSSUS_RAGE_AT;
             anim.observe(dt, {
                 x: e.x,
                 y: e.y,
-                hp01: e.mhp ? e.hp / e.mhp : 1,
+                hp01,
+                // HYDRA-07 only: the angle of the spiral arm the crown is
+                // firing right now, and how many arms it has. `e.t` travels as
+                // `tt`, so a guest computes the same pair and its crown lights
+                // the sector the bullets it can see came out of.
+                spinA: e.t * HYDRA_SPIRAL.rate,
+                arms: raged ? HYDRA_SPIRAL.ragedArms : HYDRA_SPIRAL.arms,
+                raged,
                 tel: e.tel || 0,
                 // `telK` outlives the telegraph that set it (see _updateColossus).
                 telK: e.tel > 0 ? e.telK : "",

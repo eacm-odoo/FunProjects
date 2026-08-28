@@ -2,11 +2,12 @@
 /* Part of Odoo. See LICENSE file for full copyright and licensing details.
  * Neon Strike - flight and combat animation for the colossal bosses.
  *
- * Ported from the "AEGIS-01" design studies (the Study, then the Animation
- * Sheet that reworked it), which arrived already respecting the render-only
- * contract. Same shape as `boss_animator.js`, one size up, and only AEGIS-01 is
- * covered so far: the other four colossi fall through to the plain hull draw
- * until they get a section of their own (`COLOSSUS_ANIM_KINDS` is what decides).
+ * Ported from the design studies for AEGIS-01 (the Study, then the Animation
+ * Sheet that reworked it) and for HYDRA-07 (its own Animation Sheet), which
+ * arrived already respecting the render-only contract. Same shape as
+ * `boss_animator.js`, one size up. Two of the five colossi are covered; the
+ * other three fall through to the plain hull draw until they get a section of
+ * their own (`COLOSSUS_ANIM_KINDS` is what decides).
  *
  * The sheet's one big idea is the **brightness ramp**: an effect never mixes a
  * colour, it promotes the pixel it lands on along the sprite bank's own palette
@@ -44,11 +45,36 @@
  *      DEATH is dropped outright: it would need the corpse to outlive
  *      `killEnemy`, which is gameplay, not animation.
  *
+ * HYDRA-07 arrived as a second sheet and cost the same five, plus three of
+ * its own:
+ *
+ *   6. **No per-head hit points.** The sheet gives each side head 3 hp, kills
+ *      it, speeds the crown's spiral up while it is gone and regrows it 15 s
+ *      later. That is a mechanic, not an animation: the engine has one hull
+ *      bar, `killEnemy` has no notion of a part, and nothing per-head travels
+ *      in the snapshot.
+ *   7. **Nothing moves that a cached raster cannot move.** The sheet redraws
+ *      its monster every frame, so its heads swing on bezier arms and their
+ *      snouts rotate to aim. Here the heads say where they are looking by
+ *      *where the light sits inside them* -- the promoted disc slides towards
+ *      the ships, exactly as AEGIS's core slides with the lean -- and the
+ *      recoil is the whole hull, as it is for the siege salvo.
+ *   8. **The crown does not wind up.** The sheet charges its crown for 45
+ *      frames before the spiral; `_updateColossus` spits a pair of bullets
+ *      every 9 frames with no warning at all, so the crown is *always* firing
+ *      and the only wind-up HYDRA has is the fan telegraph.
+ *
+ * What did survive is the sheet's actual idea: three parts on beats of their
+ * own, so the hull never pulses as one lamp, and a crown whose ring of light
+ * turns with the spiral it is firing -- `spinA` is the AI's own arm angle, so
+ * the lit arc cannot point anywhere except at the last pair of bullets.
+ *
  * Everything else is **render only**: the engine (or, on a guest, the host
  * snapshot) owns position, hull points, every bullet and the telegraph. This
  * reads state that already travels -- x, y, hp01, tel, telK, `gap` (the
- * position of the hole in the *next* curtain) and where the live ships are --
- * and derives the rest from observed motion.
+ * position of the hole in the *next* curtain), the spiral's arm angle (`e.t`,
+ * which travels as `tt`) and where the live ships are -- and derives the rest
+ * from observed motion.
  *
  * State cannot live on the enemy object: a guest rebuilds `this.enemies` from
  * scratch on every snapshot, so the engine keeps these animators in a map keyed
@@ -77,6 +103,21 @@ const TOP = RAMP_CHARS.length - 1;
 const DEAD_CHARS = "23";
 /** Hull cells that make up the core window: glass and hot white. */
 const CORE_CHARS = "70";
+/** The neon accent: the one index the sprite bank paints magenta on any hull. */
+const ACCENT_CHAR = "8";
+/**
+ * The three rungs that are shades of the hull's own tint (5 dark, 4 flat, 6
+ * light). They belong on any hull whether or not the art happens to use them;
+ * every other rung is a fixed colour, and one the art never uses has no
+ * business appearing under an effect (see `rungs` in `hullGeometry`).
+ */
+const TINT_RUNGS = [RUNG[5], RUNG[4], RUNG[6]];
+/**
+ * How far out of a part's own ellipse the ring of light sits: past this it is
+ * the plating around the face, under it the face itself. 0.62 on HYDRA's crown
+ * takes the horns, the sides and the collar and leaves the two eyes alone.
+ */
+const RING_INNER = 0.62;
 
 /**
  * Reference speeds are the ones `aegis_motion.js` actually produces, measured
@@ -151,10 +192,68 @@ export const COLOSSUS_ANIM = {
         rage: { holdSec: 0.83, flareSec: 0.9, ringCells: 6 },
         charge: { max: 0.55, bands: 12, falloff: 1.4 },
     },
+    HYDRA: {
+        breathe: { amp: 0.013, rate: 0.7, loadTilt: 0.4 },
+        // HYDRA actually travels -- a flat 38 px/s across a 210 px lane, with
+        // the direction flipping at the ends -- so unlike AEGIS the drift is
+        // the main term of the lean and the pull towards the ships only tips
+        // it. The catalogue promises the *heads* aim, not the hull.
+        lean: { maxRad: 0.032, velGain: 1, aimGain: 0.25, aimSpanPx: 320, aimSmooth: 2.6, smooth: 5 },
+        recoil: { px: 11, fall: 3.6 },
+        // HYDRA telegraphs one thing (the fan), so the brace *is* the wind-up:
+        // the hull judders, the crown saturates and both mouths open on it.
+        plant: { squareUp: 0.25, judderCells: 1, judderHz: 7.5, emitDrop: 0 },
+        // The crown lens, on the same machinery as AEGIS's core window and set
+        // against the same ramp: the eyes are glass around a white middle, so
+        // nothing repaints at all under k = 0.5, and the idle breath is tuned
+        // to cross it only near its peak. At rest the crown is exactly the
+        // sprite; it blinks once every 2.7 s. `squeeze` is 0 because HYDRA's
+        // lens has no charge to shrink for -- the crown never stops firing.
+        core: { base: 0.4, pulse: 0.22, rate: 0.37, sat: 0.35, squeeze: 0,
+                falloff: 0.45, biasCells: 1.6, flashSec: 0, jitter: 0.9, dim: 1.1 },
+        // The ring of light on the crown's plating, turning with the spiral.
+        // `cut` is what keeps it arcs instead of a halo: at 0.6 each of the two
+        // arms lights ~68 deg of the ellipse (~48 with the third arm of the
+        // enrage), and the square falloff puts the bright end of the arc on the
+        // cells the bullets are leaving from.
+        ring: { lift: 0.8, cut: 0.6, rageLift: 0.15 },
+        // The side heads. Different rates half a period apart, which is the one
+        // thing from the sheet that had to survive even though neither head can
+        // move: three parts that never light together. `openCells` is the mouth
+        // opening -- the promoted disc grows past the glass into the plating as
+        // the fan winds up -- and `biasCells` is the only aiming a cached
+        // raster can do.
+        heads: { idle: 0.16, pulse: 0.5, rate: [0.31, 0.35], phase: [0, 0.5],
+                 charge: 0.55, rage: 0.12, falloff: 0.35, openCells: 2.2,
+                 biasCells: 1.8, aimSpanPx: 260, aimSmooth: 3.2, dim: 1,
+                 flashSec: 0.16, flameCells: 4, flameTilt: 2 },
+        // The chest grilles: the four bars the sprite already paints in the
+        // neon accent. They ripple down the chest once per turn of the spiral,
+        // which is the only thing the chest ever says about what the crown is
+        // doing, and they drop away while the heads are winding up.
+        vents: { idle: 0.08, amp: 0.46, rowPhase: 1.1, rage: 0.3, plantDrop: 0.5 },
+        damage: {
+            start: 0.3,
+            shakePx: 5, shakeHz: 17,
+            // Lower than AEGIS's 30: HYDRA's chest is 412 cells of mid hull
+            // against AEGIS's 340 of mid hull and metal, so the same percentage
+            // puts noticeably more of the silhouette out.
+            deadCells: 24,
+            ventRate: 9, sparkLife: 0.55, sparkSpeed: 26,
+        },
+        // Same descent as AEGIS: `_updateColossus` slides every colossus in at
+        // 78 px/s, and HYDRA never moves vertically again once it is in its
+        // lane, so the threshold names the arrival without a byte on the bus.
+        entry: { vy: 45, span: 33 },
+        // 0.83 s: the 50 frames `_bossRage` holds fire. HYDRA rears up over
+        // that beat instead of AEGIS's shove, and settles as the guns come back.
+        rage: { holdSec: 0.83, flareSec: 0.9, ringCells: 6, archPx: 9 },
+        charge: { max: 0.5, bands: 12, falloff: 1.2 },
+    },
 };
 
 /** Index into COLOSSI -> section above. A colossus with no section is drawn plain. */
-export const COLOSSUS_ANIM_KINDS = ["AEGIS"];
+export const COLOSSUS_ANIM_KINDS = ["AEGIS", "HYDRA"];
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -173,6 +272,184 @@ function cellNoise(c, r) {
 const geometry = new Map();
 
 /**
+ * Bounding box of a flat [c, r, c, r, ...] cell list, with the radii an effect
+ * needs to talk about "the outer third" of it. Null for an empty list.
+ */
+function cellBox(cells) {
+    if (!cells.length) {
+        return null;
+    }
+    let c0 = Infinity;
+    let c1 = -Infinity;
+    let r0 = Infinity;
+    let r1 = -Infinity;
+    for (let i = 0; i < cells.length; i += 2) {
+        c0 = Math.min(c0, cells[i]);
+        c1 = Math.max(c1, cells[i]);
+        r0 = Math.min(r0, cells[i + 1]);
+        r1 = Math.max(r1, cells[i + 1]);
+    }
+    return {
+        c0, c1, r0, r1,
+        cx: (c0 + c1) / 2, cy: (r0 + r1) / 2,
+        rx: (c1 - c0) / 2 + 0.5, ry: (r1 - r0) / 2 + 0.5,
+    };
+}
+
+/**
+ * The crown: everything above the shoulder line, provided there is glass up
+ * there. Returns the cells, the lens (the glass) with the distance of each of
+ * its cells to the middle of it, and the ring -- the plating outside
+ * RING_INNER, carrying the *true* angle of each cell (not the ellipse-normalised
+ * one), because the lit arc has to point where the spiral arms actually fly.
+ */
+function crownOf(grid, cols, rows) {
+    const mid = cols >> 1;
+    let shoulder = 0;
+    for (let r = 0; r < rows; r++) {
+        if (grid[r][mid] === ".") {
+            continue;
+        }
+        let a = mid;
+        while (a > 0 && grid[r][a - 1] !== ".") {
+            a--;
+        }
+        let b = mid;
+        while (b < cols - 1 && grid[r][b + 1] !== ".") {
+            b++;
+        }
+        if (b - a + 1 >= cols * 0.4) {
+            shoulder = r;
+            break;
+        }
+    }
+    const cells = [];
+    const core = [];
+    for (let r = 0; r < shoulder; r++) {
+        for (let c = 0; c < cols; c++) {
+            const ch = grid[r][c];
+            if (ch === ".") {
+                continue;
+            }
+            cells.push(c, r);
+            if (CORE_CHARS.indexOf(ch) >= 0) {
+                core.push(c, r);
+            }
+        }
+    }
+    const coreBox = cellBox(core);
+    if (!coreBox) {
+        return null;
+    }
+    const box = cellBox(cells);
+    const ring = [];
+    const ringA = [];
+    for (let i = 0; i < cells.length; i += 2) {
+        const c = cells[i];
+        const r = cells[i + 1];
+        if (CORE_CHARS.indexOf(grid[r][c]) >= 0) {
+            continue;
+        }
+        const dx = (c - box.cx) / box.rx;
+        const dy = (r - box.cy) / box.ry;
+        if (Math.sqrt(dx * dx + dy * dy) <= RING_INNER) {
+            continue;
+        }
+        ring.push(c, r);
+        ringA.push(Math.atan2(r - box.cy, c - box.cx));
+    }
+    return { shoulder, cells, box, core, coreBox, ring, ringA };
+}
+
+/**
+ * The side heads: the outer two of exactly three pieces the silhouette breaks
+ * into under its widest row. Each carries its own glass -- the mouth every
+ * effect on a head is measured from -- and the radius that glass fills.
+ */
+function headsOf(grid, cols, rows) {
+    let waist = 0;
+    let widest = -1;
+    for (let r = 0; r < rows; r++) {
+        let n = 0;
+        for (let c = 0; c < cols; c++) {
+            if (grid[r][c] !== ".") {
+                n++;
+            }
+        }
+        if (n > widest) {
+            widest = n;
+            waist = r;
+        }
+    }
+    let split = -1;
+    for (let r = waist; r < rows && split < 0; r++) {
+        let runs = 0;
+        for (let c = 0; c < cols; c++) {
+            if (grid[r][c] !== "." && (c === 0 || grid[r][c - 1] === ".")) {
+                runs++;
+            }
+        }
+        if (runs >= 3) {
+            split = r;
+        }
+    }
+    if (split < 0) {
+        return null;
+    }
+    const seen = new Uint8Array(cols * rows);
+    const parts = [];
+    for (let r = split; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            if (grid[r][c] === "." || seen[r * cols + c]) {
+                continue;
+            }
+            seen[r * cols + c] = 1;
+            const stack = [c, r];
+            const cells = [];
+            while (stack.length) {
+                const y = stack.pop();
+                const x = stack.pop();
+                cells.push(x, y);
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        const nx = x + dx;
+                        const ny = y + dy;
+                        if (nx < 0 || nx >= cols || ny < split || ny >= rows
+                                || grid[ny][nx] === "." || seen[ny * cols + nx]) {
+                            continue;
+                        }
+                        seen[ny * cols + nx] = 1;
+                        stack.push(nx, ny);
+                    }
+                }
+            }
+            parts.push({ cells, box: cellBox(cells) });
+        }
+    }
+    if (parts.length !== 3) {
+        return null;
+    }
+    parts.sort((a, b) => a.box.c0 - b.box.c0);
+    const mid = cols >> 1;
+    if (parts[1].box.c0 > mid || parts[1].box.c1 < mid) {
+        return null;
+    }
+    return [parts[0], parts[2]].map((part) => {
+        const glass = [];
+        for (let i = 0; i < part.cells.length; i += 2) {
+            if (CORE_CHARS.indexOf(grid[part.cells[i + 1]][part.cells[i]]) >= 0) {
+                glass.push(part.cells[i], part.cells[i + 1]);
+            }
+        }
+        const gbox = cellBox(glass) || part.box;
+        return {
+            cells: part.cells, box: part.box, glass, gbox,
+            r: Math.max(gbox.rx, gbox.ry),
+        };
+    });
+}
+
+/**
  * Everything about a hull grid that never changes, worked out once: the ramp
  * rung of every cell, the lowest occupied row of each column (where a plume
  * hangs), the last row wide enough to count as the bottom edge (where the
@@ -183,6 +460,18 @@ const geometry = new Map();
  * that reaches below the bottom edge, and the core is the glass. Both fall out
  * of the art, so the next colossus to get a section does not have to hand-count
  * its own cells -- and neither can drift when a sprite is retouched.
+ *
+ * The same goes for the parts a hull is *built* out of, which is what HYDRA-07
+ * needs and AEGIS does not have:
+ *
+ *   - the **crown** is whatever sits above the row where the silhouette first
+ *     spans 40% of its width -- the shoulder line -- and it only counts as one
+ *     if there is glass up there to be a face;
+ *   - the **heads** are the outer two of the three pieces the silhouette breaks
+ *     into below its widest row, and only when it breaks into exactly three
+ *     with the middle one straddling the centre. AEGIS breaks into four nozzle
+ *     clusters, so it has no heads and never asks for any;
+ *   - the **vents** are the cells the sprite already paints in the neon accent.
  */
 function hullGeometry(name) {
     let geo = geometry.get(name);
@@ -196,6 +485,8 @@ function hullGeometry(name) {
     const lowest = new Int16Array(cols).fill(-1);
     const dead = [];
     const core = [];
+    const vents = [];
+    const used = new Uint8Array(TOP + 1);
     let edgeRow = rows - 1;
     for (let r = 0; r < rows; r++) {
         let filled = 0;
@@ -205,13 +496,18 @@ function hullGeometry(name) {
                 continue;
             }
             filled++;
-            cells[r * cols + c] = RUNG[ch] == null ? 0 : RUNG[ch];
+            const rung = RUNG[ch] == null ? 0 : RUNG[ch];
+            cells[r * cols + c] = rung;
+            used[rung] = 1;
             lowest[c] = r;
             if (DEAD_CHARS.indexOf(ch) >= 0) {
                 dead.push([cellNoise(c, r), c, r]);
             }
             if (CORE_CHARS.indexOf(ch) >= 0) {
                 core.push(c, r);
+            }
+            if (ch === ACCENT_CHAR) {
+                vents.push(c, r);
             }
         }
         if (cols && filled / cols >= 0.6) {
@@ -255,10 +551,37 @@ function hullGeometry(name) {
     const barrels = byDist.slice(0, 2).sort((a, b) => nozzles[a].x - nozzles[b].x);
     byDist.slice(2).forEach((i) => { nozzles[i].outer = 1; });
 
+    // A promotion may only land on a colour the hull is actually painted with.
+    // The three tint shades always belong -- they are this hull's own colour,
+    // darker and lighter -- but a fixed palette entry the art never uses does
+    // not: promoted through rung 4, a cell of HYDRA's chest would put the
+    // sprite bank's grey-blue on a violet hull. Those fold onto the nearest
+    // rung the art does use, darker side first, so an effect can only ever
+    // brighten a cell into a tone that is already on screen somewhere.
+    const rungs = new Int8Array(TOP + 1);
+    for (let i = 0; i <= TOP; i++) {
+        rungs[i] = i;
+        if (used[i] || TINT_RUNGS.indexOf(i) >= 0) {
+            continue;
+        }
+        let best = i;
+        let bestD = TOP + 1;
+        for (let j = 0; j <= TOP; j++) {
+            if (used[j] && Math.abs(j - i) < bestD) {
+                bestD = Math.abs(j - i);
+                best = j;
+            }
+        }
+        rungs[i] = best;
+    }
+
     geo = {
-        cols, rows, cells, lowest, edgeRow,
+        cols, rows, cells, lowest, edgeRow, rungs, vents,
         dead: dead.map((d) => [d[1], d[2]]),
         core, coreBox, nozzles, barrels,
+        crown: crownOf(grid, cols, rows),
+        heads: headsOf(grid, cols, rows),
+        ventBox: cellBox(vents),
     };
     geometry.set(name, geo);
     return geo;
@@ -311,6 +634,15 @@ export class ColossusAnimator {
         this.coreFlash = 0;     // seconds left of the salvo core flash
         this.gapX = null;
         this.barrels = [-1, -1];
+        // HYDRA: the crown reads the spiral it is firing straight off the AI
+        // (`spin` is the arm angle, `arms` how many there are), the enrage is a
+        // level rather than a beat, and each side head keeps its own muzzle
+        // timer and its own, slower, look at the ships.
+        this.spin = 0;
+        this.arms = 2;
+        this.rage01 = 0;
+        this.aimH = 0;
+        this.headFlash = [0, 0];
         this.sparks = [];
         this._spawn = 0;
         this._fell = false;
@@ -321,7 +653,9 @@ export class ColossusAnimator {
      * Advance the cosmetics from state the engine already owns.
      *
      * @param {number} dt seconds
-     * @param {Object} s read-only view: x, y, hp01, tel, telK, gapX, aimX
+     * @param {Object} s read-only view: x, y, hp01, tel, telK, gapX, aimX, and
+     *      for HYDRA spinA (the angle of the spiral arm the AI is firing),
+     *      arms (how many of them) and raged
      */
     observe(dt, s) {
         const t = this.t;
@@ -422,8 +756,41 @@ export class ColossusAnimator {
                 }
             }
         }
+        if (this.kind === "HYDRA") {
+            this._observeHydra(dt, s);
+        }
         this._vent(dt);
         return this;
+    }
+
+    /**
+     * The three parts of HYDRA-07: what the crown is firing, how hurt it is and
+     * where the heads are looking.
+     *
+     * The enrage is a *level* here, not the beat AEGIS gets: the phase lasts
+     * the rest of the fight, and it is read off `hp01` (which travels) against
+     * the same threshold the AI uses, so host and guest cross it on the same
+     * frame without `raged` ever going on the bus.
+     */
+    _observeHydra(dt, s) {
+        const t = this.t;
+        const g = this.g0;
+        this.spin = s.spinA || 0;
+        this.arms = s.arms || 2;
+        // Deliberately the slower of the two boolean rates in both directions:
+        // the phase takes ~0.6 s to settle, so it reads as a change of state
+        // rather than a second flash on top of the one `rage` already fires.
+        this.rage01 = ease(this.rage01, s.raged ? 1 : 0, g.boolOut, dt);
+        // The heads answer a dodge more slowly than the hull leans into one: a
+        // head that snapped onto the ships would read as a turret, which is the
+        // same reason `lean.aimSmooth` is what it is.
+        const aim = s.aimX == null ? 0 : clamp((s.aimX - s.x) / t.heads.aimSpanPx, -1, 1);
+        this.aimH = ease(this.aimH, aim, t.heads.aimSmooth, dt);
+        for (let i = 0; i < 2; i++) {
+            if (this.headFlash[i] > 0) {
+                this.headFlash[i] -= dt;
+            }
+        }
     }
 
     /** Venting sparks, in cell space, while the hull is failing. */
@@ -456,15 +823,29 @@ export class ColossusAnimator {
         }
     }
 
-    /** Cosmetic cue from the engine, mirrored to the guests over the bus. */
+    /**
+     * Cosmetic cue from the engine, mirrored to the guests over the bus.
+     *
+     * Every branch is guarded by the tuning block it needs, because a cue
+     * arrives off the wire as a name plus a colossus index: a `cfx` for a hull
+     * whose section has no barrels (or no heads) has to be ignored, not read a
+     * block that is not there and take the whole guest down with it.
+     */
     emit(name) {
-        if (name === "salvo") {
+        if (name === "salvo" && this.t.barrel) {
             this.recoil = 1;
             this.barrels[0] = 0;
             this.barrels[1] = 0;
             this.coreFlash = this.t.core.flashSec;
-        } else if (name === "curtain") {
+        } else if (name === "curtain" && this.t.curtain) {
             this.sweep = 0;
+        } else if (name === "fan" && this.t.heads) {
+            // Both of HYDRA's side heads fire in the same frame (one loop over
+            // the two offsets in `_updateColossus`), so both mouths flash and
+            // the recoil is the hull's, not a head's.
+            this.recoil = 1;
+            this.headFlash[0] = this.t.heads.flashSec;
+            this.headFlash[1] = this.t.heads.flashSec;
         } else if (name === "rage") {
             this.flare = 0;
             this.hold = this.t.rage.holdSec;
@@ -487,6 +868,31 @@ export class ColossusAnimator {
         if (this.coreFlash > 0) {
             core = Math.max(core, 1);
         }
+        // HYDRA only: the chest grilles and the two side heads. Both are levels
+        // the draw turns into promotions; the grilles carry the phase of the
+        // spiral so the ripple runs down the chest in step with the crown.
+        let vent = null;
+        let heads = null;
+        if (this.kind === "HYDRA") {
+            const v = t.vents;
+            const gain = (1 - this.plant * v.plantDrop) * (1 - 0.7 * this.dmg);
+            vent = {
+                base: (v.idle + this.rage01 * v.rage) * gain,
+                amp: v.amp * gain,
+                phase: this.spin,
+            };
+            const hd = t.heads;
+            heads = [0, 0];
+            for (let i = 0; i < 2; i++) {
+                const w = this.time * hd.rate[i] + hd.phase[i];
+                let k = hd.idle + hd.pulse * (0.5 + 0.5 * Math.sin(w * 6.2832))
+                    + this.plant * hd.charge + this.rage01 * hd.rage;
+                if (this.headFlash[i] > 0) {
+                    k = Math.max(k, 1);
+                }
+                heads[i] = k * (1 - 0.6 * this.dmg) - this.enter * hd.dim;
+            }
+        }
         return {
             vx: this.vx, vy: this.vy, vx01: this.vx01,
             lean: this.lean,
@@ -496,6 +902,11 @@ export class ColossusAnimator {
             flare: this.flare, dmg: this.dmg, enter: this.enter,
             core, coreScale: 1 - t.core.squeeze * this.plant,
             coreBias: -this.lean / t.lean.maxRad * t.core.biasCells,
+            vent, heads,
+            // The hull rears up over the enrage beat. AEGIS's block has no
+            // `archPx`, so for it this stays 0 and the transform is the one it
+            // always had.
+            archPx: (t.rage.archPx || 0) * this.charge,
         };
     }
 
@@ -553,7 +964,7 @@ export class ColossusAnimator {
 
         g.save();
         g.imageSmoothingEnabled = false;
-        g.translate(o.x + sx, o.y - p.recoilPx + sy);
+        g.translate(o.x + sx, o.y - p.recoilPx - p.archPx + sy);
         g.scale(p.breathe, p.breathe);
         // Shear the columns instead of rotating the bitmap: a slab this wide
         // pulls apart visibly past ~0.03 rad, and a rotation would soften every
@@ -563,11 +974,17 @@ export class ColossusAnimator {
         g.drawImage(cv, 0, 0, w, h);
 
         this._drawDamage(g, geo, cell, p);
-        this._drawCore(g, geo, cell, p);
-        this._drawSweep(g, geo, cell, p);
-        this._drawPort(g, geo, cell, p, o.x);
-        this._drawBarrels(g, geo, cell, p);
-        this._drawPlumes(g, geo, cell, p);
+        if (this.kind === "HYDRA") {
+            this._drawVents(g, geo, cell, p);
+            this._drawCrown(g, geo, cell, p);
+            this._drawHeads(g, geo, cell, p);
+        } else {
+            this._drawCore(g, geo, cell, p);
+            this._drawSweep(g, geo, cell, p);
+            this._drawPort(g, geo, cell, p, o.x);
+            this._drawBarrels(g, geo, cell, p);
+            this._drawPlumes(g, geo, cell, p);
+        }
         this._drawSparks(g, geo, cell);
         g.globalCompositeOperation = "lighter";
         this._drawCharge(g, cv, geo, cell, h, p);
@@ -587,7 +1004,7 @@ export class ColossusAnimator {
         if (rung < 0) {
             return;
         }
-        const to = clamp(Math.round(lift(rung, k)), 0, TOP);
+        const to = geo.rungs[clamp(Math.round(lift(rung, k)), 0, TOP)];
         if (to === rung) {
             return;
         }
@@ -778,6 +1195,137 @@ export class ColossusAnimator {
                     }
                     g.fillRect((c + tilt) * cell, (base + 1 + k) * cell, cell, cell);
                 }
+            }
+        }
+        g.globalAlpha = 1;
+    }
+
+    /**
+     * HYDRA's chest grilles: the four bars the sprite already paints in the
+     * neon accent, rippling downwards once per turn of the spiral. They sit on
+     * the tint's rung, so they cross into the light tint at k = 0.17 and into
+     * glass at 0.5 -- the idle ripple stays under the second line and only the
+     * enrage puts them there.
+     */
+    _drawVents(g, geo, cell, p) {
+        const box = geo.ventBox;
+        if (!p.vent || !box) {
+            return;
+        }
+        const span = Math.max(1, box.r1 - box.r0);
+        for (let i = 0; i < geo.vents.length; i += 2) {
+            const r = geo.vents[i + 1];
+            const ph = p.vent.phase - ((r - box.r0) / span) * this.t.vents.rowPhase;
+            const k = p.vent.base + p.vent.amp * (0.5 + 0.5 * Math.sin(ph));
+            if (k <= 0.01) {
+                continue;
+            }
+            this._promote(g, geo, cell, geo.vents[i], r, k);
+        }
+    }
+
+    /**
+     * HYDRA's crown: the lens between the eyes, and a ring of light on the
+     * plating around it turning with the spiral.
+     *
+     * The lens is AEGIS's core window on a different set of cells -- promoted
+     * from the middle outwards so a pulse spreads instead of switching, and
+     * slid towards the side the hull leans to. What is new is the ring:
+     * `this.spin` is the arm angle `_updateColossus` is firing at *this* frame,
+     * so the lit arcs cannot end up anywhere except on the cells the last pair
+     * of bullets left from. Getting that for free is the whole reason the angle
+     * is handed over instead of being reinvented here.
+     */
+    _drawCrown(g, geo, cell, p) {
+        const crown = geo.crown;
+        if (!crown) {
+            return;
+        }
+        const t = this.t;
+        const box = crown.coreBox;
+        const cx = box.cx + p.coreBias;
+        for (let i = 0; i < crown.core.length; i += 2) {
+            const c = crown.core[i];
+            const r = crown.core[i + 1];
+            const dx = (c - cx) / box.rx;
+            const dy = (r - box.cy) / box.ry;
+            const d = Math.min(1, Math.sqrt(dx * dx + dy * dy));
+            this._promote(g, geo, cell, c, r, p.core * (1 - t.core.falloff * d));
+        }
+
+        const ring = t.ring;
+        const lift = ring.lift + this.rage01 * ring.rageLift;
+        const step = 6.2832 / Math.max(1, this.arms);
+        const half = step / 2;
+        for (let i = 0, j = 0; i < crown.ring.length; i += 2, j++) {
+            // Angle to the nearest arm, folded into 0..half.
+            const d = Math.abs((((crown.ringA[j] - this.spin) % step) + step * 1.5) % step - half);
+            const k = 1 - d / half;
+            if (k <= ring.cut) {
+                continue;
+            }
+            const f = (k - ring.cut) / (1 - ring.cut);
+            this._promote(g, geo, cell, crown.ring[i], crown.ring[i + 1], lift * f * f);
+        }
+    }
+
+    /**
+     * HYDRA's two side heads. Neither can turn -- the hull is one cached raster
+     * -- so what a head does instead is move the light inside itself: the
+     * promoted disc sits on its mouth, slides towards the ships and grows out
+     * into the plating as the fan winds up. Both heads fire in the same frame,
+     * so both flash together; only the muzzle flame is drawn outside the
+     * silhouette, hanging off the columns under the mouth for the same reason
+     * AEGIS's barrel flame does -- that is where the bullets leave from.
+     */
+    _drawHeads(g, geo, cell, p) {
+        const heads = geo.heads;
+        if (!heads || !p.heads) {
+            return;
+        }
+        const t = this.t.heads;
+        const open = t.openCells * clamp01(this.plant);
+        for (let i = 0; i < heads.length && i < 2; i++) {
+            const head = heads[i];
+            const k = p.heads[i];
+            if (k <= 0.02) {
+                continue;
+            }
+            const rad = head.r + open;
+            const cx = head.gbox.cx + this.aimH * t.biasCells;
+            for (let n = 0; n < head.cells.length; n += 2) {
+                const c = head.cells[n];
+                const r = head.cells[n + 1];
+                const dx = c - cx;
+                const dy = r - head.gbox.cy;
+                const d = Math.sqrt(dx * dx + dy * dy);
+                if (d > rad) {
+                    continue;
+                }
+                this._promote(g, geo, cell, c, r, k * (1 - t.falloff * (d / rad)));
+            }
+            if (this.headFlash[i] > 0) {
+                this._drawMuzzle(g, geo, cell, head, clamp01(this.headFlash[i] / t.flashSec));
+            }
+        }
+    }
+
+    /** The fan leaving a mouth: cells under the head's own bottom edge. */
+    _drawMuzzle(g, geo, cell, head, a) {
+        const t = this.t.heads;
+        for (let c = Math.round(head.gbox.c0); c <= Math.round(head.gbox.c1); c++) {
+            const base = geo.lowest[c];
+            if (base < 0) {
+                continue;
+            }
+            for (let k = 1; k <= t.flameCells; k++) {
+                const f = 1 - (k - 1) / t.flameCells;
+                // Leaning the way the fan was thrown, and in solid ramp
+                // rungs, so the flame stays pixel art instead of a gradient.
+                const tilt = Math.round(this.aimH * t.flameTilt * (k / t.flameCells));
+                g.globalAlpha = a * f;
+                g.fillStyle = this.ramp[k > 2 ? RUNG[4] : k > 1 ? TOP - 1 : TOP];
+                g.fillRect((c + tilt) * cell, (base + k) * cell, cell, cell);
             }
         }
         g.globalAlpha = 1;
