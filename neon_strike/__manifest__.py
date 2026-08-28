@@ -3,7 +3,7 @@
 # UI palette follows Odoo brand assets: https://www.odoo.com/page/brand-assets
 {
     "name": "Neon Strike",
-    "version": "19.0.18.0.0",
+    "version": "19.0.19.0.0",
     "category": "Productivity",
     "summary": "Neon arcade space shooter, playable without a login on a public page",
     "description": """
@@ -58,6 +58,12 @@ playable **without an account**: pick a nickname and go.
   is, and drains as you wear it down) and it dies by splitting on its own axis
   of symmetry, both halves carrying the drift it had. All of it sampled from one
   shared timeline, so thirty of them cost one image draw each
+* The second drone chassis is a cross, and it does none of that the same way:
+  it cannot lean, so it turns, speeding up through the middle of a sweep and
+  almost stalling right as it is about to reverse; it announces the turn with
+  the tips of the two arms on that side; and it comes apart radially, the four
+  arms letting go first and still tumbling while the core folds last. Same
+  hull-points scale as the first chassis, so the read carries between them
 * Bullet-hell fundamentals: the hitbox is a 6.5 px dot drawn on the hull (the
   ship sprite is five times wider), Shift focuses for precision movement and
   shows it, and skimming past enemy fire without being hit builds the combo

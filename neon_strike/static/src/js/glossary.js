@@ -49,7 +49,7 @@ export const GLOSSARY = [
                 sprite: "drone1", tint: "#ff5d8f", px: 8,
                 label: "DRONE · B", sub: "cross chassis · 100 pts",
                 practice: { type: "drone", v: 1 },
-                desc: "Same threat as A, different chassis. It reads the same way: brighter core, more hull left.",
+                desc: "Same threat as A on a cross chassis, and it moves like one: instead of leaning it turns, fastest across the middle of a sweep and almost stopped just before it reverses. The tips of the two arms on one side light up before it goes that way, and when it dies the four arms let go first and the core folds last. It reads the same as A: brighter core, more hull left.",
             },
             {
                 sprite: "speedy0", tint: "#ffd166", px: 9,
