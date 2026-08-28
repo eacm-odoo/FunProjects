@@ -26,7 +26,7 @@ import { COLOSSUS_ANIM_KINDS, ColossusAnimator, hullParts } from "./colossus_ani
 import { DRONE_ANIM, drawDrone, drawDroneWreck, droneTier } from "./drone_animator";
 import { AegisMotion } from "./aegis_motion";
 import { VulcanMotion } from "./vulcan_motion";
-import { Backdrop, backgroundForWave } from "./backgrounds";
+import { BG_SCRIM, Backdrop, backgroundForWave } from "./backgrounds";
 const REVIVE_FRAMES = 120;
 const COMBO_MAX = 25;
 // The hitbox is deliberately far smaller than the hull: the sprite is ~32
@@ -294,11 +294,6 @@ const BEAM_FORGE = {
     // where it crosses rather than at its far end, which is off screen.
     bloom: { at: 0.42, rx: 0.85, ry: 0.5, a: 0.3 },
 };
-// Veil between the backdrop and the play field. Nine of the 27 places (lava,
-// supernova, binary, black hole, graveyard...) paint in the same warm reds and
-// the same 1-3 px motes the enemy bullets use, and in `lighter` they add up
-// until a bullet is indistinguishable from scenery.
-const BG_SCRIM = "rgba(5,6,14,0.30)";
 // Ship pixel size: a 16 px grid -> ~32 logical px wide.
 const SHIP_PX = pxFor("ship0", 30);
 const PUP_PX = pxFor("pupT", 30);

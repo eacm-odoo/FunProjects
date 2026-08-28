@@ -10,9 +10,12 @@
  * `px` is the pixel size the card is rasterized at (~120-130 px wide for all of
  * them, whatever the sprite grid is).
  *
- * The boss and colossal boss groups are generated from `bosses.js` and
- * `colossi.js` so their names and behaviour lines never drift from the ones
- * the engine uses.
+ * The boss, colossal boss and place groups are generated from `bosses.js`,
+ * `colossi.js` and `backgrounds.js` so their names and behaviour lines never
+ * drift from the ones the engine uses.
+ *
+ * Places carry a `bg` (the backdrop descriptor) instead of a `sprite`: their
+ * card art is a still painted by `backdropThumb`, not a rasterized sprite.
  *
  * An item that carries `practice` can be fought on its own: the card grows a
  * button and the engine is started with that descriptor (see `practice` in
@@ -21,6 +24,7 @@
  * nothing about the roster has to be repeated in Python.
  */
 
+import { BACKGROUNDS } from "./backgrounds";
 import { BOSSES } from "./bosses";
 import { COLOSSI } from "./colossi";
 import { SHIPS } from "./ships";
@@ -130,6 +134,22 @@ export const GLOSSARY = [
             sub: c.title.toLowerCase() + " · wave " + (COLOSSI.indexOf(c) + 1) * 10,
             desc: c.desc,
             practice: { colossus: COLOSSI.indexOf(c) },
+        })),
+    },
+    {
+        title: "PLACES",
+        note:
+            "The place a wave is fought in, one per wave and in this order: wave " +
+            BACKGROUNDS.length + " is the last of them and wave " + (BACKGROUNDS.length + 1) +
+            " starts the route again. The name flashes over the arena the moment you cross " +
+            "into a new one. They are scenery and nothing else: no place changes what spawns, " +
+            "how it shoots or what you score, and everybody in a co-op run flies the same sky.",
+        // Straight from the catalogue the engine paints from, in run order.
+        items: BACKGROUNDS.map((b, i) => ({
+            bg: b, tint: b.tint,
+            label: b.name,
+            sub: "wave " + (i + 1) + " · then every " + BACKGROUNDS.length,
+            desc: b.desc,
         })),
     },
     {

@@ -254,8 +254,10 @@
                         <div class="ns_glossary_group_head" t-out="group.title"/>
                         <p t-if="group.note" class="ns_glossary_note" t-out="group.note"/>
                         <div class="ns_glossary_grid">
-                            <div t-foreach="group.items" t-as="item" t-key="item.sprite" class="ns_glossary_card">
-                                <div class="ns_glossary_art">
+                            <div t-foreach="group.items" t-as="item" t-key="item.label" class="ns_glossary_card">
+                                <!-- Places are wide painted stills, not pixel art: their
+                                     frame fills the card and is not rendered pixelated. -->
+                                <div class="ns_glossary_art" t-att-class="{ ns_glossary_art_wide: item.bg }">
                                     <img t-att-src="item.src" t-att-alt="item.label"/>
                                 </div>
                                 <div class="ns_glossary_label" t-out="item.label"/>

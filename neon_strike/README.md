@@ -76,7 +76,8 @@ arms off before the core folds. Both read the same way: brighter core, more
 hull.
 
 The **Ships, enemies and powers** button in the menu opens a glossary of every
-ship, enemy, boss, colossus, capsule and perk.
+ship, enemy, boss, colossus, capsule and perk, and of the 27 places the run
+flies through — each one with a still of its sky and the wave it comes up on.
 
 Found a bug or have an idea? The **Report a bug or an idea** button in the menu
 (and the **Feedback** button in the toolbar while playing) opens a panel where
@@ -99,6 +100,7 @@ others paste it and hit **Join**. The host starts the match.
 | Drone animation | `static/src/js/drone_animator.js` | The drone kit for both chassis: lean or rotation, turn telegraph, hull points read off the sprite, and the death (split on the axis, or radial). One shared timeline for every drone on screen, one image draw each |
 | Sprite bank | `static/src/js/sprites.js` | Pixel art as character grids, re-tinted at draw time and cached. 24 sprites |
 | Glossary | `static/src/js/glossary.js` | Data-only catalogue feeding the in-menu "Ships, enemies and powers" panel |
+| Backgrounds | `static/src/js/backgrounds.js` | The 27 places a run flies through, one per wave and cycling: painters, the `Backdrop` that runs them, and the stills the glossary shows |
 | Menu backdrop | `static/src/js/menu_backdrop.js` | Decorative "attract mode" behind the start menu |
 | OWL component | `static/src/js/neon_strike_game.js` | `NeonStrikeGame`, mounted as a standalone OWL app on the public page |
 | Templates | `static/src/xml/neon_strike_templates.xml` | Toolbar, menu, lobby, glossary and leaderboard |

@@ -6,6 +6,7 @@ import { rpc } from "@web/core/network/rpc";
 import { useService } from "@web/core/utils/hooks";
 import { makeEnv, startServices } from "@web/env";
 import { getTemplate } from "@web/core/templates";
+import { backdropThumb } from "./backgrounds";
 import { NeonStrikeEngine } from "./game_engine";
 import { MenuBackdrop } from "./menu_backdrop";
 import { GLOSSARY } from "./glossary";
@@ -214,8 +215,8 @@ export class NeonStrikeGame extends Component {
 
     /**
      * Glossary groups with every card already rasterized to a data URL.
-     * Computed once and cached: `toDataURL()` is not cheap and the getter runs
-     * on every render of the panel.
+     * Computed once and cached: `toDataURL()` is not cheap, painting the 27
+     * places even less so, and the getter runs on every render of the panel.
      */
     get glossaryGroups() {
         if (!this._glossary) {
@@ -223,7 +224,10 @@ export class NeonStrikeGame extends Component {
                 ...group,
                 items: group.items.map((item) => ({
                     ...item,
-                    src: sprite(item.sprite, item.tint, item.px, false).toDataURL(),
+                    // A place is a painted still, everything else a sprite.
+                    src: item.bg
+                        ? backdropThumb(item.bg).toDataURL()
+                        : sprite(item.sprite, item.tint, item.px, false).toDataURL(),
                 })),
             }));
         }

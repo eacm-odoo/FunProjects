@@ -17,6 +17,9 @@
  * Painters draw in **logical arena coordinates** (the 680x540 space), over the
  * box the camera can reach when it pulls back for a colossus.
  *
+ * Each entry also carries the `desc` the glossary shows, so the catalogue of
+ * places lives here and not in a second list that would drift from it.
+ *
  * `BACKGROUNDS` order is the order they show up in a run: append at the end.
  */
 
@@ -25,6 +28,22 @@ const LAYER_SCALE = 0.5;
 // Slow parallax breathing applied to the static layer, in logical pixels. The
 // baked box is this much taller on each side so the edge never shows.
 const DRIFT = 14;
+// Veil between the backdrop and the play field. Nine of the 27 places (lava,
+// supernova, binary, black hole, graveyard...) paint in the same warm reds and
+// the same 1-3 px motes the enemy bullets use, and in `lighter` they add up
+// until a bullet is indistinguishable from scenery. The engine lays it over
+// the backdrop, and so does the glossary thumbnail: the card has to show what
+// you actually fly in, not the unveiled art.
+export const BG_SCRIM = "rgba(5,6,14,0.30)";
+// The arena the glossary thumbnails are composed in. Painters place things in
+// logical pixels, so a still has to be taken at the size they were written for
+// and scaled down afterwards, not painted small.
+const THUMB_W = 680;
+const THUMB_H = 540;
+// Frames of warm-up before the still is taken, so the live painters have
+// something on screen. The comet sets the number: it starts off the left edge
+// and needs about this long to reach the middle.
+const THUMB_WARMUP = 1500;
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                     */
@@ -830,110 +849,139 @@ function surface(g, bd, cx, cy, r, p) {
 /* -------------------------------------------------------------------------- */
 
 export const BACKGROUNDS = [
-    { id: "deep", name: "DEEP SPACE", tint: "#8be9ff", kind: "void", p: {} },
+    {
+        id: "deep", name: "DEEP SPACE", tint: "#8be9ff", kind: "void", p: {},
+        desc: "The sky the star field has all to itself: no gas, no world, nothing painted behind you. Wave 1 is fought in the only place with nothing in it.",
+    },
     {
         id: "planet_blue", name: "BLUE MARBLE", tint: "#7fb6ff", kind: "planet",
         p: { cx: 0.16, cy: 0.86, r: 0.62, lit: 1, base: "#123a6b", hi: "#3f8fd8", land: "#4fb08a", atmo: "#8fd0ff", style: "marble", star: "#fff2c4" },
+        desc: "A living world sitting low on the left, close enough to make out continents through the blue rim of its atmosphere. The star is off to one side, so the far half of it is unlit.",
     },
     {
         id: "nebula_violet", name: "VIOLET NEBULA", tint: "#c9a4ff", kind: "nebula",
         p: { c1: "#8a4fff", c2: "#ff4fa8" },
+        desc: "Violet and pink gas stacked in soft layers, with dark dust lanes cutting across it and stars showing through wherever it thins out.",
     },
     {
         id: "belt", name: "ASTEROID BELT", tint: "#c7b8a8", kind: "belt",
         p: { base: "#6b6154", hi: "#c9bda8" },
+        desc: "Rocks as far out as you can see. They are scenery and cannot be shot: the asteroids that can kill you are the near ones the wave spawns.",
     },
     {
         id: "blackhole", name: "EVENT HORIZON", tint: "#ffb35e", kind: "blackhole",
         p: { c1: "#ff9d3c", c2: "#5ecbff" },
+        desc: "A singularity just above the arena with its accretion disc turning around it. The dust is on real orbits: grains spiral in, go bright as they pick up speed and are gone the moment they reach the horizon.",
     },
     {
         id: "gas_giant", name: "GAS GIANT DESCENT", tint: "#ffca8a", kind: "surface",
         p: { sky: ["#3a1f12", "#8a4a1e", "#d98b3a"], band: "#ffd9a0", speed: 0.8, motes: null },
+        desc: "Inside the cloud deck of a gas giant. Amber bands scroll past and the sky runs from near black at the top to lit haze at the bottom.",
     },
     {
         id: "system", name: "INNER SYSTEM", tint: "#ffe9a8", kind: "system",
         p: { cx: 0.28, cy: 0.12, star: "#ffd66b" },
+        desc: "A whole system seen from outside it: a yellow star with five planets strung along wide tilted orbits.",
     },
     {
         id: "ice_world", name: "ICE WORLD", tint: "#bfe9ff", kind: "surface",
         p: { sky: ["#0b2438", "#2a6a8f", "#a9dcf2"], band: "#e6f7ff", speed: 0.5, motes: "snow", moteColor: "#ffffff" },
+        desc: "Snow falling across a pale blue sky, with cloud banks drifting behind it. The slowest weather of any of the places.",
     },
     {
         id: "comet", name: "COMET TRAIL", tint: "#a8f0ff", kind: "comet",
         p: { c1: "#a8f0ff", c2: "#ffd66b" },
+        desc: "A comet crossing on its way in, tail streaming off the head and pointing away from the star. It crosses, leaves and comes round again.",
     },
     {
         id: "ringed", name: "RINGED GIANT", tint: "#e8c98f", kind: "planet",
         p: { cx: 0.78, cy: 0.2, r: 0.5, lit: -1, base: "#6b4a22", hi: "#e2b877", atmo: "#ffd9a0", style: "gas", rings: true, ringColor: "#e8d6b0" },
+        desc: "A banded giant filling the top right, with its rings passing behind the body and back out in front of it.",
     },
     {
         id: "lava_world", name: "MOLTEN WORLD", tint: "#ff7a45", kind: "surface",
         p: { sky: ["#1a0603", "#5e1206", "#c23a10"], band: "#ff8a3c", speed: 1.1, motes: "ember", moteColor: "#ffb066", lightning: false },
+        desc: "Low over molten ground: red sky and embers rising instead of falling. It paints in the same reds as enemy fire, which is why the backdrop sits behind a veil.",
     },
     {
         id: "pulsar", name: "PULSAR", tint: "#8fd8ff", kind: "pulsar",
         p: { c1: "#8fd8ff" },
+        desc: "A neutron star turning fast overhead, sweeping two beams of light past the arena every couple of seconds.",
     },
     {
         id: "graveyard", name: "SHIP GRAVEYARD", tint: "#9aa6c4", kind: "graveyard",
         p: { base: "#2b3350", hi: "#ff8f5e" },
+        desc: "Hulls left where they died, tumbled at every angle and going nowhere. A few panels on them still have power and blink.",
     },
     {
         id: "ocean_world", name: "OCEAN WORLD", tint: "#5ee1ff", kind: "surface",
         p: { sky: ["#04202c", "#0a5a72", "#3fb6c9"], band: "#9ff2ff", speed: 0.6, motes: "spore", moteColor: "#bffaff" },
+        desc: "Over open water: teal sky, long cloud banks and spores drifting up through them.",
     },
     {
         id: "aurora", name: "ION STORM", tint: "#7bffb0", kind: "aurora",
         p: { c1: "#7bffb0", c2: "#5ee1ff" },
+        desc: "Charged particles hitting a magnetosphere. Curtains of green and cyan light lean and swing across the whole sky.",
     },
     {
         id: "moon", name: "LOW MOON ORBIT", tint: "#d6d2c8", kind: "moon",
         p: { base: "#1b1c26", hi: "#c8c4b8" },
+        desc: "Low over an airless moon: craters below and a hard horizon, with no atmosphere to soften the edge.",
     },
     {
         id: "nebula_emerald", name: "EMERALD NEBULA", tint: "#7bffb0", kind: "nebula",
         p: { c1: "#25c07a", c2: "#5ee1ff" },
+        desc: "The same kind of cloud as the violet nebula, in green and cyan: layered gas, dust lanes and stars behind it.",
     },
     {
         id: "jungle_world", name: "JUNGLE WORLD", tint: "#9ade6b", kind: "surface",
         p: { sky: ["#0a2413", "#1f5a24", "#6fae4a"], band: "#c9f08a", speed: 0.7, motes: "spore", moteColor: "#d9ff9a" },
+        desc: "Green haze over a canopy, with spores rising through the cloud bands.",
     },
     {
         id: "binary", name: "BINARY SUNS", tint: "#ffd66b", kind: "binary",
         p: { a: "#ffd66b", b: "#ff6b8a" },
+        desc: "Two stars locked together, a gold one above and a small red one below, with the gas bridge streaming between them.",
     },
     {
         id: "station", name: "ORBITAL STATION", tint: "#9fd4ff", kind: "station",
         p: { cx: 0.72, cy: 0.18, r: 0.3, base: "#2f3a56", hi: "#8fe0ff" },
+        desc: "A ring station still lit, turning slowly at the top right with lights blinking around the rim. Somebody out here is still home.",
     },
     {
         id: "desert_world", name: "DESERT WORLD", tint: "#e8c07a", kind: "surface",
         p: { sky: ["#2a1a08", "#8a6220", "#e0b874"], band: "#ffe2a8", speed: 0.9, motes: "sand", moteColor: "#ffe2a8" },
+        desc: "Sand blowing across an ochre sky, thick enough that you can read the wind in it.",
     },
     {
         id: "supernova", name: "SUPERNOVA", tint: "#ff8f5e", kind: "supernova",
         p: { c1: "#ffb45e", c2: "#ff4f7a" },
+        desc: "A star tearing itself apart. Shock rings expand out of the remnant one after another while the core flickers. Another place that shares its colours with enemy fire.",
     },
     {
         id: "crystal", name: "CRYSTAL FIELD", tint: "#a8d8ff", kind: "crystal",
         p: { c1: "#a8d8ff", c2: "#c9a4ff" },
+        desc: "Ice shards big enough to hold themselves together, each one catching the light down its length.",
     },
     {
         id: "storm_world", name: "STORM WORLD", tint: "#b9a8ff", kind: "surface",
         p: { sky: ["#0a0a1e", "#2b2350", "#5b4e8a"], band: "#c9b8ff", speed: 1.4, motes: null, lightning: true },
+        desc: "The night side of a storm world: violet cloud running faster than anywhere else, and lightning that lights the whole sky from behind.",
     },
     {
         id: "eclipse", name: "ECLIPSE", tint: "#ffd9a0", kind: "planet",
         p: { cx: 0.5, cy: 0.1, r: 0.42, lit: -1, base: "#0b0d18", hi: "#2a2f4a", atmo: "#ffd9a0", style: "rock", star: "#fff2c4" },
+        desc: "A dead world dead ahead with the star behind it, so what you get is the ring of atmosphere burning around a black disc.",
     },
     {
         id: "galaxy", name: "GALACTIC CORE", tint: "#ffd6a8", kind: "galaxy",
         p: { c1: "#ffd6a8", c2: "#8fb6ff" },
+        desc: "Looking straight into the crowded middle of the galaxy: two arms of stars wound around a core bright enough to read by.",
     },
     {
         id: "wormhole", name: "WORMHOLE", tint: "#c9a4ff", kind: "wormhole",
         p: { c1: "#c9a4ff", c2: "#5ee1ff" },
+        desc: "The mouth of a tunnel, straight ahead. Rings of light rush out of it, each one turning against the one before it.",
     },
 ];
 
@@ -956,12 +1004,16 @@ export class Backdrop {
      * @param {object} def - one entry of BACKGROUNDS
      * @param {number} W - logical arena width
      * @param {number} H - logical arena height
+     * @param {number} [layerScale] - resolution of the baked static layer, as a
+     *  fraction of the logical size. The glossary thumbnails pass their own:
+     *  baking a 130 px card at half the arena resolution is wasted work.
      */
-    constructor(def, W, H) {
+    constructor(def, W, H, layerScale = LAYER_SCALE) {
         this.def = def;
         this.p = def.p || {};
         this.W = W;
         this.H = H;
+        this.layerScale = layerScale;
         // The box the camera can reach: the arena plus the margin the star
         // field already covers, plus room for the parallax drift.
         const mx = W * 0.55;
@@ -986,13 +1038,14 @@ export class Backdrop {
         }
     }
 
-    /** Render the static art once, at half resolution, in logical coordinates. */
+    /** Render the static art once, at reduced resolution, in logical coordinates. */
     _bake() {
+        const k = this.layerScale;
         const cv = document.createElement("canvas");
-        cv.width = Math.max(1, Math.round(this.w * LAYER_SCALE));
-        cv.height = Math.max(1, Math.round(this.h * LAYER_SCALE));
+        cv.width = Math.max(1, Math.round(this.w * k));
+        cv.height = Math.max(1, Math.round(this.h * k));
         const g = cv.getContext("2d");
-        g.scale(LAYER_SCALE, LAYER_SCALE);
+        g.scale(k, k);
         g.translate(-this.x0, -this.y0);
         this.painter.paint(this, g);
         this.layer = cv;
@@ -1021,4 +1074,69 @@ export class Backdrop {
         }
         g.restore();
     }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Thumbnails                                                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A still of one place, for the glossary card. The painters are written in
+ * logical arena pixels, so the frame is composed at arena size and the canvas
+ * is scaled down under them; painting it small would shrink the sky but not
+ * the things in it.
+ *
+ * The live painters are stepped forward first, otherwise half the catalogue
+ * would come out as an empty box: the comet is still off screen, the shock
+ * rings have not left the remnant and the beams have not turned. Only the
+ * painters that actually keep state are stepped; the ones that just read the
+ * clock are taken straight to the same instant.
+ *
+ * @param {object} def - one entry of BACKGROUNDS
+ * @param {number} [w] - width of the still, in device pixels
+ * @returns {HTMLCanvasElement}
+ */
+export function backdropThumb(def, w = 272) {
+    const k = w / THUMB_W;
+    const h = Math.round(THUMB_H * k);
+    const cv = document.createElement("canvas");
+    cv.width = w;
+    cv.height = h;
+    const g = cv.getContext("2d");
+    g.fillStyle = "#05060e";
+    g.fillRect(0, 0, w, h);
+    g.save();
+    g.scale(k, k);
+    // Only the arena: the painters cover the whole box the camera can reach,
+    // and the card is meant to show the part you fly in.
+    g.beginPath();
+    g.rect(0, 0, THUMB_W, THUMB_H);
+    g.clip();
+    const bd = new Backdrop(def, THUMB_W, THUMB_H, k);
+    if (bd.painter.update) {
+        for (let i = 0; i < THUMB_WARMUP; i++) {
+            bd.update(1);
+        }
+    } else {
+        bd.t = THUMB_WARMUP;
+    }
+    bd.draw(g);
+    g.fillStyle = BG_SCRIM;
+    g.fillRect(0, 0, THUMB_W, THUMB_H);
+    // The star field on top, the way the engine layers it: it is the near
+    // layer, and for DEEP SPACE it is the whole picture. Same density the
+    // arena shows in game, seeded off the id so a place always looks itself.
+    const rng = mkRng(hash(def.id + "stars"));
+    for (let i = 0; i < 44; i++) {
+        const x = rng() * THUMB_W;
+        const y = rng() * THUMB_H;
+        const z = rng() * 2 + 0.5;
+        // At this scale a sub-pixel star washes out, so it never goes under one
+        // device pixel wide.
+        const s = Math.max(1 / k, rng() * 1.4 + 0.4);
+        g.fillStyle = "rgba(200,220,255," + (0.25 + z * 0.25) + ")";
+        g.fillRect(x, y, s, s + z * 2);
+    }
+    g.restore();
+    return cv;
 }
