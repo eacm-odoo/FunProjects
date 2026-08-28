@@ -43,13 +43,13 @@ export const GLOSSARY = [
                 sprite: "drone0", tint: "#ff5d8f", px: 8,
                 label: "DRONE · A", sub: "diamond chassis · 100 pts",
                 practice: { type: "drone", v: 0 },
-                desc: "Drifts down in a gentle zigzag. One shot kills it early on; it grows a point of hull every 9 waves.",
+                desc: "Drifts down in a gentle zigzag, leaning into it. One shot kills it early on; it grows a point of hull every 9 waves, and you can read how many it has left off the hull itself: the brighter the core, the more it is going to take. The lamps on one side light up just before it turns that way.",
             },
             {
                 sprite: "drone1", tint: "#ff5d8f", px: 8,
                 label: "DRONE · B", sub: "cross chassis · 100 pts",
                 practice: { type: "drone", v: 1 },
-                desc: "Same threat as A, different chassis.",
+                desc: "Same threat as A, different chassis. It reads the same way: brighter core, more hull left.",
             },
             {
                 sprite: "speedy0", tint: "#ffd166", px: 9,

@@ -23,6 +23,7 @@ import { SHIPS, SHIP_COLORS } from "./ships";
 import { ShipFlight } from "./ship_flight";
 import { BossAnimator } from "./boss_animator";
 import { COLOSSUS_ANIM_KINDS, ColossusAnimator, hullParts } from "./colossus_animator";
+import { DRONE_ANIM, drawDrone, drawDroneWreck, droneTier } from "./drone_animator";
 import { AegisMotion } from "./aegis_motion";
 import { VulcanMotion } from "./vulcan_motion";
 import { Backdrop, backgroundForWave } from "./backgrounds";
@@ -429,6 +430,9 @@ export class NeonStrikeEngine {
         this.decoys = [];
         // Arc Capacitor bolts: cosmetic, they live one blink (also on guests).
         this.zaps = [];
+        // Dead drones coming apart (see `drone_animator.js`). Cosmetic and
+        // capped: a bomb can sweep thirty hulls on one frame.
+        this.wrecks = [];
         // Colossus beams (telegraphed, then lethal).
         this.beams = [];
         // Global timers driven by actives: frozen bullets and slowed enemies.
@@ -912,6 +916,9 @@ export class NeonStrikeEngine {
             this.burst(ev.x, ev.y, ev.c || "#ffffff", ev.b ? 70 : 22, ev.b ? 7 : 4.5);
             this.burst(ev.x, ev.y, "#ffffff", ev.b ? 24 : 6, 3);
             if (ev.b) { this.sBigBoom(); } else { this.sBoom(); }
+            if (ev.dr) {
+                this._droneWreck(ev.x, ev.y, ev.dr);
+            }
         } else if (ev.k === "hit") {
             this.burst(ev.x, ev.y, ev.c || "#5ee1ff", 40, 6);
             this.sHit();
@@ -1803,7 +1810,18 @@ export class NeonStrikeEngine {
         }
         this.burst(e.x, e.y, e.c, big ? 90 : 24, big ? 8 : 4.5);
         this.burst(e.x, e.y, "#ffffff", big ? 30 : 8, 3);
-        this._ev({ k: "boom", x: e.x, y: e.y, c: e.c, b: big ? 1 : 0 });
+        const boom = { k: "boom", x: e.x, y: e.y, c: e.c, b: big ? 1 : 0 };
+        if (e.type === "drone") {
+            // The hull comes apart instead of simply ceasing to exist. It
+            // rides on the kill cue every enemy already sends rather than an
+            // event of its own -- three small numbers, and drones die in
+            // dozens. The husk wears whatever hull was left, which is the
+            // bottom tier for anything ground down; the five frames of white
+            // silhouette the wreck opens with cover the step on an overkill.
+            boom.dr = [e.v || 0, droneTier(Math.max(1, Math.ceil(e.hp))), Math.round(e.t)];
+            this._droneWreck(e.x, e.y, boom.dr);
+        }
+        this._ev(boom);
         if (killer && killer.dash > 0 && killer.flags.dash_refund) {
             // Kinetic Recharge: kills during the dash give the charge back.
             killer.dashCharges = Math.min(killer.dashMax, killer.dashCharges + 1);
@@ -1998,6 +2016,7 @@ export class NeonStrikeEngine {
         this.holes = [];
         this.decoys = [];
         this.zaps = [];
+        this.wrecks = [];
         this.beams = [];
         this._bossAnims.clear();
         this._colossusAnims.clear();
@@ -4170,7 +4189,11 @@ export class NeonStrikeEngine {
                 this._updateColossus(e, mv);
             } else if (e.type === "drone") {
                 e.y += (1.2 + this.wave * 0.05) * mv;
-                e.x += Math.sin(e.t * 0.05) * 1.1 * mv;
+                // The zigzag lives in `DRONE_ANIM.drift`, not here: the animator
+                // reads the lean, the eyes and the turn telegraph off this exact
+                // sine (see `dronePose`), and a second copy of the rate would
+                // point the lean the wrong way the first time it is retuned.
+                e.x += Math.sin(e.t * DRONE_ANIM.drift.rate) * DRONE_ANIM.drift.ampPx * mv;
             } else if (e.type === "speedy") {
                 e.y += (3 + this.wave * 0.08) * mv;
                 const tgt = this._target(e.x, e.y);
@@ -4521,7 +4544,39 @@ export class NeonStrikeEngine {
         }
     }
 
+    /**
+     * A drone coming apart, from the three numbers its kill cue carries:
+     * chassis, hull tier and the clock it died on. Everything else the wreck is
+     * drawn from -- the lean it was in, the drift it keeps, how far the halves
+     * have travelled -- is a pure function of those and its own age, so a guest
+     * that only ever receives the cue draws the same wreck as the host.
+     *
+     * @param {number} x
+     * @param {number} y
+     * @param {Array} dr `[variant, tier, clock]`
+     */
+    _droneWreck(x, y, dr) {
+        if (this.wrecks.length >= DRONE_ANIM.maxWrecks) {
+            this.wrecks.shift();
+        }
+        const name = ENEMY_SPRITES.drone[(dr[0] || 0) % ENEMY_SPRITES.drone.length];
+        this.wrecks.push({
+            name, x, y, t: 0,
+            tint: this._enemyColor("drone"),
+            px: pxFor(name, this._enemyR("drone") * 2),
+            tier: dr[1] || 1,
+            t0: dr[2] || 0,
+        });
+    }
+
     _updateFx(ts) {
+        for (let i = this.wrecks.length - 1; i >= 0; i--) {
+            const w = this.wrecks[i];
+            w.t += ts;
+            if (w.t >= DRONE_ANIM.death.frames) {
+                this.wrecks.splice(i, 1);
+            }
+        }
         for (let i = this.parts.length - 1; i >= 0; i--) {
             const p = this.parts[i];
             p.x += p.vx * ts;
@@ -5389,6 +5444,15 @@ export class NeonStrikeEngine {
             } else {
                 drawSprite(g, name, e.x, e.y, { tint: e.c, px: pxFor(name, e.r * 2), flash });
             }
+        } else if (e.type === "drone") {
+            // The drone kit: the lean, the eyes, the hull tier and the turn
+            // telegraph, all sampled from `e.t` and `e.hp` (see
+            // `drone_animator.js`). Still one `drawImage` per hull, which is the
+            // point of it -- there can be thirty of these on screen.
+            drawDrone(g, {
+                name, tint: e.c, px: pxFor(name, e.r * 2),
+                x: e.x, y: e.y, t: e.t, hp: e.hp, flash,
+            });
         } else {
             drawSprite(g, name, e.x, e.y, {
                 tint: e.c,
@@ -5616,6 +5680,11 @@ export class NeonStrikeEngine {
             g.restore();
             // The capsule carries the glyph drawn in the pixel grid itself.
             drawSprite(g, "pup" + p.t, p.x, p.y + bob, { tint: col, px: PUP_PX });
+        }
+        // Under the living hulls: a wreck is scenery, and a drone flying over
+        // one must not be hidden by it.
+        for (const w of this.wrecks) {
+            drawDroneWreck(g, w);
         }
         for (const e of this.enemies) {
             this.drawEnemy(e);

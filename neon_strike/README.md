@@ -65,6 +65,12 @@ you can fly), and supply capsules keep falling while a boss is up — on a timer
 and every time you chip a quarter off its health — so you are not stuck with the
 plain shot for the whole fight.
 
+The small fry tell you what they are up to. A **drone** leans into its zigzag
+and lights the lamps on the side it is about to turn towards a moment before it
+turns, and how much hull it has left is readable off the sprite itself, no HUD:
+the brighter its core, the more shots it is going to take, and it dims as you
+wear it down.
+
 The **Ships, enemies and powers** button in the menu opens a glossary of every
 ship, enemy, boss, colossus, capsule and perk.
 
@@ -86,6 +92,7 @@ others paste it and hit **Join**. The host starts the match.
 | Perks | `static/src/js/perks.js` | The 50 permanent perks (30 passive, 10 conditional, 10 active) as data: modifiers, flags and cooldowns |
 | Bosses | `static/src/js/bosses.js` | The 5 regular bosses: art, radius, hull and payout multipliers, and the rotation that skips the waves a colossus takes |
 | Colossal bosses | `static/src/js/colossi.js` | The 5 colossi: art, size, camera zoom, hit points and behaviour blurbs |
+| Drone animation | `static/src/js/drone_animator.js` | The drone kit: lean, turn telegraph, hull points read off the sprite, and the death. One shared timeline for every drone on screen, one image draw each |
 | Sprite bank | `static/src/js/sprites.js` | Pixel art as character grids, re-tinted at draw time and cached. 24 sprites |
 | Glossary | `static/src/js/glossary.js` | Data-only catalogue feeding the in-menu "Ships, enemies and powers" panel |
 | Menu backdrop | `static/src/js/menu_backdrop.js` | Decorative "attract mode" behind the start menu |

@@ -138,13 +138,11 @@
  * by colossus index and feeds them (see `_updateColossusAnims`).
  */
 
-import { palette, sprite, spriteGrid } from "./sprites";
+import { RAMP_CHARS, RUNG, TINT_RUNGS, palette, sprite, spriteGrid } from "./sprites";
 
 /**
- * The brightness ramp, dark to bright, in sprite bank palette indices:
- * dark hull, dark accent, mid hull, dark tint, metal, TINT, light tint, glass,
- * hot white. The neon accent (8) shares the tint's rung, so the strip along the
- * shoulder flares with the plating instead of against it.
+ * The brightness ramp (`RAMP_CHARS`/`RUNG`, from the sprite bank) is the whole
+ * of this animator's colour language.
  *
  * Effects do not add a rung, they pull a cell a fraction of the way to the top
  * (or, negative, back down towards the dark hull). Rung counting would make an
@@ -152,8 +150,6 @@ import { palette, sprite, spriteGrid } from "./sprites";
  * of AEGIS by "+2" barely moves its dark plating while blowing out the glass
  * two rows above it.
  */
-const RAMP_CHARS = ["1", "9", "2", "5", "3", "4", "6", "7", "0"];
-const RUNG = { 1: 0, 9: 1, 2: 2, 5: 3, 3: 4, 4: 5, 8: 5, 6: 6, 7: 7, 0: 8 };
 const TOP = RAMP_CHARS.length - 1;
 
 /** Hull cells the damage burns out: mid hull and metal, never the tint. */
@@ -166,13 +162,6 @@ const ACCENT_CHAR = "8";
 const DARK_ACCENT_CHAR = "9";
 /** Metal: the index VULCAN's chimneys and its two side arms are drawn in. */
 const METAL_CHAR = "3";
-/**
- * The three rungs that are shades of the hull's own tint (5 dark, 4 flat, 6
- * light). They belong on any hull whether or not the art happens to use them;
- * every other rung is a fixed colour, and one the art never uses has no
- * business appearing under an effect (see `rungs` in `hullGeometry`).
- */
-const TINT_RUNGS = [RUNG[5], RUNG[4], RUNG[6]];
 /**
  * How far out of a part's own ellipse the ring of light sits: past this it is
  * the plating around the face, under it the face itself. 0.62 on HYDRA's crown

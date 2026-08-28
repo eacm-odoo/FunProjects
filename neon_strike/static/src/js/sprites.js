@@ -26,6 +26,30 @@ const BASE = {
     9: "#54104f",
 };
 
+/**
+ * The same palette read as a *ramp*: the bank's indices ordered darkest to
+ * brightest -- dark hull, dark accent, mid hull, dark tint, metal, TINT, light
+ * tint, glass, hot white -- and the rung each one sits on. The neon accent (8)
+ * shares the tint's rung, so a lit strip flares with the plating around it
+ * instead of against it.
+ *
+ * An effect brightens a cell by walking it up this ramp rather than washing
+ * light over it, which is what keeps it inside a colour the sprite already
+ * uses. It lives here, next to `palette()`, because it is a property of the
+ * bank and not of any one animator: `colossus_animator.js` and
+ * `drone_animator.js` both read it, and a second copy of the order would drift
+ * from the colours the first time either is retuned.
+ */
+export const RAMP_CHARS = ["1", "9", "2", "5", "3", "4", "6", "7", "0"];
+export const RUNG = { 1: 0, 9: 1, 2: 2, 5: 3, 3: 4, 4: 5, 8: 5, 6: 6, 7: 7, 0: 8 };
+/**
+ * The three rungs that are shades of the hull's own tint (5 dark, 4 flat, 6
+ * light). They belong on any hull whether or not the art happens to use them;
+ * every other rung is a fixed colour, and one the art never uses has no
+ * business appearing under an effect.
+ */
+export const TINT_RUNGS = [RUNG[5], RUNG[4], RUNG[6]];
+
 /* ------------------------------------------------------------------ */
 /* Sprite data                                                         */
 /* ------------------------------------------------------------------ */

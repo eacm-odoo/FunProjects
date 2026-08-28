@@ -3,7 +3,7 @@
 # UI palette follows Odoo brand assets: https://www.odoo.com/page/brand-assets
 {
     "name": "Neon Strike",
-    "version": "19.0.17.0.1",
+    "version": "19.0.18.0.0",
     "category": "Productivity",
     "summary": "Neon arcade space shooter, playable without a login on a public page",
     "description": """
@@ -51,6 +51,13 @@ playable **without an account**: pick a nickname and go.
   heads blink on beats of their own, open their mouths on the warning and flash
   a beat apart as each fan leaves, a destroyed head goes dark and sparks at the
   stump, and the chest grilles ripple down once per turn of the crown
+* Drones, the enemy you see most, carry their own animation kit: the chassis
+  leans into its zigzag with the eyes leading it, the lamps on the side it is
+  about to turn towards light up before it does, its hull points are readable
+  off the sprite itself with no HUD (the core lights up further the tougher it
+  is, and drains as you wear it down) and it dies by splitting on its own axis
+  of symmetry, both halves carrying the drift it had. All of it sampled from one
+  shared timeline, so thirty of them cost one image draw each
 * Bullet-hell fundamentals: the hitbox is a 6.5 px dot drawn on the hull (the
   ship sprite is five times wider), Shift focuses for precision movement and
   shows it, and skimming past enemy fire without being hit builds the combo
@@ -98,6 +105,7 @@ Built with Odoo. Brand guide: https://www.odoo.com/page/brand-assets
             "neon_strike/static/src/js/aegis_motion.js",
             "neon_strike/static/src/js/vulcan_motion.js",
             "neon_strike/static/src/js/colossus_animator.js",
+            "neon_strike/static/src/js/drone_animator.js",
             "neon_strike/static/src/js/backgrounds.js",
             "neon_strike/static/src/js/menu_backdrop.js",
             "neon_strike/static/src/js/glossary.js",
