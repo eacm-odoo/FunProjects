@@ -45,36 +45,36 @@
  *      DEATH is dropped outright: it would need the corpse to outlive
  *      `killEnemy`, which is gameplay, not animation.
  *
- * HYDRA-07 arrived as a second sheet and cost the same five, plus three of
- * its own:
+ * HYDRA-07 arrived as a second sheet, and it did not describe the boss the
+ * engine had: destructible side heads, attacks that take turns before the rage
+ * and run together after it, a wind-up on the spiral and staggered fans were
+ * all in the sheet and none of them in `_updateColossus`. That went the other
+ * way round from AEGIS -- **the engine moved to meet the sheet** (see `_hydra`
+ * and HYDRA_HEAD there), and what is left here is the animation of a boss that
+ * now really does all of it. Only one thing was refused outright:
  *
- *   6. **No per-head hit points.** The sheet gives each side head 3 hp, kills
- *      it, speeds the crown's spiral up while it is gone and regrows it 15 s
- *      later. That is a mechanic, not an animation: the engine has one hull
- *      bar, `killEnemy` has no notion of a part, and nothing per-head travels
- *      in the snapshot.
- *   7. **Nothing moves that a cached raster cannot move.** The sheet redraws
+ *   6. **Nothing moves that a cached raster cannot move.** The sheet redraws
  *      its monster every frame, so its heads swing on bezier arms and their
- *      snouts rotate to aim. Here the heads say where they are looking by
- *      *where the light sits inside them* -- the promoted disc slides towards
- *      the ships, exactly as AEGIS's core slides with the lean -- and the
- *      recoil is the whole hull, as it is for the siege salvo.
- *   8. **The crown does not wind up.** The sheet charges its crown for 45
- *      frames before the spiral; `_updateColossus` spits a pair of bullets
- *      every 9 frames with no warning at all, so the crown is *always* firing
- *      and the only wind-up HYDRA has is the fan telegraph.
+ *      snouts rotate to aim. Here a head says where it is looking by *where
+ *      the light sits inside it* -- the promoted disc slides towards the ships,
+ *      exactly as AEGIS's core slides with the lean -- the destroyed one goes
+ *      dark and sparks at the stump instead of hanging from it, and the recoil
+ *      is the whole hull, as it is for the siege salvo.
  *
- * What did survive is the sheet's actual idea: three parts on beats of their
- * own, so the hull never pulses as one lamp, and a crown whose ring of light
- * turns with the spiral it is firing -- `spinA` is the AI's own arm angle, so
- * the lit arc cannot point anywhere except at the last pair of bullets.
+ * The sheet's actual idea survived whole: three parts on beats of their own, so
+ * the hull never pulses as one lamp; a crown whose ring of light turns with the
+ * spiral it is firing and, during the wind-up, runs a single arc *the way the
+ * coming spiral will turn*; and two heads that light, open and flash a beat
+ * apart, because the stagger is the thing that makes two aimed cones readable.
  *
  * Everything else is **render only**: the engine (or, on a guest, the host
  * snapshot) owns position, hull points, every bullet and the telegraph. This
- * reads state that already travels -- x, y, hp01, tel, telK, `gap` (the
- * position of the hole in the *next* curtain), the spiral's arm angle (`e.t`,
- * which travels as `tt`) and where the live ships are -- and derives the rest
- * from observed motion.
+ * reads state that already travels -- x, y, hp01, tel, telK, `gap` (the hole in
+ * the *next* curtain), the crown's angle and whether it is emitting (`sa`,
+ * `sp`), the side heads (`hd`) and where the live ships are -- and derives the
+ * rest from observed motion. Three of the sheet's states cost no cue at all:
+ * a head's hull points travel, so a drop is a hit, zero is a destroyed head and
+ * the countdown under it is the rebuild.
  *
  * State cannot live on the enemy object: a guest rebuilds `this.enemies` from
  * scratch on every snapshot, so the engine keeps these animators in a map keyed
@@ -118,6 +118,13 @@ const TINT_RUNGS = [RUNG[5], RUNG[4], RUNG[6]];
  * takes the horns, the sides and the collar and leaves the two eyes alone.
  */
 const RING_INNER = 0.62;
+/**
+ * How far around its mouth a side head reaches, in multiples of the mouth's own
+ * radius. 3 takes HYDRA's skull and wrist and stops at the forearm, which is
+ * what the hitbox in `game_engine.js` is cut from -- so what you can shoot and
+ * what lights up are the same cells, read from the same art.
+ */
+const HEAD_SPAN = 3;
 
 /**
  * Reference speeds are the ones `aegis_motion.js` actually produces, measured
@@ -216,7 +223,12 @@ export const COLOSSUS_ANIM = {
         // arms lights ~68 deg of the ellipse (~48 with the third arm of the
         // enrage), and the square falloff puts the bright end of the arc on the
         // cells the bullets are leaving from.
-        ring: { lift: 0.8, cut: 0.6, rageLift: 0.15 },
+        // The ring of light on the crown's plating. It only burns while the
+        // crown is actually emitting; during the wind-up it runs a single arc
+        // around the ring instead, *in the direction the coming spiral turns*,
+        // which is the one thing the warning has to say.
+        ring: { lift: 0.8, cut: 0.6, rageLift: 0.15,
+                warnLift: 0.7, warnCut: 0.72, seqRate: 1.6, idle: 0.12 },
         // The side heads. Different rates half a period apart, which is the one
         // thing from the sheet that had to survive even though neither head can
         // move: three parts that never light together. `openCells` is the mouth
@@ -226,7 +238,19 @@ export const COLOSSUS_ANIM = {
         heads: { idle: 0.16, pulse: 0.5, rate: [0.31, 0.35], phase: [0, 0.5],
                  charge: 0.55, rage: 0.12, falloff: 0.35, openCells: 2.2,
                  biasCells: 1.8, aimSpanPx: 260, aimSmooth: 3.2, dim: 1,
-                 flashSec: 0.16, flameCells: 4, flameTilt: 2 },
+                 flashSec: 0.16, flameCells: 4, flameTilt: 2,
+                 // Local damage: 4 frames of the hit head alone going white,
+                 // while the other two parts carry on. A colossus has no hull
+                 // flash on purpose (it is under fire every frame); a part you
+                 // have to deliberately fly out and shoot is the one place the
+                 // feedback belongs.
+                 hurtSec: 0.07,
+                 // Destroyed: pulled this far back *down* the ramp, which is
+                 // the only direction that reads as "off" on art this dark.
+                 dead: 0.62, stumpRate: 13, stumpCells: 3,
+                 // The rebuild grows out of the stump with a lit front, and the
+                 // eyes are the last thing to come back.
+                 growFront: 0.18, growLift: 0.8, eyesAt: 0.7 },
         // The chest grilles: the four bars the sprite already paints in the
         // neon accent. They ripple down the chest once per turn of the spiral,
         // which is the only thing the chest ever says about what the crown is
@@ -363,8 +387,15 @@ function crownOf(grid, cols, rows) {
 
 /**
  * The side heads: the outer two of exactly three pieces the silhouette breaks
- * into under its widest row. Each carries its own glass -- the mouth every
- * effect on a head is measured from -- and the radius that glass fills.
+ * into under its widest row.
+ *
+ * The piece includes the forearm, which is not the head: `cells` is cut back to
+ * what sits within HEAD_SPAN of the mouth, and that cut is the head everywhere
+ * -- the cells an effect may light, the box `hullParts` hands the engine to
+ * shoot at, and the mass that goes dark when it is destroyed. `stump` is where
+ * that cut meets the arm, which is where the sparks come from and where the
+ * rebuild grows back from; `sd` is every cell's distance from it, 0..1, so the
+ * regrow can spread instead of switching on.
  */
 function headsOf(grid, cols, rows) {
     let waist = 0;
@@ -434,7 +465,7 @@ function headsOf(grid, cols, rows) {
     if (parts[1].box.c0 > mid || parts[1].box.c1 < mid) {
         return null;
     }
-    return [parts[0], parts[2]].map((part) => {
+    return [parts[0], parts[2]].map((part, side) => {
         const glass = [];
         for (let i = 0; i < part.cells.length; i += 2) {
             if (CORE_CHARS.indexOf(grid[part.cells[i + 1]][part.cells[i]]) >= 0) {
@@ -442,10 +473,28 @@ function headsOf(grid, cols, rows) {
             }
         }
         const gbox = cellBox(glass) || part.box;
-        return {
-            cells: part.cells, box: part.box, glass, gbox,
-            r: Math.max(gbox.rx, gbox.ry),
-        };
+        const r = Math.max(gbox.rx, gbox.ry);
+        const reach = r * HEAD_SPAN;
+        const cells = [];
+        for (let i = 0; i < part.cells.length; i += 2) {
+            if (Math.hypot(part.cells[i] - gbox.cx, part.cells[i + 1] - gbox.cy) <= reach) {
+                cells.push(part.cells[i], part.cells[i + 1]);
+            }
+        }
+        const box = cellBox(cells);
+        // The stump: the top corner of the head on the side the arm comes down
+        // from, which is the inner one.
+        const stump = { c: side ? box.c0 : box.c1, r: box.r0 };
+        const sd = new Float32Array(cells.length / 2);
+        let far = 1;
+        for (let i = 0; i < cells.length; i += 2) {
+            sd[i / 2] = Math.hypot(cells[i] - stump.c, cells[i + 1] - stump.r);
+            far = Math.max(far, sd[i / 2]);
+        }
+        for (let i = 0; i < sd.length; i++) {
+            sd[i] /= far;
+        }
+        return { cells, box, glass, gbox, r, stump, sd };
     });
 }
 
@@ -587,6 +636,41 @@ function hullGeometry(name) {
     return geo;
 }
 
+/**
+ * Where a hull's parts are, as fractions of its own width and height measured
+ * from its centre -- the form `game_engine.js` wants, since a colossus knows
+ * `e.w`/`e.h` and nothing about cells.
+ *
+ * This is the one thing the animator exports that the *simulation* reads, and
+ * it is deliberate: HYDRA's spiral leaves from the lens between the crown's
+ * eyes, its fans from the glass in each side head, and its side heads can be
+ * shot off. All four of those want the same answer to "where is that part", and
+ * a second copy of it in the engine would drift from the art the first time the
+ * sprite is retouched. Pure and cached, so host and guest agree.
+ *
+ * @param {string} name sprite key
+ * @returns {Object|null} { crown: {x, y}, heads: [{x, y, hw, hh, mx, my}] } or
+ *      null for a hull with no parts (AEGIS). `mx`/`my` is the mouth, `x`/`y`
+ *      with `hw`/`hh` the box the head fills.
+ */
+export function hullParts(name) {
+    const geo = hullGeometry(name);
+    if (!geo.crown || !geo.heads) {
+        return null;
+    }
+    const fx = (c) => c / geo.cols - 0.5;
+    const fy = (r) => r / geo.rows - 0.5;
+    return {
+        crown: { x: fx(geo.crown.coreBox.cx + 0.5), y: fy(geo.crown.coreBox.cy + 0.5) },
+        heads: geo.heads.map((head) => ({
+            x: fx(head.box.cx + 0.5), y: fy(head.box.cy + 0.5),
+            hw: (head.box.c1 - head.box.c0 + 1) / 2 / geo.cols,
+            hh: (head.box.r1 - head.box.r0 + 1) / 2 / geo.rows,
+            mx: fx(head.gbox.cx + 0.5), my: fy(head.gbox.cy + 0.5),
+        })),
+    };
+}
+
 function hexToRgb(h) {
     const n = parseInt(String(h).replace("#", ""), 16) || 0;
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
@@ -639,10 +723,19 @@ export class ColossusAnimator {
         // level rather than a beat, and each side head keeps its own muzzle
         // timer and its own, slower, look at the ships.
         this.spin = 0;
+        this.spinDir = 1;
         this.arms = 2;
+        this.emit01 = 0;        // 0..1, the crown actually emitting
+        this.crownWarn = 0;     // 0..1, SPIRAL_CHARGE
         this.rage01 = 0;
         this.aimH = 0;
         this.headFlash = [0, 0];
+        this.headHurt = [0, 0];
+        this.headHp = [null, null];
+        this.headState = [
+            { k: 0, dead: false, grow: 1, hurt: 0 },
+            { k: 0, dead: false, grow: 1, hurt: 0 },
+        ];
         this.sparks = [];
         this._spawn = 0;
         this._fell = false;
@@ -775,8 +868,21 @@ export class ColossusAnimator {
     _observeHydra(dt, s) {
         const t = this.t;
         const g = this.g0;
+        // Which way the crown is turning, read off its own angle rather than
+        // sent: the direction flips at the start of every wind-up and that is
+        // what the warning is *for*, so it has to be right on a guest too. Only
+        // a real step counts -- between two snapshots the angle repeats, and a
+        // frame of no movement is not a change of direction.
+        const step = ((s.spinA || 0) - this.spin + Math.PI * 3) % 6.2832 - Math.PI;
+        if (Math.abs(step) > 0.002) {
+            this.spinDir = step > 0 ? 1 : -1;
+        }
         this.spin = s.spinA || 0;
         this.arms = s.arms || 2;
+        this.emit01 = ease(this.emit01, s.spiral ? 1 : 0, s.spiral ? g.boolIn : g.boolOut, dt);
+        const warn = s.telK === "spiral" ? smoothstep(clamp01(s.tel || 0)) : 0;
+        this.crownWarn = ease(this.crownWarn, warn, warn > this.crownWarn ? g.boolIn : g.boolOut, dt);
+        this._observeHeads(dt, s);
         // Deliberately the slower of the two boolean rates in both directions:
         // the phase takes ~0.6 s to settle, so it reads as a change of state
         // rather than a second flash on top of the one `rage` already fires.
@@ -786,10 +892,44 @@ export class ColossusAnimator {
         // same reason `lean.aimSmooth` is what it is.
         const aim = s.aimX == null ? 0 : clamp((s.aimX - s.x) / t.heads.aimSpanPx, -1, 1);
         this.aimH = ease(this.aimH, aim, t.heads.aimSmooth, dt);
+    }
+
+    /**
+     * The two side heads, all of it *observed*: their hull points travel, so a
+     * drop is a hit, zero is a destroyed head and the countdown under it is the
+     * rebuild. Three of the sheet's states for no cue at all -- and the local
+     * hit flash in particular could not have been one, because it fires as
+     * often as you can put a bullet on a head.
+     */
+    _observeHeads(dt, s) {
+        const t = this.t.heads;
+        const regrow = s.headRegrow || 40;
         for (let i = 0; i < 2; i++) {
             if (this.headFlash[i] > 0) {
                 this.headFlash[i] -= dt;
             }
+            if (this.headHurt[i] > 0) {
+                this.headHurt[i] -= dt;
+            }
+            const h = s.heads && s.heads[i];
+            const st = this.headState[i];
+            if (!h) {
+                st.dead = false;
+                st.grow = 1;
+                continue;
+            }
+            const was = this.headHp[i];
+            if (was != null && h.hp < was && h.hp > 0) {
+                this.headHurt[i] = t.hurtSec;
+            }
+            this.headHp[i] = h.hp;
+            st.dead = h.hp <= 0;
+            // `t` counts the whole death down: the rebuild is its last frames.
+            st.grow = st.dead ? clamp01(1 - h.t / regrow) : 1;
+            if (st.dead) {
+                this.headFlash[i] = 0;
+            }
+            st.hurt = clamp01(this.headHurt[i] / t.hurtSec);
         }
     }
 
@@ -839,13 +979,13 @@ export class ColossusAnimator {
             this.coreFlash = this.t.core.flashSec;
         } else if (name === "curtain" && this.t.curtain) {
             this.sweep = 0;
-        } else if (name === "fan" && this.t.heads) {
-            // Both of HYDRA's side heads fire in the same frame (one loop over
-            // the two offsets in `_updateColossus`), so both mouths flash and
-            // the recoil is the hull's, not a head's.
+        } else if ((name === "fanL" || name === "fanR") && this.t.heads) {
+            // One cue per mouth, because the two heads deliberately fire a
+            // beat apart: flashing both would erase the very thing the stagger
+            // exists to show. The recoil is still the hull's -- a head cannot
+            // move on a cached raster.
             this.recoil = 1;
-            this.headFlash[0] = this.t.heads.flashSec;
-            this.headFlash[1] = this.t.heads.flashSec;
+            this.headFlash[name === "fanL" ? 0 : 1] = this.t.heads.flashSec;
         } else if (name === "rage") {
             this.flare = 0;
             this.hold = this.t.rage.holdSec;
@@ -882,15 +1022,21 @@ export class ColossusAnimator {
                 phase: this.spin,
             };
             const hd = t.heads;
-            heads = [0, 0];
+            heads = [];
             for (let i = 0; i < 2; i++) {
+                const st = this.headState[i];
                 const w = this.time * hd.rate[i] + hd.phase[i];
                 let k = hd.idle + hd.pulse * (0.5 + 0.5 * Math.sin(w * 6.2832))
                     + this.plant * hd.charge + this.rage01 * hd.rage;
                 if (this.headFlash[i] > 0) {
                     k = Math.max(k, 1);
                 }
-                heads[i] = k * (1 - 0.6 * this.dmg) - this.enter * hd.dim;
+                k = k * (1 - 0.6 * this.dmg) - this.enter * hd.dim;
+                // Coming back, the eyes are the last thing to light.
+                if (st.dead) {
+                    k *= clamp01((st.grow - hd.eyesAt) / (1 - hd.eyesAt));
+                }
+                heads.push({ k, dead: st.dead, grow: st.grow, hurt: st.hurt });
             }
         }
         return {
@@ -1253,19 +1399,34 @@ export class ColossusAnimator {
             this._promote(g, geo, cell, c, r, p.core * (1 - t.core.falloff * d));
         }
 
+        // The ring. While the crown emits it burns in as many arcs as there
+        // are arms, sitting on the sectors the bullets are leaving from. While
+        // it winds up it runs a *single* arc around instead, turning the way
+        // the coming spiral will: that direction is the whole content of the
+        // warning, and a wall of bullets you can only read once it is on top of
+        // you is not a pattern, it is a die roll.
         const ring = t.ring;
-        const lift = ring.lift + this.rage01 * ring.rageLift;
-        const step = 6.2832 / Math.max(1, this.arms);
+        const seq = this.crownWarn > this.emit01;
+        const arcs = seq ? 1 : Math.max(1, this.arms);
+        const level = seq ? this.crownWarn : this.emit01;
+        const lift = (seq ? ring.warnLift : ring.lift + this.rage01 * ring.rageLift) * level;
+        const cut = seq ? ring.warnCut : ring.cut;
+        const at = seq
+            ? this.time * ring.seqRate * 6.2832 * this.spinDir
+            : this.spin;
+        const step = 6.2832 / arcs;
         const half = step / 2;
+        const idle = ring.idle * (1 - level);
         for (let i = 0, j = 0; i < crown.ring.length; i += 2, j++) {
-            // Angle to the nearest arm, folded into 0..half.
-            const d = Math.abs((((crown.ringA[j] - this.spin) % step) + step * 1.5) % step - half);
+            // Angle to the nearest arc, folded into 0..half.
+            const d = Math.abs((((crown.ringA[j] - at) % step) + step * 1.5) % step - half);
             const k = 1 - d / half;
-            if (k <= ring.cut) {
+            const f = k > cut ? (k - cut) / (1 - cut) : 0;
+            const promote = lift * f * f + idle;
+            if (promote <= 0.01) {
                 continue;
             }
-            const f = (k - ring.cut) / (1 - ring.cut);
-            this._promote(g, geo, cell, crown.ring[i], crown.ring[i + 1], lift * f * f);
+            this._promote(g, geo, cell, crown.ring[i], crown.ring[i + 1], promote);
         }
     }
 
@@ -1287,8 +1448,18 @@ export class ColossusAnimator {
         const open = t.openCells * clamp01(this.plant);
         for (let i = 0; i < heads.length && i < 2; i++) {
             const head = heads[i];
-            const k = p.heads[i];
-            if (k <= 0.02) {
+            const h = p.heads[i];
+            if (h.dead) {
+                this._drawDeadHead(g, geo, cell, head, i, h);
+            }
+            // A hit is the whole head going white for four frames, and nothing
+            // else on the hull moving: that is the point of it.
+            if (h.hurt > 0.01) {
+                for (let n = 0; n < head.cells.length; n += 2) {
+                    this._promote(g, geo, cell, head.cells[n], head.cells[n + 1], h.hurt * 0.95);
+                }
+            }
+            if (h.k <= 0.02) {
                 continue;
             }
             const rad = head.r + open;
@@ -1302,12 +1473,54 @@ export class ColossusAnimator {
                 if (d > rad) {
                     continue;
                 }
-                this._promote(g, geo, cell, c, r, k * (1 - t.falloff * (d / rad)));
+                this._promote(g, geo, cell, c, r, h.k * (1 - t.falloff * (d / rad)));
             }
             if (this.headFlash[i] > 0) {
                 this._drawMuzzle(g, geo, cell, head, clamp01(this.headFlash[i] / t.flashSec));
             }
         }
+    }
+
+    /**
+     * A destroyed side head, and its rebuild.
+     *
+     * Dead, it is pulled *down* the ramp -- the only direction that reads as
+     * "off" on plating this dark -- and the stump it hangs from throws sparks.
+     * The rebuild grows back out of that stump: every cell knows how far it is
+     * from it (`sd`), so the head fills in from the arm outwards behind a lit
+     * front instead of fading in as one block. The eyes come last, which
+     * `pose()` handles by holding the mouth level down until `eyesAt`.
+     */
+    _drawDeadHead(g, geo, cell, head, i, h) {
+        const t = this.t.heads;
+        for (let n = 0, j = 0; n < head.cells.length; n += 2, j++) {
+            const d = head.sd[j];
+            if (d <= h.grow - t.growFront) {
+                continue;               // rebuilt: the sprite's own colour
+            }
+            if (d <= h.grow) {
+                // The growth front.
+                this._promote(g, geo, cell, head.cells[n], head.cells[n + 1], t.growLift);
+                continue;
+            }
+            this._promote(g, geo, cell, head.cells[n], head.cells[n + 1], -t.dead);
+        }
+        // Sparks at the stump. Time-hashed rather than drawn from the particle
+        // system: the draw must not consume the simulation's noise.
+        for (let k = 0; k < t.stumpCells; k++) {
+            const ph = this.time * t.stumpRate + k * 2.39 + i * 1.7;
+            const a = 1 - (ph % 1);
+            if (a < 0.15) {
+                continue;
+            }
+            const dc = Math.sin(ph * 3.1 + k) * 2;
+            const dr = -(1 - a) * 4;
+            g.globalAlpha = clamp01(a * 0.9);
+            g.fillStyle = this.ramp[a > 0.6 ? TOP : a > 0.3 ? TOP - 1 : RUNG[4]];
+            g.fillRect(Math.round(head.stump.c + dc) * cell,
+                Math.round(head.stump.r + dr) * cell, cell, cell);
+        }
+        g.globalAlpha = 1;
     }
 
     /** The fan leaving a mouth: cells under the head's own bottom edge. */

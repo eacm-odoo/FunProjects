@@ -3,7 +3,7 @@
 # UI palette follows Odoo brand assets: https://www.odoo.com/page/brand-assets
 {
     "name": "Neon Strike",
-    "version": "19.0.15.0.0",
+    "version": "19.0.16.0.0",
     "category": "Productivity",
     "summary": "Neon arcade space shooter, playable without a login on a public page",
     "description": """
@@ -38,11 +38,19 @@ playable **without an account**: pick a nickname and go.
   them, and AEGIS-01 now flies with weight -- it eases out of every reversal,
   leans toward whoever is still alive, plants itself before each curtain, opens
   a shutter over the hole it is about to leave and comes apart as it dies
-* HYDRA-07 is animated as the three creatures it is drawn as: the crown's eyes
-  breathe and a ring of light runs around it in step with the spiral it is
-  firing, the two side heads blink on beats of their own, open their mouths on
-  the warning and flash as each fan leaves, and the chest grilles ripple down
-  once per turn of the crown
+* HYDRA-07 is three creatures on one chest, and the two on the arms can be shot
+  off: each has hull points and a hitbox of its own, and destroying one takes
+  its fan out of the fight but tightens the crown's spiral until it grows back
+  fifteen seconds later
+* Its two attacks argue with each other -- the spiral is a static pattern you
+  thread a route through, the fan is aimed and punishes standing still. They
+  take turns with a breath between them until it enrages, then run at once, and
+  the spiral's wind-up telegraphs which way it is about to turn
+* All of it animated on the sprite's own art: the crown's eyes breathe and a
+  ring of light runs around it in step with the spiral it is firing, the side
+  heads blink on beats of their own, open their mouths on the warning and flash
+  a beat apart as each fan leaves, a destroyed head goes dark and sparks at the
+  stump, and the chest grilles ripple down once per turn of the crown
 * Bullet-hell fundamentals: the hitbox is a 6.5 px dot drawn on the hull (the
   ship sprite is five times wider), Shift focuses for precision movement and
   shows it, and skimming past enemy fire without being hit builds the combo

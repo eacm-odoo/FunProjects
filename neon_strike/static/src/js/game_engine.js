@@ -22,7 +22,7 @@ import { COLOSSI, colossusForWave } from "./colossi";
 import { SHIPS, SHIP_COLORS } from "./ships";
 import { ShipFlight } from "./ship_flight";
 import { BossAnimator } from "./boss_animator";
-import { COLOSSUS_ANIM_KINDS, ColossusAnimator } from "./colossus_animator";
+import { COLOSSUS_ANIM_KINDS, ColossusAnimator, hullParts } from "./colossus_animator";
 import { AegisMotion } from "./aegis_motion";
 import { Backdrop, backgroundForWave } from "./backgrounds";
 const REVIVE_FRAMES = 120;
@@ -46,12 +46,47 @@ const TELEGRAPH_FRAMES = 45;
 // Health fraction where a boss switches to its second phase.
 const BOSS_RAGE_AT = 0.5;
 const COLOSSUS_RAGE_AT = 0.45;
-// HYDRA-07's crown spiral: how fast the arm angle turns (rad/frame) and how
-// many arms there are, calm and enraged. The ring of light `colossus_animator`
-// runs around the crown lights the same sectors, so both read this instead of
-// each keeping a copy -- retuning the spiral must not leave the light pointing
-// somewhere the bullets are not.
-const HYDRA_SPIRAL = { rate: 0.11, arms: 2, ragedArms: 3 };
+// HYDRA-07. Its two attacks ask opposite things -- the spiral is a static
+// pattern you thread a route through, the fan is aimed and punishes standing
+// still -- and the fight is the tension between them. Under the rage threshold
+// they take turns with a breath in between, so each one gets read on its own;
+// over it they run at once, a spiral floor with fans landing on top of it.
+//
+// The crown turns whether or not it is emitting, and **flips direction at the
+// start of every charge**: that is what the wind-up telegraphs. The ring of
+// light `colossus_animator.js` runs around the crown reads `sa` and the same
+// arm count, so retuning the spiral cannot leave the light pointing where the
+// bullets are not.
+const HYDRA_SPIRAL = {
+    rate: 0.11,         // rad/frame the crown turns
+    arms: 2, ragedArms: 3,
+    every: 9,           // frames between pairs of bullets while emitting
+    ragedEvery: 5,
+    deadStep: 2,        // ...faster by this much per side head destroyed
+    warn: 45,           // SPIRAL_CHARGE, and it shows which way the spiral goes
+    burst: 190,         // how long one turn at the crown lasts
+};
+const HYDRA_FAN = {
+    every: 165, ragedEvery: 110,
+    warn: 45,
+    // The two heads fire this far apart, never together: the whole point of
+    // two aimed cones is being able to read which one is coming first.
+    stagger: 24,
+};
+// The breath between two attacks in the first phase. Without it the fight is
+// the second phase from the start, and the alternation is what the first one is.
+const HYDRA_REST = 55;
+// The side heads are destructible, and that is the trade the boss is built on:
+// killing one costs you nothing but the time to fly out to the flank and shoot
+// it, and it takes that head's fan out of the fight -- but the crown's spiral
+// tightens by `deadStep` for each one that is gone. Kill both and HYDRA stops
+// aiming at you entirely and becomes a wall of spiral.
+const HYDRA_HEAD = {
+    hp: 0.12,           // of the hull's own maximum, each
+    val: 0.06,          // of the colossus's score, each
+    dead: 900,          // 15 s hanging inert...
+    regrow: 40,         // ...and the rebuild, eyes last
+};
 // Hulls a practice wave queues when the target is a regular enemy. Small on
 // purpose: the point is to watch one of them, not to survive a swarm.
 const PRACTICE_ENEMIES = 6;
@@ -1144,10 +1179,79 @@ export class NeonStrikeEngine {
      */
     _enemyHit(e, x, y, pad) {
         if (e.type === "colossus") {
-            return Math.abs(x - e.x) < e.hw + pad && Math.abs(y - e.y) < e.hh + pad;
+            if (Math.abs(x - e.x) < e.hw + pad && Math.abs(y - e.y) < e.hh + pad) {
+                return true;
+            }
+            // HYDRA's side heads hang below and outside the chest's box: half
+            // of each one used to be unshootable, which is no way to run a
+            // destructible part.
+            return this._headAt(e, x, y, pad) >= 0;
         }
         const rr = e.r + pad;
         return (x - e.x) ** 2 + (y - e.y) ** 2 < rr * rr;
+    }
+
+    /**
+     * Which live side head a point falls on, or -1. The boxes come from
+     * `hullParts` (the same cells `colossus_animator.js` lights up), so what
+     * you can shoot and what flashes when you hit it are one thing.
+     *
+     * A destroyed head is not a target: the stump is not something you can
+     * keep chipping at, and letting bullets stop there would quietly protect
+     * the chest behind it.
+     */
+    _headAt(e, x, y, pad) {
+        if (!e.heads || !e.parts) {
+            return -1;
+        }
+        for (let i = 0; i < e.heads.length; i++) {
+            if (e.heads[i].hp <= 0) {
+                continue;
+            }
+            const b = e.parts.heads[i];
+            if (Math.abs(x - (e.x + b.x * e.w)) < b.hw * e.w + pad
+                    && Math.abs(y - (e.y + b.y * e.h)) < b.hh * e.h + pad) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * A side head taking a hit. Head damage does **not** come off the hull:
+     * killing one has to be a choice you make by flying out to the flank and
+     * spending fire on it, not something that happens to you while you shoot
+     * the chest -- otherwise the trade it buys is not a trade.
+     */
+    _damageHead(e, i, dmg, killer) {
+        const h = e.heads[i];
+        if (h.hp <= 0) {
+            return;
+        }
+        h.hp -= dmg;
+        const b = e.parts.heads[i];
+        const hx = e.x + b.mx * e.w;
+        const hy = e.y + b.my * e.h;
+        if (h.hp > 0) {
+            return;
+        }
+        // Destroyed: it hangs inert for 15 s, its fan is out of the fight, and
+        // the crown speeds up to pay for it (see `_hydraDirector`).
+        h.hp = 0;
+        h.t = HYDRA_HEAD.dead + HYDRA_HEAD.regrow;
+        this.burst(hx, hy, e.c, 46, 6);
+        this.burst(hx, hy, "#ffffff", 16, 3.5);
+        this.shake = Math.min(this.shake + 10, 24);
+        this.hitstop = Math.max(this.hitstop, HITSTOP_BOSS);
+        this.sBoom();
+        // Paid like a kill, but it does not build the combo: the combo is the
+        // rate you are clearing hulls at, and a head is a part of one.
+        const pts = Math.round(
+            e.val * HYDRA_HEAD.val * this.combo * (1 + (killer ? killer.mods.scoreMul : 0))
+        );
+        this.score += pts;
+        this.pop(hx, hy - 26, "HEAD DOWN  +" + pts.toLocaleString(), "#ff2fd0", 17, 80);
+        this._ev({ k: "boom", x: hx, y: hy, c: e.c, b: 1 });
     }
 
     /** `hp`/`mhp` pair, so the wave scaling is written once per enemy type. */
@@ -1237,7 +1341,7 @@ export class NeonStrikeEngine {
         // again later (they cycle every 50 waves) is a real step up.
         const base = d.hp + this.wave * 28;
         const hp = Math.round(base * (1 + (this.players - 1) * 0.5));
-        return {
+        const e = {
             type: "colossus", k, id: ++this._eid,
             x: this.W / 2, y: -h * 0.55, ty: d.y,
             w: d.w, h,
@@ -1250,6 +1354,22 @@ export class NeonStrikeEngine {
             a1: 60, a2: 180, a3: 300,
             tel: 0, telK: "", raged: 0, hold: 0,
         };
+        // HYDRA-07 is three creatures on one chest, and the two side ones are
+        // targets of their own (see HYDRA_HEAD). `parts` comes out of the art
+        // in `colossus_animator.js`, so the boxes you can shoot are the cells
+        // that light up. `ph`/`pt` are the director; `sa` the crown's angle.
+        if (k === 1) {
+            const headHp = Math.max(1, Math.round(hp * HYDRA_HEAD.hp));
+            Object.assign(e, {
+                parts: hullParts(d.sprite),
+                heads: [
+                    { hp: headHp, mhp: headHp, t: 0 },
+                    { hp: headHp, mhp: headHp, t: 0 },
+                ],
+                ph: 0, pt: HYDRA_REST, sa: 0, spin: 1, spiral: 0, fq: [0, 1],
+            });
+        }
+        return e;
     }
 
     spawnWave() {
@@ -2310,7 +2430,19 @@ export class NeonStrikeEngine {
      *
      * @returns {boolean} true if the enemy died
      */
-    _damageEnemy(e, dmg, killer) {
+    _damageEnemy(e, dmg, killer, hx, hy) {
+        // A hit with a position on it may have landed on a destructible part
+        // rather than the hull. Everything with a real point of impact passes
+        // one; area effects (a bomb, the EMP, a black hole) do not, and go to
+        // the hull, which is the honest answer for something that engulfs the
+        // whole silhouette.
+        if (e.heads && hx != null) {
+            const i = this._headAt(e, hx, hy, 4);
+            if (i >= 0) {
+                this._damageHead(e, i, dmg, killer);
+                return false;
+            }
+        }
         e.hp -= e.armor ? dmg * 0.35 : dmg;
         if (e.hp <= 0) {
             this.killEnemy(e, killer);
@@ -2328,7 +2460,7 @@ export class NeonStrikeEngine {
                 continue;
             }
             e.flash = 5;
-            this._damageEnemy(e, dmg, sp);
+            this._damageEnemy(e, dmg, sp, x, y);
         }
     }
 
@@ -2869,37 +3001,7 @@ export class NeonStrikeEngine {
                 this._colossusCue(e, "salvo");
             }
         } else if (e.k === 1) {
-            // HYDRA-07: crown spiral + aimed fans from the side heads. Both
-            // leave from where `colossus1` actually has a mouth, the same trade
-            // AEGIS's siege salvo made: 0.234 of the hull above the middle is
-            // the lens between the crown's eyes, and 0.408 out / 0.328 down is
-            // the glass in each side head. `colossus_animator.js` reads all
-            // three out of the art and lights them, so the light sits on the
-            // mouth the bullets leave from -- which moved the spiral 36 px up
-            // into the crown and each fan 22 px out and 13 px down.
-            this._tel(e, e.a2, "aimed");
-            if (e.a1 <= 0) {
-                e.a1 = rage ? 5 : 9;
-                const arms = rage ? HYDRA_SPIRAL.ragedArms : HYDRA_SPIRAL.arms;
-                for (let k = 0; k < arms; k++) {
-                    const a = e.t * HYDRA_SPIRAL.rate + (k / arms) * 6.2832;
-                    this._eb(e.x, e.y - e.h * 0.234, Math.cos(a) * 2.7, Math.sin(a) * 2.7, EB_SPREAD);
-                }
-            }
-            if (e.a2 <= 0) {
-                e.a2 = rage ? 110 : 165;
-                for (const off of [-e.w * 0.408, e.w * 0.408]) {
-                    for (let s = -2; s <= 2; s++) {
-                        this._ebAimed(e.x + off, e.y + e.h * 0.328, 3.6, s * 0.16);
-                    }
-                }
-                this.sTick();
-                // Both mouths flash and the hull recoils. It has to be a cue:
-                // the fan lasts one frame, and the snapshot a guest would have
-                // to spot it in arrives up to four frames later, by which time
-                // the bullets it should be flashing for are 14 px out.
-                this._colossusCue(e, "fan");
-            }
+            this._hydra(e, mv, rage);
         } else if (e.k === 2) {
             // VULCAN: asteroid barrage, molten rings and two forge beams. The
             // beams telegraph themselves (`warn`), so only the ring needs a cue.
@@ -3058,6 +3160,171 @@ export class NeonStrikeEngine {
     }
 
     /**
+     * HYDRA-07. Three creatures on one chest, and the fight is the argument
+     * between the two things they do:
+     *
+     *  - the **crown** spits a spiral: a static pattern that fills the arena
+     *    and asks you to plan a route through it;
+     *  - the **side heads** spray aimed fans: they punish standing still and
+     *    ask for a reflex.
+     *
+     * Under the rage threshold the two take turns with a breath between them,
+     * so each one can be read on its own. Over it they run at the same time --
+     * a spiral floor with fans landing on top -- which is the whole second
+     * phase and needs no new pattern to be one.
+     *
+     * The crown turns whether or not it is emitting, and flips direction at the
+     * start of each wind-up: that is what SPIRAL_CHARGE actually telegraphs,
+     * and the ring of light around the crown is how you read it.
+     */
+    _hydra(e, mv, rage) {
+        const S = HYDRA_SPIRAL;
+        const F = HYDRA_FAN;
+        this._hydraHeads(e, mv);
+        // The crown never stops turning, so the direction is always readable.
+        e.sa = (e.sa + S.rate * e.spin * mv) % 6.2832;
+        const dead = e.heads.reduce((n, h) => n + (h.hp <= 0 ? 1 : 0), 0);
+        if (rage) {
+            // Second phase: the director is gone, both attacks run at once.
+            e.spiral = 1;
+            this._tel(e, e.a2, "aimed");
+            if (e.a2 <= 0) {
+                e.a2 = F.ragedEvery;
+                this._hydraFan(e);
+            }
+        } else {
+            this._hydraDirector(e, mv);
+        }
+        if (e.spiral && e.a1 <= 0) {
+            // The trade: every head that is gone tightens the spiral.
+            e.a1 = Math.max(3, (rage ? S.ragedEvery : S.every) - dead * S.deadStep);
+            const arms = rage ? S.ragedArms : S.arms;
+            const p = e.parts.crown;
+            for (let k = 0; k < arms; k++) {
+                const a = e.sa + (k / arms) * 6.2832;
+                this._eb(
+                    e.x + p.x * e.w, e.y + p.y * e.h,
+                    Math.cos(a) * 2.7, Math.sin(a) * 2.7, EB_SPREAD
+                );
+            }
+        }
+    }
+
+    /**
+     * The first phase, one attack at a time. `ph` is the beat and `pt` counts
+     * it down; neither travels, because a guest reads the telegraph (which
+     * does) and the bullets, never the clock behind them.
+     */
+    _hydraDirector(e, mv) {
+        const S = HYDRA_SPIRAL;
+        const F = HYDRA_FAN;
+        e.pt -= mv;
+        switch (e.ph) {
+            case 1:
+                // SPIRAL_CHARGE. The crown already turned the new way when this
+                // beat opened, so the warning says *which way* and not merely
+                // "something is coming".
+                this._tel(e, e.pt, "spiral");
+                if (e.pt <= 0) {
+                    e.ph = 2;
+                    e.pt = S.burst;
+                    e.spiral = 1;
+                }
+                break;
+            case 2:
+                if (e.pt <= 0) {
+                    e.ph = 3;
+                    e.pt = HYDRA_REST;
+                    e.spiral = 0;
+                }
+                break;
+            case 4:
+                this._tel(e, e.pt, "aimed");
+                if (e.pt <= 0) {
+                    e.ph = 5;
+                    e.pt = F.stagger;
+                    this._hydraFan(e, e.fq[0]);
+                }
+                break;
+            case 5:
+                // The second head, a beat later, so the two cones can be read
+                // one at a time instead of arriving as one wall.
+                if (e.pt <= 0) {
+                    e.ph = 0;
+                    e.pt = HYDRA_REST;
+                    if (e.fq.length > 1) {
+                        this._hydraFan(e, e.fq[1]);
+                    }
+                }
+                break;
+            default:
+                // Resting: 0 is the breath before the crown, 3 the one before
+                // the heads. With both heads down there is no fan left to take
+                // a turn, so the crown simply keeps the arena to itself.
+                if (e.pt > 0) {
+                    break;
+                }
+                e.fq = [];
+                for (let i = 0; i < e.heads.length; i++) {
+                    if (e.heads[i].hp > 0) {
+                        e.fq.push(i);
+                    }
+                }
+                if (e.ph === 3 && e.fq.length) {
+                    e.ph = 4;
+                    e.pt = F.warn;
+                } else {
+                    // Into the crown, and the direction it will turn is decided
+                    // here so the wind-up has something to say.
+                    e.ph = 1;
+                    e.pt = S.warn;
+                    e.spin = -e.spin;
+                }
+        }
+    }
+
+    /**
+     * One fan, or both. Each leaves from the glass in its own head (`parts`,
+     * read out of the art) and cues that mouth, so the flash is on the barrel
+     * the bullets came from. A destroyed head has no fan -- that is what
+     * killing it bought.
+     */
+    _hydraFan(e, only) {
+        let fired = false;
+        for (let i = 0; i < e.heads.length; i++) {
+            if (e.heads[i].hp <= 0 || (only != null && only !== i)) {
+                continue;
+            }
+            const b = e.parts.heads[i];
+            for (let s = -2; s <= 2; s++) {
+                this._ebAimed(e.x + b.mx * e.w, e.y + b.my * e.h, 3.6, s * 0.16);
+            }
+            fired = true;
+            // The mouth flash has to be a cue: a fan lasts one frame, and the
+            // snapshot a guest would have to spot it in arrives up to four
+            // frames later, by which time its bullets are 14 px out.
+            this._colossusCue(e, i === 0 ? "fanL" : "fanR");
+        }
+        if (fired) {
+            this.sTick();
+        }
+    }
+
+    /** Destroyed side heads counting down to their rebuild. */
+    _hydraHeads(e, mv) {
+        for (const h of e.heads) {
+            if (h.hp > 0) {
+                continue;
+            }
+            h.t -= mv;
+            if (h.t <= 0) {
+                h.hp = h.mhp;
+                h.t = 0;
+            }
+        }
+    }
+
+    /**
      * Same as `_updateBossAnims` for the colossi. Only the indexes with a
      * section in `COLOSSUS_ANIM_KINDS` get one, so adding the animation of the
      * next colossus is one entry there plus its tuning block.
@@ -3088,12 +3355,17 @@ export class NeonStrikeEngine {
                 x: e.x,
                 y: e.y,
                 hp01,
-                // HYDRA-07 only: the angle of the spiral arm the crown is
-                // firing right now, and how many arms it has. `e.t` travels as
-                // `tt`, so a guest computes the same pair and its crown lights
-                // the sector the bullets it can see came out of.
-                spinA: e.t * HYDRA_SPIRAL.rate,
+                // HYDRA-07 only. The crown's own angle and whether it is
+                // emitting, so the ring of light sits on the sector the bullets
+                // are leaving from and goes dark when they stop; and the state
+                // of the two side heads, from which the animator gets the local
+                // hit flash, the dead head and the rebuild without a cue for
+                // any of them. All of it travels (`sa`, `sp`, `hd`).
+                spinA: e.sa || 0,
+                spiral: !!e.spiral,
                 arms: raged ? HYDRA_SPIRAL.ragedArms : HYDRA_SPIRAL.arms,
+                heads: e.heads,
+                headRegrow: HYDRA_HEAD.regrow,
                 raged,
                 tel: e.tel || 0,
                 // `telK` outlives the telegraph that set it (see _updateColossus).
@@ -3527,7 +3799,7 @@ export class NeonStrikeEngine {
                         // Ram Prow also bites into a boss, without killing it.
                         e.flash = 6;
                         this.burst(sp.x, sp.y, "#c9a4ff", 20, 5);
-                        killedByShip = this._damageEnemy(e, 3, sp);
+                        killedByShip = this._damageEnemy(e, 3, sp, sp.x, sp.y);
                     }
                     break;
                 }
@@ -3546,7 +3818,7 @@ export class NeonStrikeEngine {
                 }
                 const owner = this._shipBySlot(b.sl);
                 const dmg = this._impactDmg(b, e, owner);
-                const dead = this._damageEnemy(e, dmg, owner);
+                const dead = this._damageEnemy(e, dmg, owner, b.x, b.y);
                 this.burst(b.x, b.y, b.cr ? "#ffd166" : "#fff", b.cr ? 10 : 4, b.cr ? 3.5 : 2);
                 if (b.cr) {
                     this.pop(b.x, b.y - 8, "CRIT", "#ffd166", 11, 30);
@@ -3945,6 +4217,16 @@ export class NeonStrikeEngine {
                 tl: e.tel ? Math.round(e.tel * 100) : undefined,
                 tk: e.tel ? e.telK : undefined,
                 gp: e.gap != null ? Math.round(e.gap) : undefined,
+                // HYDRA-07's three extra pieces of state. `hd` is one number
+                // per side head: its hull points while it lives, and minus the
+                // frames left of its death-and-rebuild once it does not, which
+                // is everything a guest needs to draw all of 7/8/9 without a
+                // second field. `sp` is the crown emitting, `sa` its angle --
+                // both are what the ring of light is drawn from, and neither
+                // can be derived from a position.
+                hd: e.heads ? e.heads.map((h) => Math.round(h.hp > 0 ? h.hp : -h.t)) : undefined,
+                sp: e.spiral ? 1 : undefined,
+                sa: e.sa != null ? Math.round(e.sa * 100) / 100 : undefined,
             })),
             // 3rd slot = style bits: 1 critical, 2 explosive.
             bu: this.bullets.map((b) => [Math.round(b.x), Math.round(b.y), (b.cr ? 1 : 0) | (b.ex ? 2 : 0)]),
@@ -4080,6 +4362,18 @@ export class NeonStrikeEngine {
                     r: Math.min(d.w, h) * 0.28,
                     c: d.tint, field: d.field || 1,
                 });
+                if (e.hd) {
+                    // HYDRA's side heads, unpacked from the one number each of
+                    // them travels as. `mhp` is not sent: it is a fixed share
+                    // of the hull's, and `mh` is already here.
+                    const mhp = Math.max(1, Math.round((e.mh || 1) * HYDRA_HEAD.hp));
+                    Object.assign(en, {
+                        parts: hullParts(d.sprite),
+                        heads: e.hd.map((v) => ({ hp: v > 0 ? v : 0, mhp, t: v > 0 ? 0 : -v })),
+                        spiral: e.sp ? 1 : 0,
+                        sa: e.sa || 0,
+                    });
+                }
             }
             return en;
         });

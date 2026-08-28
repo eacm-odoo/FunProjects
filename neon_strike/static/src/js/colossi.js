@@ -43,7 +43,7 @@ export const COLOSSI = [
         val: 24000,
         y: 165,
         speed: 1.15,
-        desc: "Three heads on one chest. The crown spits spirals, the side heads spray aimed fans, and it enrages below half hull.",
+        desc: "Three heads on one chest, and the two on the arms can be shot off. The crown spits spirals you thread a route through; the side heads spray aimed fans that punish standing still. They take turns until it enrages, then run at once -- and every head you destroy takes its fan out of the fight but tightens the spiral, until it grows back fifteen seconds later.",
     },
     {
         id: "vulcan",
