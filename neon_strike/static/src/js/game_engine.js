@@ -142,8 +142,8 @@ const VULCAN = {
             // working shoulders throw, out of the worst possible place.
             backN: 16, backSpeed: 2.1 },
     // The two forge beams. `warn` matches BEAM_WARN so the sight line and the
-    // phase are the same beat, and the origin comes from `parts.forges` (the
-    // ends of the hull's bottom lip) instead of a fraction nothing draws.
+    // phase are the same beat, and the origin comes from `parts.arms` (the
+    // hand at the end of each side arm) instead of a fraction nothing draws.
     beam: { w: 30, spin: 0.0055, ragedSpin: 0.0075, life: 1200 },
     // The vent window: hits inside the core box count double while the slot is
     // open. `COLOSSI[2].hp` carries a modest lift for it rather than a full
@@ -263,6 +263,36 @@ const EB_SPREAD = 0;
 const EB_AIMED = 1;
 const EB_LANCE = 2;
 const EB_CURTAIN = 3;
+// The forge-beam profile, from the VULCAN design sheet. Its beams are three
+// concentric layers rather than the two the engine drew: the hull's own colour
+// as an outer sheath, a hotter inner one, and a core that is white and one or
+// two pixels wide from frame to frame. `hull` means "use the beam's own colour",
+// so the sheath stays the boss-tint code the rest of the game reads beams by.
+// The width waves *along* the beam (which is why it is drawn in segments) and
+// the whole thing flickers per frame -- between them, that is the difference
+// between molten metal and a laser pointer.
+const BEAM_FORGE = {
+    // Each layer is drawn as one filled ribbon whose two edges follow the wave,
+    // rather than as a run of strokes of different widths. Both give the same
+    // picture; the ribbon gives it with 4 rasterised fills per beam instead of
+    // 104 strokes (measured: 212 rasterising calls a frame against 8), and its
+    // edges come out continuous instead of stepped every 46 px.
+    steps: 20,
+    waveLen: 3.4,       // wavelengths over the beam's length
+    waveRate: 0.011,    // ...travelling down it, per frame
+    waveAmp: 0.16,
+    flickMin: 0.62,
+    layers: [
+        { c: "hull", a: 0.20, w: 1.0, flick: 1 },
+        { c: "hull", a: 0.42, w: 0.52, flick: 1 },
+        { c: "#fff0d2", a: 0.55, w: 0.26, flick: 1 },
+        { c: "#ffffff", a: 0.95, w: 0.11, core: 1 },
+    ],
+    // Where the beam lands. `at` is a fraction of its length: the beams are
+    // 1200 px long and sweep past the bottom of the field, so the bloom sits
+    // where it crosses rather than at its far end, which is off screen.
+    bloom: { at: 0.42, rx: 0.85, ry: 0.5, a: 0.3 },
+};
 // Veil between the backdrop and the play field. Nine of the 27 places (lava,
 // supernova, binary, black hole, graveyard...) paint in the same warm reds and
 // the same 1-3 px motes the enemy bullets use, and in `lighter` they add up
@@ -2972,7 +3002,7 @@ export class NeonStrikeEngine {
      */
     mkBeam(o) {
         return Object.assign(
-            { x: 0, y: 0, ox: 0, oy: 0, a: Math.PI / 2, len: 1200, w: 26, warn: 60, life: 120, spin: 0, src: 0, c: "#ff4d4d" },
+            { x: 0, y: 0, ox: 0, oy: 0, a: Math.PI / 2, len: 1200, w: 26, warn: 60, life: 120, spin: 0, src: 0, hot: 0, c: "#ff4d4d" },
             o
         );
     }
@@ -3544,11 +3574,13 @@ export class NeonStrikeEngine {
     }
 
     /**
-     * The two forge beams, from the ends of the hull's bottom lip.
+     * The two forge beams, from the hand at the end of each side arm.
      *
-     * `parts.forges` is read out of the art, so the light `colossus_animator.js`
-     * puts on those two cells is on the mouth the beam actually leaves from --
-     * the same correction the AEGIS salvo got. The two patterns stay: scissors
+     * `parts.arms` is read out of the art, so the light `colossus_animator.js`
+     * puts on each hand is on the muzzle the beam actually leaves from -- the
+     * same correction the AEGIS salvo got, and at +/-0.482 of the width the arms
+     * put it where the silhouette really ends, further out than the constant
+     * that was there before. The two patterns stay: scissors
      * start crossed and sweep through each other, sweep rakes the arena one way
      * like a wiper, and alternating them is what keeps the fight asking a
      * different question every cycle.
@@ -3556,15 +3588,18 @@ export class NeonStrikeEngine {
     _vulcanBeams(e, rage, warn, life) {
         e.pat = (e.pat || 0) ^ 1;
         const spin = rage ? VULCAN.beam.ragedSpin : VULCAN.beam.spin;
-        const forges = e.parts && e.parts.forges;
+        const arms = e.parts && e.parts.arms;
         for (const side of [-1, 1]) {
-            const f = forges && forges[side < 0 ? 0 : 1];
+            const f = arms && arms[side < 0 ? 0 : 1];
             this.beams.push(this.mkBeam({
                 src: e.id,
                 ox: f ? f.x * e.w : side * e.w * 0.4,
                 oy: f ? f.y * e.h : e.h * 0.25,
                 a: e.pat ? Math.PI / 2 + side * 0.95 : Math.PI / 2 - 0.85,
                 warn,
+                // Forge beam: `_drawBeams` gives it the layered profile from the
+                // design sheet instead of the plain two-stroke one.
+                hot: 1,
                 // Outlived by the phase on purpose: the overheat is what ends a
                 // sweep, and `life` is only there so a beam cannot survive its
                 // owner's cycle if anything ever cuts the phase short.
@@ -4698,9 +4733,13 @@ export class NeonStrikeEngine {
             tu: this.turrets.map((t) => [Math.round(t.x), Math.round(t.y), t.sl]),
             bh: this.holes.map((h) => [Math.round(h.x), Math.round(h.y), Math.round(h.r), Math.round(h.life)]),
             dc: this.decoys.map((d) => [Math.round(d.x), Math.round(d.y), d.sl]),
+            // 8th slot = the forge profile flag. Appended at the end, so a
+            // reader that does not know about it sees `undefined` and draws the
+            // plain beam instead of breaking.
             bm: this.beams.map((b) => [
                 Math.round(b.x), Math.round(b.y), Math.round(b.a * 1000) / 1000,
                 Math.round(b.len), Math.round(b.w), Math.round(Math.max(0, b.warn)), b.c,
+                b.hot ? 1 : 0,
             ]),
             // Perk phase (offers per slot, picks already made, countdown).
             pf: this.perkPhase
@@ -4853,7 +4892,8 @@ export class NeonStrikeEngine {
         this.holes = (snap.bh || []).map((h) => ({ x: h[0], y: h[1], r: h[2], life: h[3], ml: 240 }));
         this.decoys = (snap.dc || []).map((d) => ({ x: d[0], y: d[1], sl: d[2], life: 1, ml: 360 }));
         this.beams = (snap.bm || []).map((b) => ({
-            x: b[0], y: b[1], a: b[2], len: b[3], w: b[4], warn: b[5], c: b[6], life: 1, spin: 0, src: 0,
+            x: b[0], y: b[1], a: b[2], len: b[3], w: b[4], warn: b[5], c: b[6],
+            hot: b[7] || 0, life: 1, spin: 0, src: 0,
         }));
         for (const ev of snap.ev || []) {
             this._playEvent(ev);
@@ -4864,7 +4904,18 @@ export class NeonStrikeEngine {
     /* Render                                                              */
     /* ------------------------------------------------------------------ */
 
-    /** Colossus beams: thin sight line while charging, wall of light after. */
+    /**
+     * Colossus beams: thin sight line while charging, wall of light after.
+     *
+     * A beam marked `hot` gets the profile from the VULCAN design sheet instead
+     * of the plain two-stroke one -- three concentric layers with a jittering
+     * white core, a width that waves along its length, a per-frame flicker and
+     * a bloom where it lands. It is a flag rather than a restyle of every beam
+     * because NYX and OMEGA were not part of this pass and their beams are
+     * tuned as they are; and it is only cosmetic, so it needs nothing from the
+     * simulation beyond the beam the engine already owns and already damages
+     * with. `hot` travels in `bm`, so a guest draws the same beam.
+     */
     _drawBeams() {
         const g = this.g;
         for (const b of this.beams) {
@@ -4877,27 +4928,112 @@ export class NeonStrikeEngine {
                 g.globalAlpha = 0.25 + Math.abs(Math.sin(this.frame * 0.25)) * 0.4;
                 g.lineWidth = 2;
                 g.setLineDash([12, 10]);
-            } else {
-                g.strokeStyle = b.c;
-                g.globalAlpha = 0.22;
-                g.lineWidth = b.w * (1 + Math.sin(this.frame * 0.5) * 0.06);
-            }
-            g.beginPath();
-            g.moveTo(b.x, b.y);
-            g.lineTo(ex, ey);
-            g.stroke();
-            if (b.warn <= 0) {
-                g.setLineDash([]);
-                g.globalAlpha = 0.95;
-                g.strokeStyle = "#ffffff";
-                g.lineWidth = b.w * 0.28;
                 g.beginPath();
                 g.moveTo(b.x, b.y);
                 g.lineTo(ex, ey);
                 g.stroke();
+                g.restore();
+                continue;
             }
+            if (b.hot) {
+                this._drawForgeBeam(b, ex, ey);
+                g.restore();
+                continue;
+            }
+            g.strokeStyle = b.c;
+            g.globalAlpha = 0.22;
+            g.lineWidth = b.w * (1 + Math.sin(this.frame * 0.5) * 0.06);
+            g.beginPath();
+            g.moveTo(b.x, b.y);
+            g.lineTo(ex, ey);
+            g.stroke();
+            g.setLineDash([]);
+            g.globalAlpha = 0.95;
+            g.strokeStyle = "#ffffff";
+            g.lineWidth = b.w * 0.28;
+            g.beginPath();
+            g.moveTo(b.x, b.y);
+            g.lineTo(ex, ey);
+            g.stroke();
             g.restore();
         }
+    }
+
+    /**
+     * One forge beam, as the sheet draws it: an outer sheath in the hull's own
+     * colour, an inner one pushed towards white, and a core that is white and
+     * jitters a pixel or two along its length. The width **waves along the
+     * beam** rather than pulsing as a whole, and that wave is most of what makes
+     * it read as molten metal instead of as a laser pointer.
+     *
+     * A canvas line cannot change width along itself, so each layer is a filled
+     * ribbon: down one edge and back up the other, with the half-width sampled
+     * from the wave at every step. That is also what makes it affordable, which
+     * the first version of this was not -- see `BEAM_FORGE.steps`.
+     */
+    _drawForgeBeam(b, ex, ey) {
+        const g = this.g;
+        const T = BEAM_FORGE;
+        const flick = T.flickMin
+            + (1 - T.flickMin) * Math.abs(Math.sin(this.frame * 0.9 + b.a * 7));
+        const n = T.steps;
+        const dx = (ex - b.x) / n;
+        const dy = (ey - b.y) / n;
+        // Across the beam, for the ribbon's two edges.
+        const px = -Math.sin(b.a);
+        const py = Math.cos(b.a);
+        g.setLineDash([]);
+        for (const layer of T.layers) {
+            g.fillStyle = layer.c === "hull" ? b.c : layer.c;
+            g.globalAlpha = layer.a * (layer.flick ? flick : 1);
+            g.beginPath();
+            for (let i = 0; i <= n; i++) {
+                const m = this._forgeHalf(b, layer, i, n);
+                const cx = b.x + dx * i;
+                const cy = b.y + dy * i;
+                if (i === 0) {
+                    g.moveTo(cx + px * m, cy + py * m);
+                } else {
+                    g.lineTo(cx + px * m, cy + py * m);
+                }
+            }
+            for (let i = n; i >= 0; i--) {
+                const m = this._forgeHalf(b, layer, i, n);
+                g.lineTo(b.x + dx * i - px * m, b.y + dy * i - py * m);
+            }
+            g.closePath();
+            g.fill();
+        }
+        // The bloom where it lands, which is the sheet's other half of the beam:
+        // without it the light simply stops in the middle of the arena.
+        const t = BEAM_FORGE.bloom;
+        const bx = b.x + (ex - b.x) * t.at;
+        const by = b.y + (ey - b.y) * t.at;
+        g.globalAlpha = t.a * flick;
+        g.fillStyle = b.c;
+        g.beginPath();
+        g.ellipse(bx, by, b.w * t.rx, b.w * t.ry, b.a, 0, 6.2832);
+        g.fill();
+        g.globalAlpha = Math.min(1, t.a * 1.6 * flick);
+        g.fillStyle = "#ffffff";
+        g.beginPath();
+        g.ellipse(bx, by, b.w * t.rx * 0.4, b.w * t.ry * 0.4, b.a, 0, 6.2832);
+        g.fill();
+        g.globalAlpha = 1;
+    }
+
+    /** Half-width of one forge-beam layer at step `i`, off the travelling wave. */
+    _forgeHalf(b, layer, i, n) {
+        const T = BEAM_FORGE;
+        const wave = Math.sin(((i / n) * T.waveLen + this.frame * T.waveRate) * 6.2832);
+        const w = b.w * layer.w * (1 + wave * T.waveAmp) * 0.5;
+        if (!layer.core) {
+            return w;
+        }
+        // The core jitters a pixel or two along its length, exactly as the
+        // sheet's does: it is what keeps the beam alive on a frame where nothing
+        // else about it moved.
+        return Math.max(0.9, w + (((this.frame + i * 13) * 7919) % 10 < 3 ? 0.9 : 0));
     }
 
     /** Turrets and decoys: drawn over the field, under the ships. */

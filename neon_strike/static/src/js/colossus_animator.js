@@ -29,7 +29,11 @@
  *   2. **No lance.** The study gave AEGIS an eye that fires a 1100 px column of
  *      light at a ship. The engine has no such attack, and drawing a beam with
  *      no hitbox shows light where the damage is not -- the same reason
- *      `boss_animator.js` refused the LANCER beam.
+ *      `boss_animator.js` refused the LANCER beam. Note what this rule does
+ *      *not* say, because the VULCAN pass first read it too widely: a beam the
+ *      engine already owns, telegraphs and damages with may absolutely be given
+ *      the sheet's own look. There is no light without damage there -- it is the
+ *      same beam, better drawn (see `_drawForgeBeam` in `game_engine.js`).
  *   3. **No hit flash.** A colossus is under fire every frame, so that leaves
  *      it permanently washed out; the hit feedback stays the white burst at the
  *      point of impact plus the top bar.
@@ -89,9 +93,14 @@
  * one-row bars, so "blob away from the core" is the whole test. The fans are
  * the fight's lever, so `hullParts` hands the engine their *housing* rather
  * than the blade, and the animator lights exactly that radius: what you can
- * shoot and what lights up stay one answer. The **forge mouths** are the two
- * ends of the bottom lip, and the beams were moved to leave from them -- the
- * same correction the AEGIS salvo got.
+ * shoot and what lights up stay one answer. The **arms** are the two connected
+ * masses of metal on the flanks -- VULCAN breaks into exactly two, AEGIS into
+ * four and NYX into six, which is what makes the count the test -- and the
+ * **hand** at the end of each is its outer-bottom corner. The beams leave from
+ * there: the same correction the AEGIS salvo got, and the art had a better
+ * answer than any fraction of the width at +/-0.482, right where the silhouette
+ * ends. Getting the two hands *symmetric* needed one more line than expected,
+ * because the sprite is mirrored but a flood fill's visit order is not.
  *
  * Three departures of its own:
  *
@@ -103,7 +112,12 @@
  *      every reversal and stop dead while the feet are planted for free.
  *   8. **No DEATH, again**, so the chimneys bursting one by one has no home;
  *      the same idea is re-homed onto the one failure the engine does own, and
- *      the stacks stop smoking one at a time as the hull is chewed down.
+ *      the stacks stop smoking one at a time as the hull is chewed down. The
+ *      smoke itself is the sheet's: **particles**, emitted from `observe` off
+ *      this animator's own LCG, that rise, keep rising as they slow, drift and
+ *      fade. A fixed-height plume was tried first and reads as a bar chart of
+ *      the heat rather than as exhaust -- and, at 35 cells at rest against the
+ *      puffs' 8, it was the more expensive of the two as well.
  *   9. **No fan hitbox of the sheet's making.** Its fans are a debug toggle
  *      with no rule behind them. Here they have hull points, they buy heat in
  *      proportion to the damage spent on them, and breaking one seizes it --
@@ -150,6 +164,8 @@ const CORE_CHARS = "70";
 const ACCENT_CHAR = "8";
 /** Dark accent: the index the frame of VULCAN's slot (and its feet) is drawn in. */
 const DARK_ACCENT_CHAR = "9";
+/** Metal: the index VULCAN's chimneys and its two side arms are drawn in. */
+const METAL_CHAR = "3";
 /**
  * The three rungs that are shades of the hull's own tint (5 dark, 4 flat, 6
  * light). They belong on any hull whether or not the art happens to use them;
@@ -199,6 +215,18 @@ const FAN_MIN_SPAN = 3;
  * what you can shoot and what lights up stay one answer.
  */
 const FAN_PAD = 2;
+/**
+ * An arm is a connected mass of plating hanging off the flank, under the top
+ * edge, and a hull only has arms when it breaks into **exactly two** of them,
+ * mirrored, each at least this share of the hull's cells. Both halves of the
+ * test earn their keep: AEGIS breaks into four such masses (its nozzle
+ * clusters) and NYX into six, so the count is what says "arms" rather than
+ * "plating"; and at 118 cells each VULCAN's are four times the size of AEGIS's,
+ * so the share is an independent guard on the same answer.
+ */
+const ARM_MIN_SHARE = 0.04;
+/** How far around its hand an arm lights when the forge fires, in cells. */
+const HAND_R = 2.5;
 
 /**
  * Reference speeds are the ones `aegis_motion.js` actually produces, measured
@@ -417,16 +445,30 @@ export const COLOSSUS_ANIM = {
         // by one as the hull fails -- the sheet blows them up in its DEATH
         // state, which this port has no room for (see the header), so the same
         // idea is re-homed onto the one failure the engine actually owns.
-        chimneys: { period: 0.85, idle: 0.5, heat: 1.9, overheat: 0.8,
-                    // 3 against the 7 it started at: six stacks are VULCAN's
-                    // whole silhouette, and at full overheat the taller version
-                    // cost 240 `fillRect`s a frame on its own.
-                    maxCells: 3, outerPhase: 0.5, tiltCells: 2, jitter: 0.3,
-                    deadCells: 60 },
-        // The forge mouths at the ends of the bottom lip. `warn` is the sight
-        // line the engine draws; this is the mouth lighting up under it, and
-        // then burning while the beam is live.
-        forge: { warn: 0.4, live: 1, rows: 4, spread: 2 },
+        // Smoke off the six stacks, as **particles** rather than a plume of
+        // fixed height. The plume came first and was wrong: a column of cells
+        // that grows and shrinks reads as a bar chart of the heat, not as
+        // exhaust. The sheet pushes puffs that rise, keep rising (its `g` is
+        // negative), drift sideways and fade over ~80 frames, and that is what
+        // actually looks like a foundry working. Fed from `observe` off the
+        // animator's own LCG, so the draw never consumes simulation noise and
+        // host and guest emit the same puffs.
+        // Rates and speeds set against the hull, not the sheet's 220 px canvas:
+        // at 2.1 cells/s the smoke climbed 5 cells, i.e. 48 px over a boss 324
+        // px tall, which is a wisp rather than a foundry. 5.5 cells/s over a
+        // ~2.4 s life clears 9-10 cells (~90 px). The whole layer costs 1-2
+        // `fillRect`s per puff, which is why it can afford to be this dense --
+        // the fixed-height plume it replaced cost 35 at rest and 150 at full
+        // overheat on its own.
+        smoke: { idle: 3.5, heat: 12, overheat: 6,    // puffs per second, all six
+                 rise: 5.5, riseVar: 3, drift: 1.4, slow: 0.5,
+                 life: 1.8, lifeVar: 1.2, spread: 1.6,
+                 fat: 0.5,           // fraction of puffs drawn 2 cells wide
+                 maxPuffs: 70, deadCells: 60 },
+        // The hands at the ends of the two arms. `warn` is the sight line the
+        // engine draws; this is the hand lighting up under it, and then burning
+        // while the beam is live.
+        forge: { warn: 0.4, live: 1, rows: 4 },
         // The brace, on VULCAN's own two telegraphs: the sheet vibrates the
         // hull through the overheat ("el casco vibra") and gives the volley
         // charge a recoil, and those are exactly the beats `ring` and `volley`
@@ -847,29 +889,82 @@ function slotOf(grid, cols, rows, core) {
 }
 
 /**
- * The forge mouths: the two ends of the hull's bottom lip, i.e. the widest run
- * of plating on the bottom edge row.
+ * The side arms, and the hand at the end of each: the two stubby masses of
+ * plating on VULCAN's flanks, which is where the forge beams leave from.
  *
- * `_updateColossus` used to fire VULCAN's beams from 0.4 of the hull's width,
- * 49 px inboard of anything the art draws and a third of the way up it. Same
- * answer as AEGIS's siege salvo: when the art and the muzzle disagree, move the
- * muzzle, so the light is on the mouth the beam actually leaves from.
+ * `_updateColossus` used to fire them from 0.4 of the hull's width, a third of
+ * the way up it and 49 px inboard of anything the art draws. Same answer as
+ * AEGIS's siege salvo -- when the art and the muzzle disagree, move the muzzle
+ * -- except that here the art has something much better to offer than a
+ * fraction: the arms are two connected masses of metal, the outer-bottom corner
+ * of each is unmistakably a hand, and at +/-0.470 of the width it is further
+ * out than the old constant was.
+ *
+ * The `hand` is the lowest cell within two columns of the arm's outer edge, and
+ * the whole thing is symmetric by construction, so a retouched sprite moves the
+ * muzzle and the light on it together.
  */
-function forgesOf(grid, cols, edgeRow) {
-    let best = null;
-    let start = -1;
-    for (let c = 0; c <= cols; c++) {
-        const filled = c < cols && grid[edgeRow][c] !== ".";
-        if (filled && start < 0) {
-            start = c;
-        } else if (!filled && start >= 0) {
-            if (!best || c - 1 - start > best.c1 - best.c0) {
-                best = { c0: start, c1: c - 1 };
+function armsOf(grid, cols, rows, topEdgeRow) {
+    const seen = new Uint8Array(cols * rows);
+    const parts = [];
+    for (let r = topEdgeRow; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            if (grid[r][c] !== METAL_CHAR || seen[r * cols + c]) {
+                continue;
             }
-            start = -1;
+            seen[r * cols + c] = 1;
+            const stack = [c, r];
+            const cells = [];
+            while (stack.length) {
+                const y = stack.pop();
+                const x = stack.pop();
+                cells.push(x, y);
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        const nx = x + dx;
+                        const ny = y + dy;
+                        if (nx < 0 || nx >= cols || ny < topEdgeRow || ny >= rows
+                                || grid[ny][nx] !== METAL_CHAR || seen[ny * cols + nx]) {
+                            continue;
+                        }
+                        seen[ny * cols + nx] = 1;
+                        stack.push(nx, ny);
+                    }
+                }
+            }
+            parts.push({ cells, box: cellBox(cells) });
         }
     }
-    return best ? [{ c: best.c0, r: edgeRow }, { c: best.c1, r: edgeRow }] : null;
+    if (parts.length !== 2) {
+        return null;
+    }
+    parts.sort((a, b) => a.box.c0 - b.box.c0);
+    const min = cols * rows * ARM_MIN_SHARE;
+    if (parts[0].cells.length / 2 < min || parts[1].cells.length / 2 < min) {
+        return null;
+    }
+    return parts.map((arm, side) => {
+        const outer = side ? arm.box.c1 : arm.box.c0;
+        // Lowest first, then outermost. The second half of that is not a detail:
+        // the sprite is mirrored, so the two arms are the same shape, but a
+        // tie-break that depends on the order the flood fill happened to visit
+        // cells in picked column 2 on the left against 82 on the right and put
+        // one muzzle 10 px further out than the other.
+        let r = -1;
+        let c = outer;
+        for (let i = 0; i < arm.cells.length; i += 2) {
+            const cc = arm.cells[i];
+            const rr = arm.cells[i + 1];
+            if (Math.abs(cc - outer) > 2) {
+                continue;
+            }
+            if (rr > r || (rr === r && Math.abs(cc - outer) < Math.abs(c - outer))) {
+                r = rr;
+                c = cc;
+            }
+        }
+        return { cells: arm.cells, box: arm.box, hand: { c, r } };
+    });
 }
 
 /**
@@ -1022,7 +1117,7 @@ function hullGeometry(name) {
         chimneys: chimneysOf(cols, highest, topEdgeRow < 0 ? 0 : topEdgeRow),
         slot,
         fans: slot ? slot.fans : null,
-        forges: cols ? forgesOf(grid, cols, edgeRow) : null,
+        arms: cols ? armsOf(grid, cols, rows, topEdgeRow < 0 ? 0 : topEdgeRow) : null,
     };
     geometry.set(name, geo);
     return geo;
@@ -1036,18 +1131,18 @@ function hullGeometry(name) {
  * This is the one thing the animator exports that the *simulation* reads, and
  * it is deliberate: HYDRA's spiral leaves from the lens between the crown's
  * eyes, its fans from the glass in each side head, and its side heads can be
- * shot off; VULCAN's beams leave from the two ends of its bottom lip, its
- * volley from the slot and its shoulder fans can be jammed. All of those want
+ * shot off; VULCAN's beams leave from the hands at the ends of its two side
+ * arms, its volley from the slot and its shoulder fans can be jammed. All of those want
  * the same answer to "where is that part", and a second copy of it in the
  * engine would drift from the art the first time the sprite is retouched. Pure
  * and cached, so host and guest agree.
  *
  * A hull only carries the keys it actually has: HYDRA has `crown`/`heads`,
- * VULCAN has `fans`/`core`/`forges`, AEGIS has none of them and gets null.
+ * VULCAN has `fans`/`core`/`arms`, AEGIS has none of them and gets null.
  *
  * @param {string} name sprite key
  * @returns {Object|null} `{ crown: {x, y}, heads: [{x, y, hw, hh, mx, my}] }`
- *      and/or `{ fans: [{x, y, hw, hh}], core: {x, y, hw, hh}, forges: [{x, y}] }`,
+ *      and/or `{ fans: [{x, y, hw, hh}], core: {x, y, hw, hh}, arms: [{x, y}] }`,
  *      or null for a hull with no parts at all. `mx`/`my` is a mouth, `x`/`y`
  *      with `hw`/`hh` the box the part fills.
  */
@@ -1076,8 +1171,12 @@ export function hullParts(name) {
         // doubles the damage inside, so it has to be the part the player can
         // see is open, and the frame around it never lights white.
         parts.core = boxOf(geo.slot.gbox);
-        if (geo.forges) {
-            parts.forges = geo.forges.map((f) => ({ x: fx(f.c + 0.5), y: fy(f.r + 0.5) }));
+        if (geo.arms) {
+            // The hand at the end of each arm: where the forge beam leaves from,
+            // and the cells `_drawArms` lights when it does.
+            parts.arms = geo.arms.map((a) => ({
+                x: fx(a.hand.c + 0.5), y: fy(a.hand.r + 0.5),
+            }));
         }
     }
     return Object.keys(parts).length ? parts : null;
@@ -1166,6 +1265,10 @@ export class ColossusAnimator {
         this.crackE = 0;        // 0..1 overheating
         this.forgeE = 0;        // 0..1 the forge mouths lit
         this.fanSpin = 0;
+        this.smoke = [];
+        this._puff = 0;
+        // Filled in by the first `draw`: the hull grid the smoke leaves from.
+        this._geo = null;
         this.fanFlash = [0, 0];
         this.fanHurt = [0, 0];
         this.fanHp = [null, null];
@@ -1456,6 +1559,7 @@ export class ColossusAnimator {
         const f = t.fans;
         const rev = f.spinIdle + this.heat * f.spinHeat + this.ventE * f.spinVent;
         this.fanSpin = (this.fanSpin + rev * dt) % 1;
+        this._smoke(dt);
         this._observeFans(dt, s);
         this.rage01 = ease(this.rage01, s.raged ? 1 : 0, g.boolOut, dt);
     }
@@ -1494,6 +1598,65 @@ export class ColossusAnimator {
                 this.fanFlash[i] = 0;
             }
             st.hurt = clamp01(this.fanHurt[i] / t.hurtSec);
+        }
+    }
+
+    /**
+     * The chimney smoke, in cell space: puffs that leave a stack, keep rising
+     * (they lose upward speed but never fall), drift sideways and fade.
+     *
+     * Emitted here rather than in the draw for the same reason the damage
+     * sparks are: the draw must not consume the simulation's noise, and both
+     * roles have to be able to produce the same smoke off the same LCG. The
+     * stacks go out one at a time as the hull fails, and the inner and outer
+     * pairs are phase shifted -- six stacks puffing in step is a lamp, not a
+     * foundry.
+     */
+    _smoke(dt) {
+        const t = this.t.smoke;
+        const geo = this._geo;
+        if (!geo || !geo.chimneys) {
+            return;
+        }
+        const chim = geo.chimneys;
+        const out = Math.round(chim.length * this.dmg * (t.deadCells / 100));
+        const live = chim.length - out;
+        if (live > 0) {
+            const rate = t.idle + t.heat * this.heat + t.overheat * this.crackE;
+            this._puff += dt * rate;
+            while (this._puff >= 1) {
+                this._puff -= 1;
+                const n = chim[out + Math.floor(this._rnd() * live)];
+                // A stack breathes on its own beat, so the six never puff as one.
+                const ph = (n.outer ? 0.5 : 0) + n.x * 0.017;
+                if (this._rnd() > 0.45 + 0.55 * (0.5 + 0.5 * Math.sin((this.time / 0.85 + ph) * 6.2832))) {
+                    continue;
+                }
+                this.smoke.push({
+                    c: n.x - 0.5 + (this._rnd() - 0.5) * t.spread,
+                    r: n.top - 1,
+                    vc: (this._rnd() - 0.5) * t.drift,
+                    vr: -(t.rise + this._rnd() * t.riseVar),
+                    fat: this._rnd() < t.fat,
+                    life: t.life + this._rnd() * t.lifeVar,
+                    age: 0,
+                });
+            }
+        }
+        for (let i = this.smoke.length - 1; i >= 0; i--) {
+            const s = this.smoke[i];
+            s.age += dt;
+            s.c += (s.vc + this.vx * -0.006) * dt;
+            s.r += s.vr * dt;
+            // It slows as it climbs instead of falling back: this is smoke, and
+            // the sheet's own puffs use a negative gravity for the same reason.
+            s.vr *= 1 - t.slow * dt;
+            if (s.age >= s.life) {
+                this.smoke.splice(i, 1);
+            }
+        }
+        if (this.smoke.length > t.maxPuffs) {
+            this.smoke.splice(0, this.smoke.length - t.maxPuffs);
         }
     }
 
@@ -1713,6 +1876,11 @@ export class ColossusAnimator {
     draw(g, o) {
         const t = this.t;
         const geo = hullGeometry(o.sprite);
+        // The smoke is emitted in `observe`, which does not know the sprite --
+        // only the engine's draw call does. Caching it here is safe because a
+        // colossus never changes hull, and it means the puffs leave the stacks
+        // the art actually has rather than a hand-written position.
+        this._geo = geo;
         const cv = sprite(o.sprite, this.tint, o.px, false);
         if (!cv || !geo.cols) {
             return;
@@ -1764,10 +1932,10 @@ export class ColossusAnimator {
 
         this._drawDamage(g, geo, cell, p);
         if (this.kind === "VULCAN") {
-            this._drawChimneys(g, geo, cell, p);
+            this._drawSmoke(g, geo, cell);
             this._drawSlot(g, geo, cell, p);
             this._drawFans(g, geo, cell, p);
-            this._drawForges(g, geo, cell, p);
+            this._drawArms(g, geo, cell, p);
             this._drawCracks(g, geo, cell, p);
             this._drawFeet(g, geo, cell, p);
         } else if (this.kind === "HYDRA") {
@@ -2182,83 +2350,72 @@ export class ColossusAnimator {
     }
 
     /**
-     * Smoke off the six stacks, above the hull's top edge.
+     * The smoke, above the hull's top edge.
      *
-     * Read out of the art the same way AEGIS's plumes are read out of the
-     * columns that hang below its bottom edge -- these are the ones that rise
-     * above the top one. The inner and outer pairs are phase shifted, because
-     * six stacks pulsing together is a lamp, not a foundry; and they go out one
-     * by one as the hull fails, which is where the sheet's DEATH state (the
-     * chimneys bursting in sequence) ends up in a port that has no DEATH.
+     * The stacks it leaves from are read out of the art the same way AEGIS's
+     * plumes are read out of the columns hanging below its bottom edge -- these
+     * are the ones that rise above the top one -- and they go out one by one as
+     * the hull fails, which is where the sheet's DEATH state (the chimneys
+     * bursting in sequence) ends up in a port that has no DEATH.
+     *
+     * Drawn in solid ramp rungs with alpha, so it stays pixel art: grey-blue
+     * metal while a puff is fresh, then mid hull, then the dark accent as it
+     * goes. Nothing here is promoted -- smoke is outside the silhouette, and
+     * promotion is for light landing *on* the hull.
      */
-    _drawChimneys(g, geo, cell, p) {
-        const chim = geo.chimneys;
-        if (!chim) {
-            return;
-        }
-        const t = this.t.chimneys;
-        const out = Math.round(chim.length * p.dmg * (t.deadCells / 100));
-        for (let i = 0; i < chim.length; i++) {
-            if (i < out) {
-                continue;               // burnt out: no smoke from this one
-            }
-            const n = chim[i];
-            const ph = (i * 0.31 + (n.outer ? t.outerPhase : 0)) % 1;
-            const w = (this.time / t.period + ph) % 1;
-            let lvl = t.idle + t.heat * p.heat + t.overheat * p.crack;
-            lvl *= 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(w * 6.2832));
-            lvl += Math.sin(this.time * 17 + i * 2.1) * 0.5 * t.jitter;
-            const len = Math.round(clamp(lvl, 0, 2.2) * t.maxCells);
-            for (let k = 0; k < len; k++) {
-                const a = 1 - k / len;
-                // Solid ramp rungs so the smoke stays pixel art: metal at the
-                // mouth, then mid hull, then a dark tail that fades out.
-                const rung = a > 0.66 ? RUNG[3] : a > 0.33 ? RUNG[2] : RUNG[9];
-                const tilt = Math.round(-p.vx01 * t.tiltCells * (k / Math.max(1, len - 1)));
-                const taper = Math.floor(k / 3);
-                g.globalAlpha = a > 0.2 ? 1 : 0.5;
-                g.fillStyle = this.ramp[rung];
-                for (let c = n.c0 + taper; c <= n.c1 - taper; c++) {
-                    g.fillRect((c + tilt) * cell, (n.top - 1 - k) * cell, cell, cell);
-                }
-            }
+    _drawSmoke(g, geo, cell) {
+        for (const s of this.smoke) {
+            const a = 1 - s.age / s.life;
+            g.globalAlpha = clamp01(a * 0.8);
+            g.fillStyle = this.ramp[a > 0.62 ? RUNG[3] : a > 0.3 ? RUNG[2] : RUNG[9]];
+            const w = s.fat && a > 0.45 ? 2 : 1;
+            g.fillRect(Math.round(s.c) * cell, Math.round(s.r) * cell,
+                cell * w, cell * w);
         }
         g.globalAlpha = 1;
     }
 
     /**
-     * The two forge mouths at the ends of the hull's bottom lip: lit under the
-     * sight line, burning while the beam is live. `parts.forges` is where
-     * `_vulcanBeams` actually anchors the beams, so this is light on the mouth
-     * the beam leaves from rather than 49 px inboard of it.
+     * The hands at the ends of the two side arms: lit under the sight line,
+     * burning while the beam is live.
+     *
+     * `parts.arms` is where `_vulcanBeams` actually anchors the beams, so this
+     * is light on the muzzle the beam leaves from -- and because the hand is a
+     * corner of the arm rather than a point on a flat lip, the glow is a disc
+     * around it that falls off into the plating, with the flame hanging off the
+     * cells below.
      */
-    _drawForges(g, geo, cell, p) {
-        const forges = geo.forges;
-        if (!forges || p.forge <= 0.02) {
+    _drawArms(g, geo, cell, p) {
+        const arms = geo.arms;
+        if (!arms || p.forge <= 0.02) {
             return;
         }
         const t = this.t.forge;
         const flick = p.forge * (0.75 + 0.25 * Math.sin(this.time * 29));
-        for (const f of forges) {
-            const c0 = Math.max(0, f.c - t.spread);
-            const c1 = Math.min(geo.cols - 1, f.c + t.spread);
+        for (const arm of arms) {
+            const h = arm.hand;
+            const c0 = Math.max(0, Math.round(h.c - HAND_R));
+            const c1 = Math.min(geo.cols - 1, Math.round(h.c + HAND_R));
+            const r0 = Math.max(0, Math.round(h.r - HAND_R));
+            const r1 = Math.min(geo.rows - 1, Math.round(h.r + HAND_R));
             for (let c = c0; c <= c1; c++) {
-                const base = geo.lowest[c];
-                if (base < 0) {
-                    continue;
-                }
-                const fall = 1 - Math.abs(c - f.c) / (t.spread + 1);
-                this._promote(g, geo, cell, c, base, flick * fall);
-                if (base > 0) {
-                    this._promote(g, geo, cell, c, base - 1, flick * fall * 0.6);
+                for (let r = r0; r <= r1; r++) {
+                    const d = Math.hypot(c - h.c, r - h.r) / HAND_R;
+                    if (d > 1) {
+                        continue;
+                    }
+                    this._promote(g, geo, cell, c, r, flick * (1 - 0.55 * d));
                 }
             }
-            // The flame under the mouth, outside the silhouette.
-            const base = geo.lowest[f.c] < 0 ? f.r : geo.lowest[f.c];
+            // The flame leaving the hand, outside the silhouette, in solid ramp
+            // rungs so it stays pixel art.
             for (let k = 1; k <= t.rows; k++) {
                 g.globalAlpha = flick * (1 - (k - 1) / (t.rows + 1));
                 g.fillStyle = this.ramp[k > 2 ? RUNG[4] : k > 1 ? TOP - 1 : TOP];
-                g.fillRect(f.c * cell, (base + k) * cell, cell, cell);
+                const w = k > 2 ? 1 : 2;
+                for (let c = h.c - (w >> 1); c <= h.c + (w >> 1); c++) {
+                    g.fillRect(c * cell, (h.r + k) * cell, cell, cell);
+                }
             }
         }
         g.globalAlpha = 1;
