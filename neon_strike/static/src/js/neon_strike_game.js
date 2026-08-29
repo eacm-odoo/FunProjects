@@ -84,6 +84,10 @@ export class NeonStrikeGame extends Component {
             practice: null,      // descriptor from the glossary item
             practiceLabel: "",
             paused: false,
+            // The perks you own, read once when the pause overlay opens. They
+            // used to be sixteen dots on the play screen; this is the moment
+            // somebody actually reads them.
+            perks: [],
             // Feedback panel (bug reports and ideas), layered like the glossary.
             feedback: false,
             fb: {
@@ -481,6 +485,13 @@ export class NeonStrikeGame extends Component {
             onAction: (action) => this._sendAction(action),
             onPause: (paused) => {
                 this.state.paused = paused;
+                this.state.perks = paused ? this._readPerks() : [];
+                if (!paused) {
+                    // Esc resumes even while the glossary is layered over the
+                    // pause overlay, and a running game under an open panel is
+                    // the one state the overlay stack must not reach.
+                    this.state.glossary = false;
+                }
             },
         });
         this.engine.setMuted(this.state.muted);
@@ -786,6 +797,35 @@ export class NeonStrikeGame extends Component {
         if (this.engine) {
             this.engine.togglePause();
         }
+    }
+
+    /** Clicking the dark backdrop resumes, the way it closes the glossary. */
+    onPauseBackdrop(ev) {
+        if (ev.target === ev.currentTarget) {
+            this.togglePause();
+        }
+    }
+
+    /**
+     * The local player's perks, in pick order, for the pause overlay. Built
+     * when the overlay opens rather than kept in sync: nothing reads it while
+     * the game is running.
+     */
+    _readPerks() {
+        const engine = this.engine;
+        const sp = engine && engine.ships.find((s) => s.slot === engine.localSlot);
+        if (!sp) {
+            return [];
+        }
+        return sp.perks.map((id) => {
+            const perk = PERKS.find((p) => p.id === id);
+            const key = sp.actives.findIndex((a) => a.id === id);
+            return {
+                name: perk ? perk.name : id,
+                tint: perk ? perk.tint : "#eaf6ff",
+                key: key >= 0 ? key + 1 : 0,
+            };
+        });
     }
 
     fmt(n) {

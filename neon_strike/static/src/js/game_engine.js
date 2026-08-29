@@ -26,7 +26,10 @@ import { COLOSSUS_ANIM_KINDS, ColossusAnimator, hullParts } from "./colossus_ani
 import { DRONE_ANIM, drawDrone, drawDroneWreck, droneTier } from "./drone_animator";
 import { AegisMotion } from "./aegis_motion";
 import { VulcanMotion } from "./vulcan_motion";
-import { BG_SCRIM, Backdrop, backgroundForWave } from "./backgrounds";
+import { Backdrop, backgroundForWave } from "./backgrounds";
+import {
+    HudFx, drawActives, drawBuffs, drawCombo, drawCrewTag, drawEscPip, drawMeta, drawVitals,
+} from "./hud";
 const REVIVE_FRAMES = 120;
 const COMBO_MAX = 25;
 // The hitbox is deliberately far smaller than the hull: the sprite is ~32
@@ -984,6 +987,10 @@ export class NeonStrikeEngine {
             // it watches the motion below, never causes it, and never travels
             // in the snapshot.
             flight: new ShipFlight(),
+            // HUD transitions, on the same terms: it watches lives, bombs and
+            // dash charges and lights an envelope wherever one moved, so a
+            // guest gets them off the snapshot for free.
+            hudFx: new HudFx(),
             inv: 0, invMax: 1, shield: 0,
             weapon: "single", weaponT: 0, fireT: 0,
             lives: 3, down: false, reviveProgress: 0,
@@ -1005,6 +1012,9 @@ export class NeonStrikeEngine {
             // --- Dash (Space), available with no perks --------------------
             dash: 0,                      // frames of dash left
             dashCd: 0,
+            // What `dashCd` started at. The HUD fills the recharging pip with
+            // the ratio of the two, and a bare countdown cannot be divided.
+            dashCdMax: DASH_CD,
             dashCharges: 1,
             dashMax: 1,
             dashVx: 0,
@@ -2286,6 +2296,12 @@ export class NeonStrikeEngine {
         return Math.max(25, DASH_CD * (1 + sp.mods.dashCd));
     }
 
+    /** Start the dash cooldown, remembering how long it is: the HUD divides. */
+    _armDashCd(sp) {
+        sp.dashCdMax = this._dashCd(sp);
+        sp.dashCd = sp.dashCdMax;
+    }
+
     /** Orbit position of the Drone Wing companion. */
     _dronePos(sp) {
         return { x: sp.x + Math.cos(sp.droneA) * 34, y: sp.y + Math.sin(sp.droneA) * 24 };
@@ -2337,7 +2353,11 @@ export class NeonStrikeEngine {
             sp.dashCd -= ts;
             if (sp.dashCd <= 0) {
                 sp.dashCharges++;
-                sp.dashCd = sp.dashCharges < sp.dashMax ? this._dashCd(sp) : 0;
+                if (sp.dashCharges < sp.dashMax) {
+                    this._armDashCd(sp);
+                } else {
+                    sp.dashCd = 0;
+                }
             }
         }
         for (const a of sp.actives) {
@@ -2414,6 +2434,7 @@ export class NeonStrikeEngine {
         // Feed the animation the motion this frame produced. It happens here,
         // in the simulation, so a paused game freezes the pose too.
         sp.flight.observe(sp.x, sp.y, ts * FRAME_SECONDS);
+        sp.hudFx.observe(sp, ts);
     }
 
     /** Space: burst towards the cursor, intangible while it lasts. */
@@ -2441,7 +2462,7 @@ export class NeonStrikeEngine {
         // too short for the speed trigger to catch it on its own.
         sp.flight.kickRoll(dx || sp.flight.bank);
         if (sp.dashCd <= 0) {
-            sp.dashCd = this._dashCd(sp);
+            this._armDashCd(sp);
         }
         this.burst(sp.x, sp.y, "#c9a4ff", 18, 4);
         if (sp.slot === this.localSlot) {
@@ -4626,6 +4647,7 @@ export class NeonStrikeEngine {
             // Same animation as the host, driven by the interpolated position:
             // nothing about the pose has to travel over the bus.
             sp.flight.observe(sp.x, sp.y, ts * FRAME_SECONDS);
+            sp.hudFx.observe(sp, ts);
         }
         // Bosses are not simulated here, but their animation is derived from the
         // snapshot positions, so it ticks on a guest exactly as on the host.
@@ -4718,8 +4740,21 @@ export class NeonStrikeEngine {
                 // Perks (indexes), dash and active cooldowns for the HUD.
                 pk: s.perks.map((id) => PERK_INDEX[id]),
                 ds: s.dashCharges, dm: s.dashMax, dt: s.dash > 0 ? 1 : 0,
+                // How full the recharging dash pip is, 0-100. The fill and not
+                // the clock, because the length of the cooldown comes off perks
+                // the HUD would otherwise have to be told about as well.
+                dp: s.dashCharges < s.dashMax && s.dashCdMax > 0
+                    ? Math.round((1 - Math.max(0, s.dashCd) / s.dashCdMax) * 100)
+                    : undefined,
                 ac: s.actives.map((a) => [Math.round(Math.max(0, a.cd)), a.cdMax]),
                 bf: BUFF_KEYS.reduce((m, k, i) => m | (s.buffs[k] > 0 ? 1 << i : 0), 0),
+                // Frames left on each capsule, so a guest can draw the column
+                // draining and the last two seconds flickering -- `bf` only
+                // ever said present or absent, which is the readout the HUD
+                // study was written to replace. Sent only while one is running.
+                bt: BUFF_KEYS.some((k) => s.buffs[k] > 0)
+                    ? BUFF_KEYS.map((k) => Math.round(s.buffs[k]))
+                    : undefined,
                 da: s.flags.drone ? Math.round(s.droneA * 100) / 100 : undefined,
             })),
             en: this.enemies.map((e) => ({
@@ -4869,11 +4904,15 @@ export class NeonStrikeEngine {
                 }
             });
             BUFF_KEYS.forEach((k, i) => {
-                sp.buffs[k] = (s.bf || 0) & (1 << i) ? 1 : 0;
+                sp.buffs[k] = s.bt ? s.bt[i] || 0 : ((s.bf || 0) & (1 << i) ? 1 : 0);
             });
             sp.dashCharges = s.ds != null ? s.ds : sp.dashCharges;
             sp.dashMax = s.dm != null ? s.dm : sp.dashMax;
             sp.dash = s.dt ? 1 : 0;
+            // The host sent the fill; rebuild a cooldown that reads the same,
+            // so one code path draws the pip on both roles.
+            sp.dashCdMax = 100;
+            sp.dashCd = s.dp != null ? 100 - s.dp : 0;
             if (s.da != null) {
                 sp.droneA = s.da;
             }
@@ -5536,8 +5575,10 @@ export class NeonStrikeEngine {
             // of the 27 places paint in the same warm reds as the enemy bullets
             // and scatter 1-3 px motes the exact size of a bullet core, all in
             // `lighter`: on the lava world or under a supernova a shot and the
-            // background were literally the same pixels.
-            g.fillStyle = BG_SCRIM;
+            // background were literally the same pixels. The places ported to
+            // Direction A carry their own number instead, down to none at all
+            // for DEEP SPACE -- the place decides, not the catalogue.
+            g.fillStyle = this.bg.scrim;
             g.fillRect(-mx, -my, W + mx * 2, H + my * 2);
         }
         for (const s of this.stars) {
@@ -5877,75 +5918,38 @@ export class NeonStrikeEngine {
         g.fillRect(x + w * COLOSSUS_RAGE_AT - 1, y - 3, 2, 15);
     }
 
-    /** Bottom-left block: dash charges, actives and perks owned. */
+    /**
+     * The bottom edge and the two bottom corners: the local player's vitals
+     * band, a crew tag for everyone else, the actives and the capsules. Named
+     * for the block it used to be -- it is the whole below-the-fold HUD now.
+     *
+     * The perks owned came out of here. Sixteen dots nobody reads mid-pattern
+     * were the largest single thing the HUD put over the field, and the two
+     * moments a player actually thinks about their perks -- the Esc overlay and
+     * the wave-clear pick -- both already list them.
+     */
     _renderPerkHud() {
         const g = this.g;
-        const sp = this._shipBySlot(this.localSlot);
-        if (!sp || sp.down) {
-            return;
+        const W = this.W;
+        const H = this.H;
+        const me = this._shipBySlot(this.localSlot);
+        if (me) {
+            drawVitals(g, me, W, H, this.frame, this._maxBombs(), me.reviveProgress / REVIVE_FRAMES);
+            const top = drawActives(g, me, W, H, (a) => {
+                const perk = PERKS[PERK_INDEX[a.id]];
+                return perk ? perk.tint : null;
+            });
+            drawBuffs(g, me, W, this.frame, BUFF_KEYS, PUP_BUFFS, top);
         }
-        const y = this.H - 26;
-        g.textAlign = "left";
-        g.textBaseline = "middle";
-        g.fillStyle = "rgba(180,210,255,0.65)";
-        g.font = "500 11px system-ui,sans-serif";
-        g.fillText("SPACE", 14, y);
-        let x = 56;
-        for (let i = 0; i < sp.dashMax; i++) {
-            const ready = i < sp.dashCharges;
-            g.fillStyle = ready ? "#c9a4ff" : "rgba(201,164,255,0.22)";
-            g.fillRect(x, y - 5, 14, 10);
-            x += 18;
-        }
-        x += 12;
-        // Bombs. They are a stock now, so they need somewhere to be counted:
-        // an emergency button you cannot see is one you do not press.
-        g.fillStyle = "rgba(180,210,255,0.65)";
-        g.font = "500 11px system-ui,sans-serif";
-        g.fillText("X", x, y);
-        x += 14;
-        for (let i = 0; i < this._maxBombs(); i++) {
-            g.fillStyle = i < sp.bombs ? "#ffb347" : "rgba(255,179,71,0.2)";
-            g.beginPath();
-            g.arc(x + 5, y, 5, 0, 6.2832);
-            g.fill();
-            x += 14;
-        }
-        x += 10;
-        sp.actives.forEach((a, i) => {
-            const perk = PERKS[PERK_INDEX[a.id]];
-            const ready = a.cd <= 0;
-            const w = 78;
-            g.fillStyle = "rgba(255,255,255,0.07)";
-            g.fillRect(x, y - 11, w, 22);
-            if (!ready) {
-                g.fillStyle = "rgba(255,179,71,0.20)";
-                g.fillRect(x, y - 11, w * (1 - a.cd / a.cdMax), 22);
+        // Everyone else, stacking up the bottom-left corner. Three at most:
+        // past that a tag is worth less than the field it covers.
+        let n = 0;
+        for (const sp of this.ships) {
+            if (sp.slot === this.localSlot || n >= 3) {
+                continue;
             }
-            g.strokeStyle = ready ? (perk ? perk.tint : "#ffb347") : "rgba(255,255,255,0.16)";
-            g.lineWidth = 1;
-            g.strokeRect(x, y - 11, w, 22);
-            g.fillStyle = ready ? "#eaf6ff" : "rgba(200,220,255,0.55)";
-            g.font = "500 10px system-ui,sans-serif";
-            g.fillText(
-                "[" + (i + 1) + "] " + (perk ? perk.name : a.id).slice(0, 11),
-                x + 5,
-                y
-            );
-            x += w + 8;
-        });
-        // Perks owned: one dot per perk, in its family colour.
-        if (sp.perks.length) {
-            let px = 14;
-            const py = y - 24;
-            for (const id of sp.perks.slice(0, 16)) {
-                const perk = PERKS[PERK_INDEX[id]];
-                g.fillStyle = perk ? perk.tint : "#eaf6ff";
-                g.beginPath();
-                g.arc(px, py, 3.5, 0, 6.2832);
-                g.fill();
-                px += 11;
-            }
+            drawCrewTag(g, sp, 12, H - 12 - 16 - n * 20, sp.reviveProgress / REVIVE_FRAMES);
+            n++;
         }
     }
 
@@ -5955,87 +5959,28 @@ export class NeonStrikeEngine {
         const H = this.H;
         g.textBaseline = "middle";
         if (this.state === "playing" || this.state === "over" || this.state === "perk") {
-            g.textAlign = "left";
-            g.fillStyle = "#eaf6ff";
-            g.font = "500 16px system-ui,sans-serif";
-            g.fillText(this.score.toLocaleString(), 14, 22);
-            if (this.combo > 1) {
-                g.fillStyle = "#ffd166";
-                g.font = "500 13px system-ui,sans-serif";
-                g.fillText("combo x" + this.combo, 14, 42);
-                g.fillStyle = "rgba(255,209,102,0.3)";
-                g.fillRect(14, 52, 60, 3);
-                g.fillStyle = "#ffd166";
-                g.fillRect(14, 52, 60 * (this.comboT / 170), 3);
-            }
-            // Graze meter: how close the next combo step is. Without it the
-            // reward for flying into a pattern is invisible, and an invisible
-            // reward changes nobody's flying.
+            // Everything above the fold, in priority order outward from the
+            // ship: the combo on the top edge, then the corners. The old block
+            // of player names, hearts and buff letters in the top right is
+            // gone -- a name is only worth drawing when it belongs to someone
+            // else, and that is what the crew tags are for.
+            drawEscPip(g);
+            drawCombo(g, this.combo, this.comboT, 170, W);
             const me = this._shipBySlot(this.localSlot);
-            if (me && !me.down) {
-                const gy = this.combo > 1 ? 70 : 42;
-                g.textAlign = "left";
-                g.fillStyle = me.grazeT > 0 ? "#eaf6ff" : "rgba(180,210,255,0.5)";
-                g.font = "500 11px system-ui,sans-serif";
-                g.fillText("graze", 14, gy);
-                g.fillStyle = "rgba(234,246,255,0.22)";
-                g.fillRect(52, gy - 2, 44, 3);
-                g.fillStyle = "#eaf6ff";
-                g.fillRect(52, gy - 2, 44 * ((me.graze % GRAZE_PER_COMBO) / GRAZE_PER_COMBO), 3);
+            let meta = "W" + this.wave + "  " + NeonStrikeEngine.formatTime(this.playSeconds());
+            if (me) {
+                // Graze as progress towards the next combo step rather than a
+                // running total: the total is not a thing anyone acts on, and
+                // this is the number that changes how you fly into a pattern.
+                meta += "  G" + (me.graze % GRAZE_PER_COMBO) + "/" + GRAZE_PER_COMBO;
             }
-            g.textAlign = "center";
-            g.fillStyle = "rgba(180,210,255,0.7)";
-            g.font = "500 13px system-ui,sans-serif";
-            g.fillText(
-                (this.practice ? "Practice · " : "")
-                    + "Wave " + this.wave + "  ·  " + NeonStrikeEngine.formatTime(this.playSeconds()),
-                W / 2, 22
-            );
-            // Per-player panel (top right).
-            let py = 16;
-            g.textAlign = "right";
-            for (const sp of this.ships) {
-                g.font = "500 12px system-ui,sans-serif";
-                if (sp.down) {
-                    g.fillStyle = "rgba(255,130,130,0.85)";
-                    const pct = Math.floor((sp.reviveProgress / REVIVE_FRAMES) * 100);
-                    g.fillText(sp.name + " · down " + pct + "%", W - 14, py);
-                } else {
-                    g.fillStyle = sp.color;
-                    let hearts = "";
-                    for (let k = 0; k < sp.lives; k++) {
-                        hearts += "▲";
-                    }
-                    let extra = hearts;
-                    if (sp.weapon === "triple") {
-                        extra += "  ✦";
-                    }
-                    if (sp.shield > 0) {
-                        extra += "  ◯";
-                    }
-                    // Timed capsules, by their letter.
-                    const buffs = BUFF_KEYS.filter((k) => sp.buffs[k] > 0);
-                    if (buffs.length) {
-                        extra += "  " + buffs.join("");
-                    }
-                    g.fillText(sp.name + "  " + extra, W - 14, py);
-                }
-                py += 18;
-            }
+            drawMeta(g, this.score, (this.practice ? "PRACTICE  " : "") + meta, W);
             this._renderPerkHud();
             this._renderColossusBar();
         }
-        if (this.paused) {
-            g.fillStyle = "rgba(4,5,12,0.7)";
-            g.fillRect(-W, -H, W * 3, H * 3);
-            g.textAlign = "center";
-            g.fillStyle = "#eaf6ff";
-            g.font = "500 34px system-ui,sans-serif";
-            g.fillText("PAUSED", W / 2, H / 2 - 10);
-            g.fillStyle = "rgba(180,210,255," + (0.5 + Math.sin(this.frame * 0.07) * 0.3) + ")";
-            g.font = "400 15px system-ui,sans-serif";
-            g.fillText("Esc to resume", W / 2, H / 2 + 26);
-        }
+        // Nothing is drawn for `paused`: the Esc overlay owns that moment now,
+        // and it owns it in the DOM, where the text it wants to show wraps.
+        // The engine still freezes -- `_loopFn` returns before anything ticks.
         if (this.state === "start") {
             g.textAlign = "center";
             const pul = 0.7 + Math.sin(this.frame * 0.06) * 0.3;

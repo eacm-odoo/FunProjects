@@ -4,33 +4,13 @@
 
 <t t-name="neon_strike.Game">
     <div class="o_neon_strike d-flex flex-column h-100">
-        <div class="ns_toolbar d-flex align-items-center px-3 py-2">
+        <!-- The toolbar band belongs to the screens that are not the game.
+             During play it collapses into the Esc pip the HUD draws on canvas,
+             and everything it used to hold moves into the pause overlay: the
+             band was 36 px tall across the whole window, which is more of the
+             field than the entire HUD occludes. -->
+        <div t-if="state.screen !== 'game'" class="ns_toolbar d-flex align-items-center px-3 py-2">
             <span class="ns_logo me-3">NEON STRIKE</span>
-            <t t-if="state.screen === 'game'">
-                <button class="btn btn-sm ns_btn me-2" t-on-click="toggleMute">
-                    <i t-attf-class="fa {{ state.muted ? 'fa-volume-off' : 'fa-volume-up' }} me-1" role="img" aria-label="Sound"/>Sound
-                </button>
-                <button class="btn btn-sm ns_btn me-2" t-on-click="togglePause">
-                    <i t-attf-class="fa {{ state.paused ? 'fa-play' : 'fa-pause' }} me-1" role="img" aria-label="Pause"/>
-                    <t t-out="state.paused ? 'Resume' : 'Pause'"/>
-                    <span class="ns_kbd ms-1">Esc</span>
-                </button>
-                <button class="btn btn-sm ns_btn me-2" t-if="state.role !== 'guest'" t-on-click="restart">
-                    <i class="fa fa-refresh me-1" role="img" aria-label="Restart"/>Restart
-                </button>
-                <button class="btn btn-sm ns_btn me-2" t-on-click="backToMenu">
-                    <i class="fa fa-sign-out me-1" role="img" aria-label="Menu"/>Menu
-                </button>
-                <button class="btn btn-sm ns_btn" t-on-click="openFeedback">
-                    <i class="fa fa-bug me-1" role="img" aria-label="Feedback"/>Feedback
-                </button>
-                <span class="ns_room ms-3" t-if="multiplayer and state.match">
-                    Room <b t-out="state.match.code"/>
-                </span>
-                <span class="ns_room ns_practice_tag ms-3" t-if="state.practice">
-                    Practice <b t-out="state.practiceLabel"/>
-                </span>
-            </t>
             <span class="ms-auto">
                 <a href="https://www.odoo.com/page/brand-assets" target="_blank" rel="noreferrer" class="ns_brand_link">built on Odoo</a>
             </span>
@@ -89,9 +69,6 @@
                 <hr class="ns_hr"/>
                 <t t-call="neon_strike.Leaderboard"/>
             </div>
-            <t t-if="state.glossary">
-                <t t-call="neon_strike.Glossary"/>
-            </t>
         </div>
 
         <!-- ============================ LOBBY =========================== -->
@@ -126,25 +103,110 @@
         </div>
 
         <!-- ============================ GAME =========================== -->
-        <div t-else="" class="ns_body d-flex flex-grow-1">
+        <!-- The play screen is the arena and a rail. The 300 px side panel is
+             gone: its leaderboard lives in the pause overlay, where somebody is
+             actually reading it, and its hint block with it. -->
+        <div t-else="" class="ns_body ns_body_play d-flex flex-column flex-grow-1">
             <div class="ns_stage flex-grow-1">
                 <canvas t-ref="canvas"/>
             </div>
-            <aside class="ns_leaderboard p-3">
-                <t t-call="neon_strike.Leaderboard"/>
-                <p class="ns_hint mb-0">
-                    Drag to move · <b>Space</b> dashes (you are untouchable during it) · <b>X</b> spends a bomb · <b>1-4</b> fire your active perks.
-                    Hold <b>Shift</b> to focus: you fly slower and your hitbox is drawn — it is much smaller than the ship.
-                    Skimming past a bullet without being hit builds your combo; clearing a wave untouched pays a bonus.
-                    Every 5 waves you keep 1 of 3 permanent upgrades; a colossal boss shows up every 10.
-                    Capsules: T triple · S shield · B bomb · + life.
-                    <t t-if="multiplayer">Fly next to a downed ally to revive them.</t>
-                </p>
-            </aside>
+            <!-- Attribution during play: below the arena, so it never covers
+                 the field and it never scrolls away. -->
+            <div class="ns_rail d-flex align-items-center px-3">
+                <span class="ns_rail_tag" t-if="multiplayer and state.match">
+                    Room <b t-out="state.match.code"/>
+                </span>
+                <span class="ns_rail_tag ns_practice_tag" t-if="state.practice">
+                    Practice <b t-out="state.practiceLabel"/>
+                </span>
+                <a href="https://www.odoo.com/page/brand-assets" target="_blank" rel="noreferrer"
+                   class="ns_brand_link ms-auto">built on Odoo</a>
+            </div>
         </div>
+        <t t-if="state.screen === 'game' and state.paused">
+            <t t-call="neon_strike.Pause"/>
+        </t>
+        <!-- The glossary layers over any screen now, because the pause overlay
+             opens it too. It used to be rendered inside the menu branch only. -->
+        <t t-if="state.glossary">
+            <t t-call="neon_strike.Glossary"/>
+        </t>
         <t t-if="state.feedback">
             <t t-call="neon_strike.Feedback"/>
         </t>
+    </div>
+</t>
+
+<!-- Esc overlay: everything the toolbar band used to hold, plus the two
+     things the HUD stopped drawing over the field (the leaderboard and the
+     perks you own). It owns the pause: the canvas draws no PAUSED text now. -->
+<t t-name="neon_strike.Pause">
+    <div class="ns_glossary ns_pause" role="dialog" aria-label="Paused" t-on-click="onPauseBackdrop">
+        <div class="ns_glossary_panel ns_pause_panel">
+            <div class="ns_glossary_head d-flex align-items-center">
+                <span class="ns_pause_pip me-2"/>
+                <h4 class="ns_glossary_title mb-0">PAUSED</h4>
+                <span class="ns_pause_hint ms-auto">Esc to resume</span>
+            </div>
+            <div class="ns_pause_actions d-flex flex-wrap gap-2 px-3 py-3">
+                <button class="btn btn-sm ns_btn" t-on-click="togglePause">
+                    <i class="fa fa-play me-1" role="img" aria-label="Resume"/>Resume
+                </button>
+                <button class="btn btn-sm ns_btn" t-on-click="toggleMute">
+                    <i t-attf-class="fa {{ state.muted ? 'fa-volume-off' : 'fa-volume-up' }} me-1" role="img" aria-label="Sound"/>
+                    <t t-out="state.muted ? 'Sound off' : 'Sound on'"/>
+                </button>
+                <button class="btn btn-sm ns_btn" t-if="state.role !== 'guest'" t-on-click="restart">
+                    <i class="fa fa-refresh me-1" role="img" aria-label="Restart"/>Restart
+                </button>
+                <button class="btn btn-sm ns_btn" t-on-click="backToMenu">
+                    <i class="fa fa-sign-out me-1" role="img" aria-label="Menu"/>Menu
+                </button>
+                <button class="btn btn-sm ns_btn" t-on-click="openFeedback">
+                    <i class="fa fa-bug me-1" role="img" aria-label="Feedback"/>Feedback
+                </button>
+                <button class="btn btn-sm ns_btn" t-on-click="toggleGlossary">
+                    <i class="fa fa-book me-1" role="img" aria-label="Glossary"/>Glossary
+                </button>
+            </div>
+            <div class="ns_pause_cols">
+                <div class="ns_pause_col">
+                    <span class="ns_pause_label">CONTROLS</span>
+                    <p class="ns_hint mb-0">
+                        Drag to move · <b>Space</b> dashes (you are untouchable during it) · <b>X</b> spends a bomb · <b>1-4</b> fire your active perks.
+                        Hold <b>Shift</b> to focus: you fly slower and your hitbox is drawn — it is much smaller than the ship.
+                        Skimming past a bullet without being hit builds your combo; clearing a wave untouched pays a bonus.
+                        Every 5 waves you keep 1 of 3 permanent upgrades; a colossal boss shows up every 10.
+                        Capsules: T triple · S shield · B bomb · + life.
+                        <t t-if="multiplayer">Fly next to a downed ally to revive them.</t>
+                    </p>
+                    <t t-if="state.perks.length">
+                        <span class="ns_pause_label">PERKS YOU KEEP</span>
+                        <ul class="ns_pause_perks list-unstyled mb-0">
+                            <li t-foreach="state.perks" t-as="p" t-key="p_index"
+                                t-attf-style="--ns-perk: {{ p.tint }}">
+                                <span t-out="p.name"/>
+                                <span class="ns_pause_key" t-if="p.key">key <t t-out="p.key"/></span>
+                            </li>
+                        </ul>
+                    </t>
+                </div>
+                <div class="ns_pause_col ns_pause_board">
+                    <span class="ns_pause_label">LEADERBOARD</span>
+                    <!-- This column owns its own scroll inside a panel that is
+                         capped at the viewport: a full board must not push the
+                         overlay past `.o_neon_strike_root`, which clips. -->
+                    <div class="ns_pause_scroll">
+                        <t t-call="neon_strike.Leaderboard"/>
+                    </div>
+                </div>
+            </div>
+            <div class="ns_pause_foot d-flex align-items-center px-3 py-2">
+                <span class="ns_pause_hint">Tips show up in the field, next to the thing they explain.</span>
+                <a href="https://www.odoo.com/page/brand-assets" target="_blank" rel="noreferrer"
+                   class="ns_brand_link ms-auto">built on Odoo</a>
+            </div>
+        </div>
     </div>
 </t>
 

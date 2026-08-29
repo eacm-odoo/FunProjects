@@ -3,7 +3,7 @@
 # UI palette follows Odoo brand assets: https://www.odoo.com/page/brand-assets
 {
     "name": "Neon Strike",
-    "version": "19.0.19.0.0",
+    "version": "19.0.20.0.0",
     "category": "Productivity",
     "summary": "Neon arcade space shooter, playable without a login on a public page",
     "description": """
@@ -22,6 +22,14 @@ playable **without an account**: pick a nickname and go.
 * 26 places to fight in, one per wave: deep space, a black hole with real
   gravity on its dust, nebulae, a supernova, ringed giants, planet surfaces
   (lava, ice, ocean, jungle, desert, storms), a wormhole and more
+* The first five of them are pixel art like everything in front of them: the
+  sky is quantised to a short ramp and dithered on the same grid as the hulls,
+  so there is no seam at the edge of the play field, and each one carries the
+  veil it actually needs instead of the flat one that used to cover all 27
+* The HUD gets out of the way: lives, dash and bombs sit in one band on the
+  bottom edge, parted around a void the ship flies through, drawn as shapes you
+  read rather than glyphs you count. The toolbar and the side panel are gone --
+  Esc opens an overlay that holds them, and the arena takes the room back
 * 6 enemy types with distinct AI, asteroids, and a rotating family of 5 bosses
   every 4 waves (dreadnought, warden, lancer, hive, prism)
 * Remote co-op for up to 4 players over the Odoo bus (room by code), currently
@@ -115,6 +123,7 @@ Built with Odoo. Brand guide: https://www.odoo.com/page/brand-assets
             "neon_strike/static/src/js/backgrounds.js",
             "neon_strike/static/src/js/menu_backdrop.js",
             "neon_strike/static/src/js/glossary.js",
+            "neon_strike/static/src/js/hud.js",
             "neon_strike/static/src/js/game_engine.js",
             "neon_strike/static/src/js/neon_strike_game.js",
             "neon_strike/static/src/xml/neon_strike_templates.xml",

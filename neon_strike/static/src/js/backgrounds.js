@@ -14,6 +14,13 @@
  *     half resolution. Use it for anything that does not move.
  *   - `update(bd, ts)` / `live(bd, g)`  per-frame state and drawing. Only for
  *     what genuinely moves: it runs at 60 fps behind the whole game.
+ * Direction A places (below) bake from two more phases instead of `paint`:
+ *   - `field(bd, x, y)`  the place as a scalar 0..1, sampled once per art
+ *     pixel and snapped to the place's ramp through an ordered dither. It may
+ *     return its own `rgb` to send that pixel to a second ramp.
+ *   - `hard(bd, g, pix)`  hard-edged art laid over the quantised field, drawn
+ *     in art pixels rather than logical ones.
+ *   - `occlude(bd, x, y)`  how much of a baked star this place hides, 0..1.
  * Painters draw in **logical arena coordinates** (the 680x540 space), over the
  * box the camera can reach when it pulls back for a colossus.
  *
@@ -21,6 +28,69 @@
  * places lives here and not in a second list that would drift from it.
  *
  * `BACKGROUNDS` order is the order they show up in a run: append at the end.
+ *
+ * -------------------------------------------------------------------------
+ * PLACES study, Direction A -- places 1-5 (2026-08-29)
+ * -------------------------------------------------------------------------
+ * The study built VIOLET NEBULA both ways -- quantised, and deliberately
+ * smooth -- and Direction A won: the seam at the play field was an accident,
+ * not a depth cue. `deep`, `planet_blue`, `nebula_violet`, `belt` and
+ * `blackhole` are now baked on the same 3 px lattice and the same 8-rung ramps
+ * the sprites live on. Places 6-27 are still soft gradient art.
+ *
+ * Departures from the study, and why:
+ *   1. The study kept a 1428x1162 upscaled copy of every bake (~6.6 MB each,
+ *      "roughly 32 MB" by its own port note). Here the 476x388 buffer is kept
+ *      and `drawImage` scales it with filtering off, which is one raster call
+ *      either way and 9x less memory. That is also what the soft places
+ *      already do with their half-resolution layer.
+ *   2. The study drifts the baked plane but not the live one. With a 30 px
+ *      horizon that slides the grains 28 px across their own hole, so `live`
+ *      takes the drift too on a Direction A place: the sky is one rigid plane.
+ *   3. Drift stays on the engine's `t * 0.0016` (a 3927-frame period), not the
+ *      study's 1400. Five places breathing out of step with the other 22 is a
+ *      worse defect than a slow breath.
+ *   4. EVENT HORIZON's dust is the study's Keplerian inspiral, not the
+ *      Newtonian integrator it replaces, which the brief asked to keep. The
+ *      disc is a plane at 0.42 squash and the grains ride *in* it; a
+ *      screen-plane 2D integrator cannot do that, which is exactly why the old
+ *      painter had to draw the disc separately from its dust. The behaviour
+ *      the entry promises survives -- omega goes as r^-1.5, so a grain both
+ *      brightens and accelerates on the way in, and is gone at the horizon --
+ *      and it drops the `Math.random()` the old `orbiter` used, which this
+ *      file's own rules forbid.
+ *   5. The singularity moved from `-H * 0.3` (entirely above the arena, so the
+ *      hole and the photon ring were never on screen and the thumbnail was a
+ *      smear of dust) to `H * 0.30`, inside it. The `desc` moved with it.
+ *   6. The veil is per place now (`p.veil`, 0-22%) instead of the flat 30% laid
+ *      over all 27. `bgScrim` falls back to `BG_SCRIM` for the rest.
+ *   7. Point lights take `p.starRamp` rather than the top of the place's own
+ *      ramp. The study's rule broke the one hard constraint the veil exists
+ *      for: EVENT HORIZON's ramp is entirely warm, so its 300 baked stars came
+ *      out as 3 px amber squares on black -- the size, the colour and the
+ *      surround of a bullet. Measured on the composed arena 1500 frames in,
+ *      counting warm blobs of 40 px or less sitting on a surround under
+ *      luminance 40: EVENT HORIZON 1 (a grain on the disc's own edge) and
+ *      VIOLET NEBULA 0, against dozens before. The other three are at 0
+ *      because nothing in them is warm at all.
+ *   8. ASTEROID BELT's far rocks are sized in art pixels. The study's 1-4.4 px
+ *      radius rounds to exactly one art pixel for all 520 of them at its own
+ *      default scale, so the band baked as dither noise and the lit-edge
+ *      branch never ran once. They are 1-3 art pixels across now.
+ *   9. The same place's mid rocks were painted one rung over the haze they sit
+ *      on and could not be seen: body two rungs over it, lit edge four, shadow
+ *      under it.
+ *  10. A grain on the far side of the disc is hidden by the horizon. The disc
+ *      is squashed and the hole is not, so the innermost grains crossed the
+ *      black circle and lit up inside it.
+ *
+ * Measured against this arena rather than carried over: the box is the same
+ * 1428x1162 the study drew for, so its geometry transfers unchanged. The two
+ * numbers that had to be checked here are the belt's separation from the wave
+ * -- scenery rocks drift at 0.10-0.32 px/frame and 6-9 px wide against
+ * `spawnRock`'s 0.7-2.0 px/frame and 32-80 px -- and the live budget, which
+ * comes out at 12 rasterising calls for the three quiet places, 78 for `belt`
+ * and 96 for `blackhole`, against the ~122 average the animator ports quote.
  */
 
 // The static layer is soft gradient art, so half resolution is free quality.
@@ -28,13 +98,36 @@ const LAYER_SCALE = 0.5;
 // Slow parallax breathing applied to the static layer, in logical pixels. The
 // baked box is this much taller on each side so the edge never shows.
 const DRIFT = 14;
-// Veil between the backdrop and the play field. Nine of the 27 places (lava,
-// supernova, binary, black hole, graveyard...) paint in the same warm reds and
-// the same 1-3 px motes the enemy bullets use, and in `lighter` they add up
-// until a bullet is indistinguishable from scenery. The engine lays it over
-// the backdrop, and so does the glossary thumbnail: the card has to show what
-// you actually fly in, not the unveiled art.
+// Veil between the backdrop and the play field, for the places still painted
+// the old way. Nine of the 27 (lava, supernova, binary, graveyard...) paint in
+// the same warm reds and the same 1-3 px motes the enemy bullets use, and in
+// `lighter` they add up until a bullet is indistinguishable from scenery. One
+// flat number fixes those nine and flattens the other eighteen, which is why a
+// Direction A place carries its own `p.veil` instead -- see `bgScrim`.
 export const BG_SCRIM = "rgba(5,6,14,0.30)";
+// One baked sky pixel, in logical pixels. At 3 the whole box bakes into a
+// 476x388 buffer that is blown back up with filtering off, so the sky lands on
+// the same lattice as the sprites in front of it.
+const ART_PIX = 3;
+// Bayer 4x4 ordered dither, and how much of a rung its threshold is worth. It
+// is what carries a gradient across a ramp only eight rungs deep: at 0 every
+// Direction A place bands into visible steps.
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+const DITHER = 1;
+// EVENT HORIZON's geometry, in logical pixels: the horizon, where the disc
+// starts and ends, and how flat it is seen from here.
+const HOLE_R = 30;
+const DISC_R0 = 52;
+const DISC_R1 = 300;
+const DISC_SQ = 0.42;
+// BLUE MARBLE's star, as a direction rather than a sprite: up and to the
+// right of the globe, which is what puts the terminator across its far half.
+const SUN_X = 0.55;
+const SUN_Y = -0.62;
+const SUN_Z = 0.56;
+// The field of a place that paints nothing at all, shared so the bake does not
+// allocate one per art pixel.
+const FIELD_DARK = { v: 0 };
 // The arena the glossary thumbnails are composed in. Painters place things in
 // logical pixels, so a still has to be taken at the size they were written for
 // and scaled down afterwards, not painted small.
@@ -118,13 +211,489 @@ function speckle(g, bd, n, color, maxA) {
     }
 }
 
+
+/* -------------------------------------------------------------------------- */
+/* Direction A helpers                                                         */
+/* -------------------------------------------------------------------------- */
+
+function clamp(v, lo, hi) {
+    return v < lo ? lo : v > hi ? hi : v;
+}
+
+/**
+ * The veil this place needs, as a canvas fill. Direction A gives every place
+ * its own number in the data file -- none at all for DEEP SPACE, 22% under an
+ * accretion disc -- because the flat 30% that used to go over all 27 was a fix
+ * for nine of them and a tax on the other eighteen. Everything not ported yet
+ * still gets the flat one.
+ *
+ * @param {object} def - one entry of BACKGROUNDS
+ * @returns {string}
+ */
+export function bgScrim(def) {
+    const veil = def && def.p ? def.p.veil : undefined;
+    return veil === undefined ? BG_SCRIM : "rgba(6,4,12," + (veil / 100).toFixed(3) + ")";
+}
+
+/**
+ * Mulberry32. A second generator next to `mkRng`, kept because the study's
+ * literal seeds are what place the stars and the rocks: reseeding them off the
+ * id would reshuffle art that was tuned by eye against these exact layouts.
+ */
+function mulberry32(seed) {
+    let a = seed;
+    return () => {
+        a |= 0;
+        a = (a + 0x6d2b79f5) | 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+/** Integer hash in 0..1, for a value that has to stay put across respawns. */
+function hash2(x, y, s) {
+    let h = Math.imul(x | 0, 0x27d4eb2d) ^ Math.imul(y | 0, 0x85ebca6b) ^ Math.imul(s | 0, 0xc2b2ae35);
+    h ^= h >>> 15;
+    h = Math.imul(h, 0x2545f491);
+    h ^= h >>> 13;
+    return (h >>> 0) / 4294967296;
+}
+
+/** A ramp as RGB triplets, so the bake never parses a hex per art pixel. */
+function rampRGB(ramp) {
+    return ramp.map((hex) => {
+        const n = parseInt(hex.slice(1), 16);
+        return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    });
+}
+
+/**
+ * Value noise on a 64x64 lattice, smoothstepped and summed over `oct` octaves.
+ * Every Direction A place is a couple of these read through a shaping function:
+ * it is the one thing that gives eight rungs something to quantise.
+ */
+function mkNoise(seed) {
+    const G = 64;
+    const rng = mulberry32(seed);
+    const grid = new Float32Array(G * G);
+    for (let i = 0; i < G * G; i++) {
+        grid[i] = rng();
+    }
+    const at = (x, y) => grid[((((y % G) + G) % G) * G) + (((x % G) + G) % G)];
+    const smp = (x, y) => {
+        const xi = Math.floor(x);
+        const yi = Math.floor(y);
+        const fx = x - xi;
+        const fy = y - yi;
+        const ux = fx * fx * (3 - 2 * fx);
+        const uy = fy * fy * (3 - 2 * fy);
+        const a = at(xi, yi);
+        const b = at(xi + 1, yi);
+        const c = at(xi, yi + 1);
+        const d = at(xi + 1, yi + 1);
+        const top = a + (b - a) * ux;
+        const bot = c + (d - c) * ux;
+        return top + (bot - top) * uy;
+    };
+    return (x, y, oct) => {
+        let s = 0;
+        let amp = 0.5;
+        let f = 1;
+        let norm = 0;
+        for (let o = 0; o < oct; o++) {
+            s += smp(x * f, y * f) * amp;
+            norm += amp;
+            amp *= 0.5;
+            f *= 2.07;
+        }
+        return s / norm;
+    };
+}
+
+/**
+ * Snap a live element onto the baked art grid. The lattice is anchored on the
+ * corner of the box, not on the arena, so a grain and the pixel of sky under
+ * it line up; a live element drawn off it is the one thing that gives the
+ * direction away.
+ */
+function snapTo(origin, v) {
+    return origin + Math.floor((v - origin) / ART_PIX) * ART_PIX;
+}
+
+/** The far stars a Direction A place bakes into its own layer, in box coords. */
+function starList(bd, seed, n, aMin) {
+    const rng = mulberry32(seed);
+    const out = [];
+    for (let i = 0; i < n; i++) {
+        out.push({
+            x: bd.x0 + rng() * bd.w,
+            y: bd.y0 + rng() * bd.h,
+            a: aMin + rng() * 0.5,
+            big: rng() > 0.87,
+        });
+    }
+    return out;
+}
+
+/**
+ * The dozen stars that breathe, inside the arena only. They are the whole live
+ * layer of three of the five places: one art pixel each, three alpha steps,
+ * and they never leave the place's own ramp, so they cannot show a colour the
+ * sky behind them does not have.
+ */
+function twinkleList(bd, seed, n) {
+    const rng = mulberry32(seed);
+    const out = [];
+    for (let i = 0; i < n; i++) {
+        out.push({
+            x: 40 + rng() * (bd.W - 80),
+            y: 30 + rng() * (bd.H - 60),
+            ph: rng() * 6.2832,
+            rate: 0.006 + rng() * 0.01,
+            a: 0.3 + rng() * 0.32,
+        });
+    }
+    return out;
+}
+
+/** Their phase is the only state three of the five places keep. */
+function breathe(bd, ts) {
+    for (const t of bd.twinkle) {
+        t.ph += t.rate * ts;
+    }
+}
+
+/**
+ * The three colours a point light in this place is allowed to be, dim to
+ * bright. The top of the place's own ramp by default, which is what keeps a
+ * star inside the sky it is in -- but a place whose ramp is entirely warm has
+ * to say otherwise, or its stars come out as 3 px amber squares on black and
+ * are exactly what the bullets look like.
+ */
+function starRamp(bd) {
+    return bd.p.starRamp || [bd.p.ramp[5], bd.p.ramp[6], bd.p.ramp[7]];
+}
+
+/** Draw them: 12 rasterising calls a frame, worst case. */
+function twinkles(bd, g) {
+    const ramp = starRamp(bd);
+    for (const t of bd.twinkle) {
+        const a = t.a * (0.45 + 0.55 * Math.sin(t.ph));
+        const q = Math.round(clamp(a, 0, 1) * 3) / 3;
+        if (q <= 0) {
+            continue;
+        }
+        g.fillStyle = q > 0.66 ? ramp[2] : q > 0.33 ? ramp[1] : ramp[0];
+        g.fillRect(snapTo(bd.x0, t.x), snapTo(bd.y0, t.y), ART_PIX, ART_PIX);
+    }
+}
+
 /* -------------------------------------------------------------------------- */
 /* Painters                                                                    */
 /* -------------------------------------------------------------------------- */
 
 const PAINTERS = {
-    // Nothing at all: the engine star field is the whole sky.
+    // Nothing at all: the engine star field is the whole sky. Still the
+    // fallback for an entry whose `kind` does not resolve.
     void: {},
+
+    /* -- Direction A: places 1-5 ------------------------------------------- */
+
+    /**
+     * DEEP SPACE. One plane and nothing to separate it from, which is the
+     * place: the field never leaves rung 0, so what you see is 420 baked stars,
+     * a dozen of them breathing, and the engine's own 44 near stars on top.
+     * The only place in the catalogue that needs no veil at all.
+     */
+    pixelDeep: {
+        init(bd) {
+            bd.stars = starList(bd, 0x1a77, 420, 0.18);
+            bd.twinkle = twinkleList(bd, 0x2f10, 12);
+        },
+        field: () => FIELD_DARK,
+        update: breathe,
+        live: twinkles,
+    },
+
+    /**
+     * BLUE MARBLE. Two ramps in one bake: the noise decides sea or land per art
+     * pixel and the field hands the bake whichever of the two that pixel
+     * belongs to, which is the only way a coastline survives eight rungs. The
+     * star is a direction rather than a sprite -- lambert against the sphere
+     * normal -- so the terminator is baked and the lit half costs nothing.
+     */
+    pixelMarble: {
+        init(bd) {
+            bd.cx = bd.x0 + bd.w * 0.3;
+            bd.cy = bd.y0 + bd.h * 0.86;
+            bd.r = bd.w * 0.42;
+            bd.land = mkNoise(0x6c31);
+            bd.cloud = mkNoise(0x91ab);
+            bd.stars = starList(bd, 0x4b02, 300, 0.24);
+            bd.twinkle = twinkleList(bd, 0x7712, 12);
+        },
+        // The globe is solid: a star behind it is not drawn at all.
+        occlude(bd, x, y) {
+            const dx = (x - bd.cx) / bd.r;
+            const dy = (y - bd.cy) / bd.r;
+            return dx * dx + dy * dy <= 1 ? 1 : 0;
+        },
+        field(bd, x, y) {
+            const dx = (x - bd.cx) / bd.r;
+            const dy = (y - bd.cy) / bd.r;
+            const q = dx * dx + dy * dy;
+            if (q > 1) {
+                // Outside the disc there is only air, falling off over about a
+                // tenth of a radius.
+                return { v: clamp(Math.exp(-(Math.sqrt(q) - 1) * 11) * 0.85, 0, 1) * 0.9 };
+            }
+            const bx = x - bd.x0;
+            const by = y - bd.y0;
+            const nz = Math.sqrt(Math.max(0, 1 - q));
+            const lit = Math.pow(clamp(dx * SUN_X + dy * SUN_Y + nz * SUN_Z, 0, 1), 0.85);
+            const l = bd.land(bx * 0.0055, by * 0.0055, 4);
+            const isLand = l > 0.52;
+            const clouds = clamp((bd.cloud(bx * 0.01 + 4, by * 0.0085, 3) - 0.6) * 2.4, 0, 1);
+            // Land sits darker than sea and carries its own relief; cloud is
+            // painted over both at nearly full lit value.
+            let v = lit * (isLand ? 0.52 + (l - 0.52) * 0.8 : 0.68);
+            v = v * (1 - clouds * 0.55) + clouds * lit * 0.95;
+            // Limb darkening: the rim of the disc loses nearly half its value.
+            v *= 0.55 + 0.45 * clamp((1 - q) * 3.2, 0, 1);
+            return { v: clamp(v, 0, 1), rgb: isLand && clouds < 0.4 ? bd.rgbAlt : bd.rgb };
+        },
+        update: breathe,
+        live: twinkles,
+    },
+
+    /**
+     * VIOLET NEBULA. The place the direction was decided on: it has more
+     * gradient in it than anything else in the catalogue, so if the dither
+     * holds here it holds everywhere. Three noises -- the gas, the dust lanes
+     * cut through it, a fine grain over both -- and a cap at rung 6, so however
+     * bright the gas gets it stops short of the pale pink the enemies fire in.
+     */
+    pixelNebula: {
+        init(bd) {
+            bd.n1 = mkNoise(0x9e3f);
+            bd.n2 = mkNoise(0x51c7);
+            bd.n3 = mkNoise(0x2b81);
+            bd.cx = bd.x0 + bd.w * 0.42;
+            bd.cy = bd.y0 + bd.h * 0.45;
+            bd.rr = bd.w * 0.58 * (bd.w * 0.58);
+            bd.stars = starList(bd, 0x7b19, 300, 0.24);
+            bd.twinkle = twinkleList(bd, 0x3ac5, 12);
+        },
+        // Gas dims the stars behind it and never quite hides them, which is
+        // what the entry promises.
+        occlude(bd, x, y) {
+            return gasDensity(bd, x, y) * 0.8;
+        },
+        field(bd, x, y) {
+            return { v: gasDensity(bd, x, y) };
+        },
+        update: breathe,
+        live: twinkles,
+    },
+
+    /**
+     * ASTEROID BELT. Two planes, and the separation between them is the place:
+     * 520 rocks baked into the haze band, 26 nearer ones drifting down over it
+     * at 0.10-0.32 px a frame and 6-9 px across. The rocks that can kill you
+     * are the wave's, at 0.7-2.0 px a frame and 32-80 px across -- an order of
+     * magnitude apart on both axes, which is what stops the scenery reading as
+     * a target.
+     */
+    pixelBelt: {
+        init(bd) {
+            bd.haze = mkNoise(0x33cd);
+            bd.stars = starList(bd, 0x5e88, 340, 0.24);
+            const rng = mulberry32(0x8ad2);
+            bd.far = [];
+            for (let i = 0; i < 520; i++) {
+                // Rocks crowd the middle of the band and thin towards its
+                // edges: depth the haze on its own does not give.
+                const band = Math.exp(-Math.pow((rng() * 2 - 1) * 1.5, 2));
+                bd.far.push({
+                    x: bd.x0 + rng() * bd.w,
+                    y: bd.y0 + bd.h * 0.5 + (rng() * 2 - 1) * bd.h * 0.46 * (1 - band * 0.4),
+                    // Measured against this arena rather than carried over: the
+                    // study's 1-4.4 px radius rounds to one art pixel for every
+                    // rock at a 3 px scale, so the whole band came out as
+                    // dither noise and the lit-edge branch below never ran.
+                    // Sized in art pixels instead: 1, 2 or 3 across.
+                    r: ART_PIX * (0.8 + rng() * 2.2),
+                    v: 0.3 + rng() * 0.55,
+                });
+            }
+            const m = mulberry32(0x2caf);
+            bd.rocks = [];
+            for (let i = 0; i < 26; i++) {
+                bd.rocks.push({
+                    x: m() * bd.W,
+                    y: m() * bd.H,
+                    r: 3 + m() * 7,
+                    sp: 0.1 + m() * 0.22,
+                    a: 0.45 + m() * 0.35,
+                });
+                // The study drew a rotation per rock and never used it. Keep
+                // the draw: without it every rock after the first lands
+                // somewhere the sheet was not tuned against.
+                m();
+            }
+        },
+        occlude(bd, x, y) {
+            return clamp(bd.haze((x - bd.x0) * 0.0035, (y - bd.y0) * 0.006, 3) * 0.55, 0, 0.8);
+        },
+        field(bd, x, y) {
+            const by = y - bd.y0;
+            const h = bd.haze((x - bd.x0) * 0.0035, by * 0.006, 3);
+            const band = Math.exp(-Math.pow((by - bd.h * 0.5) / (bd.h * 0.34), 2));
+            return { v: clamp(h * 0.34 * band + 0.05 * band, 0, 1) };
+        },
+        hard(bd, g, pix) {
+            const ramp = bd.p.ramp;
+            for (const rk of bd.far) {
+                const rp = Math.max(1, Math.round(rk.r / pix));
+                const x = Math.floor((rk.x - bd.x0) / pix);
+                const y = Math.floor((rk.y - bd.y0) / pix);
+                g.fillStyle = ramp[rk.v > 0.68 ? 5 : rk.v > 0.48 ? 4 : 3];
+                g.fillRect(x, y, rp, rp);
+                if (rp > 1) {
+                    // A single lit art pixel along the top edge is all the
+                    // shape a 2-3 px rock can carry.
+                    g.fillStyle = ramp[rk.v > 0.68 ? 6 : 5];
+                    g.fillRect(x, y, Math.max(1, rp - 1), 1);
+                }
+            }
+        },
+        update(bd, ts) {
+            for (const rk of bd.rocks) {
+                rk.y += rk.sp * ts;
+                if (rk.y > bd.H + 12) {
+                    rk.y = -12;
+                }
+            }
+        },
+        live(bd, g) {
+            // 26 rocks, 3 rasterising calls each: body, lit top edge, cast
+            // shadow down the right.
+            const ramp = bd.p.ramp;
+            for (const rk of bd.rocks) {
+                const rp = Math.max(2, Math.round(rk.r / ART_PIX));
+                const x = snapTo(bd.x0, rk.x);
+                const y = snapTo(bd.y0, rk.y);
+                // The haze this sits on runs at rungs 1-2, so the study's body
+                // at rung 3 was a rock you could not see. Body two rungs over
+                // it, lit edge four, and the cast shadow goes *under* the haze
+                // rather than into it.
+                g.fillStyle = ramp[4];
+                g.fillRect(x, y, rp * ART_PIX, rp * ART_PIX);
+                g.fillStyle = ramp[rk.a > 0.65 ? 6 : 5];
+                g.fillRect(x, y, Math.max(ART_PIX, (rp - 1) * ART_PIX), ART_PIX);
+                g.fillStyle = ramp[1];
+                g.fillRect(x + (rp - 1) * ART_PIX, y + ART_PIX, ART_PIX, Math.max(ART_PIX, (rp - 1) * ART_PIX));
+            }
+        },
+    },
+
+    /**
+     * EVENT HORIZON. The only place whose motion is physics rather than a sine,
+     * and the only one whose live layer costs anything: 96 grains on a
+     * Keplerian inspiral, angular rate going as r^-1.5, so a grain both
+     * brightens and whips round as it falls, and is gone the frame it touches
+     * the horizon. The disc they ride in, its photon ring and the hole itself
+     * do not move, so all three are baked.
+     */
+    pixelHorizon: {
+        init(bd) {
+            bd.cx = bd.W * 0.5;
+            bd.cy = bd.H * 0.3;
+            bd.dust = mkNoise(0x71e9);
+            const rng = mulberry32(0x1f3b);
+            bd.grains = [];
+            for (let i = 0; i < 96; i++) {
+                bd.grains.push({
+                    a: rng() * 6.2832,
+                    r: DISC_R0 + rng() * (DISC_R1 - DISC_R0),
+                    s: 0.9 + rng() * 0.5,
+                    seed: rng(),
+                });
+            }
+            bd.stars = starList(bd, 0x6f4c, 300, 0.24);
+        },
+        occlude(bd, x, y) {
+            const v = discValue(bd, x, y);
+            return v < 0 ? 1 : clamp(v * 1.5, 0, 1);
+        },
+        field(bd, x, y) {
+            const v = discValue(bd, x, y);
+            if (v < 0) {
+                return FIELD_DARK;
+            }
+            const dx = x - bd.cx;
+            const dy = y - bd.cy;
+            // Photon ring: a thin halo standing just off the horizon, in the
+            // plane of the screen rather than the plane of the disc.
+            const d = Math.sqrt(dx * dx + dy * dy);
+            const halo = Math.exp(-Math.abs(d - HOLE_R * 1.55) / 9) * 0.55;
+            return { v: clamp(v + halo, 0, 1) };
+        },
+        hard(bd, g, pix) {
+            // Nothing gets out of there, so the hole is punched to black over
+            // the ramp rather than being the ramp's darkest rung.
+            g.fillStyle = "#000000";
+            const rp = HOLE_R / pix;
+            const cxp = (bd.cx - bd.x0) / pix;
+            const cyp = (bd.cy - bd.y0) / pix;
+            for (let py = Math.floor(cyp - rp - 1); py <= Math.ceil(cyp + rp + 1); py++) {
+                for (let px = Math.floor(cxp - rp - 1); px <= Math.ceil(cxp + rp + 1); px++) {
+                    const dx = px + 0.5 - cxp;
+                    const dy = py + 0.5 - cyp;
+                    if (dx * dx + dy * dy <= rp * rp) {
+                        g.fillRect(px, py, 1, 1);
+                    }
+                }
+            }
+        },
+        update(bd, ts) {
+            for (const gr of bd.grains) {
+                gr.a += 0.02 * Math.pow(DISC_R0 / gr.r, 1.5) * gr.s * ts;
+                gr.r -= (0.055 + 0.3 * Math.pow(DISC_R0 / gr.r, 2)) * ts * gr.s;
+                if (gr.r <= HOLE_R * 1.04) {
+                    // Back out at the rim. The re-entry angle is hashed off the
+                    // grain instead of drawn, so the place stays a function of
+                    // its id and the clock and nothing else.
+                    gr.r = DISC_R1 * (0.86 + gr.seed * 0.14);
+                    gr.a = hash2(gr.r * 100, gr.seed * 1000, 7) * 6.2832;
+                }
+            }
+        },
+        live(bd, g) {
+            // 96 rasterising calls, the worst in the catalogue. A grain gets
+            // one rung brighter and then twice as wide on the way in, which is
+            // the whole read: it is accelerating.
+            const ramp = bd.p.ramp;
+            for (const gr of bd.grains) {
+                const x = bd.cx + Math.cos(gr.a) * gr.r;
+                const dy = Math.sin(gr.a) * gr.r * DISC_SQ;
+                const y = bd.cy + dy;
+                // The disc is squashed and the horizon is not, so the inner
+                // grains cross the black circle. The near half of the disc
+                // passes in front of the hole and the far half goes behind it:
+                // without the second case a grain shows up as a lit speck
+                // inside the one thing nothing gets out of.
+                const dx = x - bd.cx;
+                if (dy < 0 && dx * dx + dy * dy < HOLE_R * HOLE_R) {
+                    continue;
+                }
+                const t = clamp(1 - (gr.r - HOLE_R) / (DISC_R1 - HOLE_R), 0, 1);
+                g.fillStyle = ramp[t > 0.86 ? 7 : t > 0.68 ? 6 : t > 0.45 ? 5 : 4];
+                g.fillRect(snapTo(bd.x0, x), snapTo(bd.y0, y), t > 0.78 ? ART_PIX * 2 : ART_PIX, ART_PIX);
+            }
+        },
+    },
 
     // Coloured gas clouds with a couple of dark dust lanes for depth.
     nebula: {
@@ -155,74 +724,6 @@ const PAINTERS = {
             g.globalCompositeOperation = "lighter";
             speckle(g, bd, 90, "#ffffff", 0.35);
             g.globalCompositeOperation = "source-over";
-        },
-    },
-
-    /**
-     * Black hole. The dust is the only thing in this file with real physics:
-     * Newtonian pull towards the singularity, softened at short range so a
-     * particle that grazes the horizon does not get flung out at silly speed.
-     * Anything that crosses the horizon is gone and respawns at the rim.
-     */
-    blackhole: {
-        init(bd) {
-            bd.cx = bd.W * 0.5;
-            bd.cy = -bd.H * 0.3;
-            bd.hr = 44;                       // event horizon
-            bd.rMax = bd.W * 1.15;            // where the disc fades out
-            bd.g0 = 1500;                     // GM, tuned by eye
-            bd.dust = [];
-            for (let i = 0; i < 190; i++) {
-                bd.dust.push(orbiter(bd));
-            }
-        },
-        update(bd, ts) {
-            for (const d of bd.dust) {
-                const dx = bd.cx - d.x;
-                const dy = bd.cy - d.y;
-                const r2 = dx * dx + dy * dy;
-                const r = Math.sqrt(r2) || 1;
-                const a = bd.g0 / (r2 + 1200);
-                d.vx += (dx / r) * a * ts;
-                d.vy += (dy / r) * a * ts;
-                d.x += d.vx * ts;
-                d.y += d.vy * ts;
-                d.spd = Math.hypot(d.vx, d.vy);
-                if (r < bd.hr * 0.85 || r > bd.rMax * 1.5) {
-                    Object.assign(d, orbiter(bd));
-                }
-            }
-        },
-        live(bd, g) {
-            const a = bd.t * 0.004;
-            g.save();
-            g.globalCompositeOperation = "lighter";
-            // Accretion disc: two offset ellipses turning slowly.
-            for (const [k, c] of [[1, bd.p.c1], [-1, bd.p.c2]]) {
-                g.save();
-                g.translate(bd.cx, bd.cy);
-                g.rotate(a * k);
-                g.scale(1, 0.42);
-                blob(g, 0, 0, bd.hr * 6, c, 0.3);
-                g.restore();
-            }
-            for (const d of bd.dust) {
-                g.fillStyle = rgba(d.spd > 6 ? "#ffe9c4" : bd.p.c1, Math.min(0.9, 0.25 + d.spd * 0.07));
-                g.fillRect(d.x, d.y, 1.6, 1.6);
-            }
-            g.restore();
-            // Photon ring, then the hole itself: nothing gets out of there.
-            g.save();
-            g.strokeStyle = rgba("#ffd9a0", 0.75);
-            g.lineWidth = 2.5;
-            g.beginPath();
-            g.arc(bd.cx, bd.cy, bd.hr * 1.16, 0, 6.2832);
-            g.stroke();
-            g.fillStyle = "#000000";
-            g.beginPath();
-            g.arc(bd.cx, bd.cy, bd.hr, 0, 6.2832);
-            g.fill();
-            g.restore();
         },
     },
 
@@ -776,19 +1277,52 @@ const PAINTERS = {
     },
 };
 
-/** A dust grain on a near-circular orbit, biased slightly inwards. */
-function orbiter(bd) {
-    const ang = Math.random() * 6.2832;
-    const r = bd.hr * 2.4 + Math.random() * (bd.rMax - bd.hr * 2.4);
-    // v = sqrt(GM/r) is the circular orbit; 0.92 of it makes the grain fall in.
-    const v = Math.sqrt(bd.g0 / r) * 0.92;
-    return {
-        x: bd.cx + Math.cos(ang) * r,
-        y: bd.cy + Math.sin(ang) * r,
-        vx: -Math.sin(ang) * v,
-        vy: Math.cos(ang) * v,
-        spd: v,
-    };
+/**
+ * VIOLET NEBULA's gas, 0..1. Read twice per art pixel -- once for the field,
+ * once to work out how much of the star behind it survives -- so it is a
+ * function rather than a closure the painter has to carry.
+ */
+function gasDensity(bd, x, y) {
+    const bx = x - bd.x0;
+    const by = y - bd.y0;
+    let d = bd.n1(bx * 0.0042, by * 0.0055, 3);
+    // The sine is what stacks the gas into layers instead of leaving it a
+    // cloud: one band every ~1010 px of box, warped by the noise itself.
+    d = d * 0.86 + 0.26 * Math.sin(by * 0.0062 + d * 3.4) + 0.14;
+    // Dust lanes: wherever the second noise crosses its own midpoint the gas
+    // is cut down to a third over a band about 0.085 of the noise wide.
+    const lane = bd.n2(bx * 0.0016 + by * 0.0009, by * 0.0022, 2);
+    d *= 0.34 + 0.66 * clamp(Math.abs(lane - 0.5) / 0.085, 0, 1);
+    const dx = x - bd.cx;
+    const dy = y - bd.cy;
+    d *= 0.42 + 0.58 * Math.exp(-(dx * dx + dy * dy * 1.35) / bd.rr);
+    d *= 0.88 + 0.24 * bd.n3(bx * 0.011, by * 0.013, 2);
+    return clamp(d, 0, 1);
+}
+
+/**
+ * EVENT HORIZON's accretion disc, 0..1, or -1 inside the horizon. The disc is
+ * a plane seen at 0.42 squash, so the distance that matters is measured in the
+ * plane and not on the screen.
+ */
+function discValue(bd, x, y) {
+    const dx = x - bd.cx;
+    const dy = (y - bd.cy) / DISC_SQ;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d < HOLE_R) {
+        return -1;
+    }
+    if (d > DISC_R1 * 1.25) {
+        return 0;
+    }
+    // Ramp up out of the horizon, fade out past the rim, and brighten steeply
+    // towards the inner edge where the gas is moving fastest.
+    const band = clamp((d - HOLE_R) / (DISC_R0 - HOLE_R), 0, 1) *
+        clamp((DISC_R1 * 1.2 - d) / (DISC_R1 * 0.55), 0, 1);
+    const inner = Math.pow(clamp(1 - (d - DISC_R0) / (DISC_R1 - DISC_R0), 0, 1), 1.5);
+    // Texture read in polar space, so the streaks run the way the disc turns.
+    const tex = 0.72 + 0.42 * bd.dust(Math.atan2(dy, dx) * 7, d * 0.055, 3);
+    return clamp(band * (0.3 + 0.85 * inner) * tex, 0, 1);
 }
 
 /** Planet rings: `back` is the half behind the body, drawn before it. */
@@ -850,28 +1384,64 @@ function surface(g, bd, cx, cy, r, p) {
 
 export const BACKGROUNDS = [
     {
-        id: "deep", name: "DEEP SPACE", tint: "#8be9ff", kind: "void", p: {},
-        desc: "The sky the star field has all to itself: no gas, no world, nothing painted behind you. Wave 1 is fought in the only place with nothing in it.",
+        id: "deep", name: "DEEP SPACE", tint: "#8be9ff", kind: "pixelDeep",
+        // The ramp is never called above rung 2, so the cap is what the place
+        // is rather than a safety net.
+        p: {
+            veil: 0, topRung: 2,
+            ramp: ["#04060c", "#080c16", "#0d1322", "#131b2e", "#1a2340", "#26315a", "#3a4a7a", "#6d80b0"],
+        },
+        desc: "The sky the star field has all to itself: no gas, no world, nothing painted behind you. Wave 1 is fought in the only place with nothing in it, and the only one that needs no veil between you and it.",
     },
     {
-        id: "planet_blue", name: "BLUE MARBLE", tint: "#7fb6ff", kind: "planet",
-        p: { cx: 0.16, cy: 0.86, r: 0.62, lit: 1, base: "#123a6b", hi: "#3f8fd8", land: "#4fb08a", atmo: "#8fd0ff", style: "marble", star: "#fff2c4" },
-        desc: "A living world sitting low on the left, close enough to make out continents through the blue rim of its atmosphere. The star is off to one side, so the far half of it is unlit.",
+        id: "planet_blue", name: "BLUE MARBLE", tint: "#7fb6ff", kind: "pixelMarble",
+        // `ramp` is the old base/hi/atmo run out to eight rungs, `landRamp` the
+        // old `land`. Retune the place here: the painter reads nothing else.
+        p: {
+            veil: 18,
+            ramp: ["#02050c", "#061426", "#0b2a4a", "#10426e", "#1a5c8c", "#2b86b0", "#57b3cf", "#a8e0ee"],
+            landRamp: ["#04070a", "#0a1410", "#132018", "#1d3020", "#2a4526", "#3d5c2c", "#587a3a", "#86a856"],
+        },
+        desc: "A living world sitting low on the left, close enough to make out continents through the blue rim of its atmosphere. The star is off to one side, so the far half of it falls away into the dark.",
     },
     {
-        id: "nebula_violet", name: "VIOLET NEBULA", tint: "#c9a4ff", kind: "nebula",
-        p: { c1: "#8a4fff", c2: "#ff4fa8" },
-        desc: "Violet and pink gas stacked in soft layers, with dark dust lanes cutting across it and stars showing through wherever it thins out.",
+        id: "nebula_violet", name: "VIOLET NEBULA", tint: "#c9a4ff", kind: "pixelNebula",
+        // The old `c1` violet climbing into the old `c2` pink. Capped one rung
+        // under the top: the gas may not reach the colour the enemies fire in.
+        p: {
+            veil: 12, topRung: 6,
+            ramp: ["#0a0714", "#1a0f2e", "#2e1748", "#4b2168", "#6f2f86", "#a4508f", "#d98aae", "#f2c4d6"],
+            // Same reason as EVENT HORIZON, one order of magnitude smaller: a
+            // star taken off the top of this ramp is a pale pink 3 px square,
+            // and ten of them landed in a dust lane where nothing else is lit.
+            // Stars in a nebula are white anyway, and cool ones read as being
+            // behind the gas rather than in it.
+            starRamp: ["#4b4470", "#7a74a4", "#b9b6d8"],
+        },
+        desc: "Violet and pink gas stacked in soft layers, with dark dust lanes cutting across it and stars showing through wherever it thins out. However bright the gas gets, it stops short of the pink the enemies shoot in.",
     },
     {
-        id: "belt", name: "ASTEROID BELT", tint: "#c7b8a8", kind: "belt",
-        p: { base: "#6b6154", hi: "#c9bda8" },
-        desc: "Rocks as far out as you can see. They are scenery and cannot be shot: the asteroids that can kill you are the near ones the wave spawns.",
+        id: "belt", name: "ASTEROID BELT", tint: "#c7b8a8", kind: "pixelBelt",
+        // From the old base/hi.
+        p: {
+            veil: 8, topRung: 6,
+            ramp: ["#05050a", "#0e0c12", "#1a161c", "#282029", "#3a2f34", "#544344", "#7a6058", "#a8877a"],
+        },
+        desc: "Rocks as far out as you can see, in two layers: five hundred baked into the haze, a couple of dozen nearer ones drifting down over it. They are scenery and cannot be shot -- the asteroids that can kill you are the near ones the wave spawns, and they come at you five times faster and five times bigger.",
     },
     {
-        id: "blackhole", name: "EVENT HORIZON", tint: "#ffb35e", kind: "blackhole",
-        p: { c1: "#ff9d3c", c2: "#5ecbff" },
-        desc: "A singularity just above the arena with its accretion disc turning around it. The dust is on real orbits: grains spiral in, go bright as they pick up speed and are gone the moment they reach the horizon.",
+        id: "blackhole", name: "EVENT HORIZON", tint: "#ffb35e", kind: "pixelHorizon",
+        // The old `c1` amber. The old `c2` blue is gone: the disc is one
+        // temperature now, and the ramp is the only place it can get hot.
+        p: {
+            veil: 22,
+            ramp: ["#04030a", "#120a12", "#241017", "#3d1a1c", "#5e2a1c", "#8c4620", "#c07a2a", "#f0c060"],
+            // Stars do not come out of that ramp here: its top three rungs are
+            // the amber the enemies fire in, and a star is a 3 px square on
+            // black, which is also what a bullet is.
+            starRamp: ["#232a38", "#38414f", "#5a6478"],
+        },
+        desc: "A singularity hanging in the top third of the arena, its accretion disc laid out flat around it. The dust is on real orbits: grains spiral in, go bright as they pick up speed and are gone the moment they reach the horizon.",
     },
     {
         id: "gas_giant", name: "GAS GIANT DESCENT", tint: "#ffca8a", kind: "surface",
@@ -1028,14 +1598,85 @@ export class Backdrop {
         this.dust = [];
         this.motes = [];
         this.bands = [];
+        this.stars = [];
         this.layer = null;
         this.painter = PAINTERS[def.kind] || PAINTERS.void;
+        // A Direction A place bakes from `field` instead of `paint`: it is
+        // quantised art, so it is composed at full strength and veiled with its
+        // own number rather than dimmed with everyone else's.
+        this.pixel = !!this.painter.field;
+        this.scrim = bgScrim(def);
+        if (this.pixel) {
+            this.rgb = rampRGB(this.p.ramp);
+            this.rgbAlt = this.p.landRamp ? rampRGB(this.p.landRamp) : this.rgb;
+        }
         if (this.painter.init) {
             this.painter.init(this);
         }
-        if (this.painter.paint) {
+        if (this.pixel) {
+            this._bakeField();
+        } else if (this.painter.paint) {
             this._bake();
         }
+    }
+
+    /**
+     * Direction A bake. The place is sampled once per art pixel, snapped to its
+     * ramp through a Bayer 4x4 threshold, and the point lights go on top: stars
+     * first, dimmed by whatever the place puts in front of them, then any
+     * hard-edged art.
+     *
+     * The buffer stays at art resolution -- 476x388 for a 1428x1162 box -- and
+     * `draw` scales it up with filtering off. That is one raster call either
+     * way and a ninth of the memory of keeping the upscale around.
+     */
+    _bakeField() {
+        const pix = ART_PIX;
+        const aw = Math.max(1, Math.ceil(this.w / pix));
+        const ah = Math.max(1, Math.ceil(this.h / pix));
+        const cv = document.createElement("canvas");
+        cv.width = aw;
+        cv.height = ah;
+        const g = cv.getContext("2d");
+        const img = g.createImageData(aw, ah);
+        const data = img.data;
+        const field = this.painter.field;
+        const last = this.rgb.length - 1;
+        const cap = Math.min(this.p.topRung === undefined ? last : this.p.topRung, last);
+        for (let py = 0; py < ah; py++) {
+            const row = (py & 3) * 4;
+            const y = this.y0 + (py + 0.5) * pix;
+            for (let px = 0; px < aw; px++) {
+                const s = field(this, this.x0 + (px + 0.5) * pix, y);
+                const ramp = s.rgb || this.rgb;
+                const bay = (BAYER[row + (px & 3)] / 16 - 0.46) * DITHER;
+                const col = ramp[clamp(Math.round(s.v * last + bay), 0, cap)];
+                const o = (py * aw + px) * 4;
+                data[o] = col[0];
+                data[o + 1] = col[1];
+                data[o + 2] = col[2];
+                data[o + 3] = 255;
+            }
+        }
+        g.putImageData(img, 0, 0);
+        // Stars are point lights, so the rung cap does not apply to them: on
+        // DEEP SPACE the cap is 2 and the stars are the entire place.
+        const occlude = this.painter.occlude;
+        const ramp = starRamp(this);
+        for (const s of this.stars) {
+            const a = s.a * (1 - (occlude ? occlude(this, s.x, s.y) : 0));
+            if (a < 0.1) {
+                continue;
+            }
+            const q = Math.round(clamp(a, 0, 1) * 3) / 3;
+            g.fillStyle = q > 0.66 ? ramp[2] : q > 0.33 ? ramp[1] : ramp[0];
+            const w = s.big ? 2 : 1;
+            g.fillRect(Math.floor((s.x - this.x0) / pix), Math.floor((s.y - this.y0) / pix), w, w);
+        }
+        if (this.painter.hard) {
+            this.painter.hard(this, g, pix);
+        }
+        this.layer = cv;
     }
 
     /** Render the static art once, at reduced resolution, in logical coordinates. */
@@ -1059,18 +1700,30 @@ export class Backdrop {
     }
 
     draw(g) {
-        // Everything here is far away: it is drawn dim so the enemies and
-        // bullets in front of it keep every bit of their contrast.
         g.save();
-        g.globalAlpha = 0.85;
+        // Soft places are drawn dim so the enemies in front of them keep their
+        // contrast. A Direction A place is already dark by construction and
+        // pays for its contrast with `p.veil`, so it goes down at full value.
+        g.globalAlpha = this.pixel ? 1 : 0.85;
+        const drift = Math.sin(this.t * 0.0016) * DRIFT;
         if (this.layer) {
             g.save();
-            g.translate(0, Math.sin(this.t * 0.0016) * DRIFT);
+            g.translate(0, drift);
+            g.imageSmoothingEnabled = !this.pixel;
             g.drawImage(this.layer, this.x0, this.y0, this.w, this.h);
             g.restore();
         }
         if (this.painter.live) {
-            this.painter.live(this, g);
+            if (this.pixel) {
+                // The live layer takes the drift too: it is the same plane. Let
+                // it stand still and the grains slide across their own hole.
+                g.save();
+                g.translate(0, drift);
+                this.painter.live(this, g);
+                g.restore();
+            } else {
+                this.painter.live(this, g);
+            }
         }
         g.restore();
     }
@@ -1121,7 +1774,7 @@ export function backdropThumb(def, w = 272) {
         bd.t = THUMB_WARMUP;
     }
     bd.draw(g);
-    g.fillStyle = BG_SCRIM;
+    g.fillStyle = bd.scrim;
     g.fillRect(0, 0, THUMB_W, THUMB_H);
     // The star field on top, the way the engine layers it: it is the near
     // layer, and for DEEP SPACE it is the whole picture. Same density the
