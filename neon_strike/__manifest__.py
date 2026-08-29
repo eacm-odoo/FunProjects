@@ -3,7 +3,7 @@
 # UI palette follows Odoo brand assets: https://www.odoo.com/page/brand-assets
 {
     "name": "Neon Strike",
-    "version": "19.0.22.0.0",
+    "version": "19.0.23.0.0",
     "category": "Productivity",
     "summary": "Neon arcade space shooter, playable without a login on a public page",
     "description": """
@@ -125,6 +125,7 @@ Built with Odoo. Brand guide: https://www.odoo.com/page/brand-assets
             "neon_strike/static/src/js/menu_backdrop.js",
             "neon_strike/static/src/js/glossary.js",
             "neon_strike/static/src/js/hud.js",
+            "neon_strike/static/src/js/perk_screen.js",
             "neon_strike/static/src/js/game_engine.js",
             "neon_strike/static/src/js/neon_strike_game.js",
             "neon_strike/static/src/xml/neon_strike_templates.xml",

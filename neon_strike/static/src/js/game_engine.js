@@ -17,6 +17,7 @@
 // the engine keeps loading as native ESM outside Odoo (the design sprite gallery).
 import { drawSprite, pxFor, rgba, spriteSize } from "./sprites";
 import { MAX_ACTIVES, PERKS, PERK_INDEX, rollOffers } from "./perks";
+import { PerkScreen } from "./perk_screen";
 import { BOSSES, bossForWave } from "./bosses";
 import { COLOSSI, colossusForWave } from "./colossi";
 import { SHIPS, SHIP_COLORS } from "./ships";
@@ -29,7 +30,7 @@ import {
 } from "./fry_animator";
 import { AegisMotion } from "./aegis_motion";
 import { VulcanMotion } from "./vulcan_motion";
-import { Backdrop, backgroundForWave } from "./backgrounds";
+import { Backdrop, backgroundForWave, bgFlow } from "./backgrounds";
 import {
     HudFx, drawActives, drawBuffs, drawCombo, drawCrewTag, drawEscPip, drawMeta, drawVitals,
 } from "./hud";
@@ -255,6 +256,32 @@ const PUP_TABLE = {
     normal: { T: 10, S: 12, B: 7, L: 6, R: 8, V: 7, P: 6, H: 6, D: 5, G: 6, F: 5, X: 5, C: 6, Y: 5 },
     supply: { T: 14, S: 13, B: 6, L: 5, R: 13, V: 11, P: 8, H: 8, D: 7, G: 9, F: 4, X: 4, C: 3, Y: 3 },
 };
+// Capsule flow off small fry. It is rolled per kill, but what the player feels
+// is capsules a minute, and the two come apart badly across a run: a wave is
+// 9-12 hulls in 6-8 seconds at wave 1 and 32-44 in 14-17 by wave 16, so a flat
+// chance more than doubles the flow with it. Measured over three runs to wave
+// 28: 6-12 capsules a minute and 0.6-1.0 standing on the field over the first
+// three waves, against 24-40 a minute and 2.3-3.9 standing from wave 16 on --
+// enough that the timed buffs (10 seconds each) never lapse and a late run
+// stops being about the build. `dropFalloff` holds the flow near its wave-1
+// rate for the rest of the run; `DROP_FIELD_CAP` is the ceiling on what may be
+// standing uncollected before a roll is skipped, which is what takes the spikes
+// off. Both apply to fry only: a supply drop and a boss bundle are the answer
+// to a boss fight having no fry in it, and are left alone.
+const DROP_CHANCE = 0.22;
+const DROP_FALLOFF_WAVE = 18;
+const DROP_FALLOFF_MIN = 0.42;
+const DROP_FIELD_CAP = 4;
+// What a modifier is measured from, for the running totals the upgrade screen
+// shows. They live here rather than in `perk_screen.js` because every one of
+// them is a number this file applies: change `_fireDelay`'s base, `SHIP_HIT_R`
+// or `DASH_CD` and the card has to move with it.
+const MOD_BASES = {
+    fireRate: 9, dmg: 1, bulletSpeed: 1, side: 0, pierce: 0,
+    crit: 0, critMul: 2, moveSpeed: 1, hitbox: SHIP_HIT_R, lives: 3,
+    maxLives: 5, inv: 1, magnet: 0, luck: DROP_CHANCE, scoreMul: 1,
+    dashCd: DASH_CD, dashCharges: 1,
+};
 // Timed capsules: frames the buff lasts on the ship that grabbed it.
 const PUP_BUFFS = { R: 600, V: 600, P: 540, H: 600, D: 900, G: 240 };
 // Order of `ship.buffs` in the snapshot bitmask (never reorder, append only).
@@ -452,6 +479,10 @@ export class NeonStrikeEngine {
         // playing. The state machine goes playing -> perk -> playing.
         this.perkPhase = null;
         this.nextPerkWave = PERK_WAVES;
+        // The upgrade screen. Render-only, like `ShipFlight` and `HudFx`: it
+        // holds the animation of the cards and nothing the simulation reads.
+        this.perkUI = new PerkScreen();
+        this.perkTimedOut = false;
         // Incremental id per enemy: a piercing bullet must not hit twice.
         this._eid = 0;
 
@@ -1175,6 +1206,8 @@ export class NeonStrikeEngine {
         }
         this.perkPhase = { offers, picks: {}, t: PERK_TIMEOUT };
         this.state = "perk";
+        this.perkTimedOut = false;
+        this.perkUI.sync(offers[this.localSlot] || []);
         this.ebullets = [];
         this.beams = [];
         this.sPup();
@@ -1208,17 +1241,26 @@ export class NeonStrikeEngine {
         }
         ph.t -= ts;
         const pending = this.ships.filter((sp) => ph.picks[sp.slot] == null);
+        // The screen animates from the same step the phase counts down on, so
+        // pause freezes it and slow motion slows it.
+        this.perkUI.sync(ph.offers[this.localSlot] || []);
+        this.perkUI.update(ts, this._perkModel());
         if (ph.t <= 0) {
-            // Nobody is left without an upgrade: take the first option.
+            // Nobody is left without an upgrade: take the first option. The
+            // card has been saying it would for the whole twenty seconds.
             for (const sp of pending) {
                 const offer = ph.offers[sp.slot] || [];
                 if (offer.length) {
+                    if (sp.slot === this.localSlot) {
+                        this.perkTimedOut = true;
+                    }
                     this.pickPerk(sp.slot, offer[0]);
                 }
             }
         } else if (pending.length) {
             return;
         }
+        this.perkUI.close();
         this.perkPhase = null;
         this.state = "playing";
         this.waveDelay = 40;
@@ -1787,6 +1829,20 @@ export class NeonStrikeEngine {
         this.pups.push({ x, y, t, vy: 1.1, r: 13, ph: 0 });
     }
 
+    /**
+     * How much of the wave-1 capsule chance a fry kill is worth now: 1 at the
+     * start of a run, easing down to `DROP_FALLOFF_MIN` by wave
+     * `DROP_FALLOFF_WAVE` and flat after that. The kill rate roughly doubles
+     * over the same span, so the product -- capsules a minute -- is what stays
+     * put, and that is the thing the player actually reads.
+     *
+     * @returns {number} 0..1
+     */
+    _dropFalloff() {
+        const k = Math.min(1, Math.max(0, ((this.wave || 1) - 1) / (DROP_FALLOFF_WAVE - 1)));
+        return 1 - (1 - DROP_FALLOFF_MIN) * k;
+    }
+
     /** Is a boss (regular or colossal) on the field right now? */
     _bossPresent() {
         return this.enemies.some((e) => this._isBoss(e));
@@ -1930,8 +1986,11 @@ export class NeonStrikeEngine {
             this.pop(e.x, e.y - 40, "Extra life for everyone!", "#7bffb0", 16);
         } else {
             this.sBoom();
-            // Lucky Charm raises the drop rate of whoever landed the kill.
-            if (Math.random() < 0.22 + (killer ? killer.mods.luck : 0)) {
+            // Lucky Charm raises the drop rate of whoever landed the kill. It
+            // multiplies rather than adds on top of the falloff, so the perk is
+            // worth the same fraction of the flow at wave 30 as at wave 3.
+            const chance = (DROP_CHANCE + (killer ? killer.mods.luck : 0)) * this._dropFalloff();
+            if (this.pups.length < DROP_FIELD_CAP && Math.random() < chance) {
                 this.dropPup(e.x, e.y);
             }
         }
@@ -2081,6 +2140,8 @@ export class NeonStrikeEngine {
         // Perks are per run: a new game starts from a bare hull again.
         this.perkPhase = null;
         this.nextPerkWave = PERK_WAVES;
+        this.perkUI.close();
+        this.perkTimedOut = false;
         this.field = 1;
         this.fieldTo = 1;
         this.supplyT = 0;
@@ -2930,10 +2991,18 @@ export class NeonStrikeEngine {
         }
         const mx = this.W * 0.55;
         const my = this.H * 0.55;
+        // The star field is the near layer of whatever place this is, so it
+        // takes the place's own flow: on a descent world the backdrop rises and
+        // a star field still falling past it is a contradiction you can see.
+        // Every place but GAS GIANT DESCENT is +1, and reads exactly as before.
+        const flow = this.bg ? bgFlow(this.bg.def) : 1;
         for (const s of this.stars) {
-            s.y += s.z * (1.2 + this.wave * 0.06) * ts;
+            s.y += flow * s.z * (1.2 + this.wave * 0.06) * ts;
             if (s.y > this.H + my) {
                 s.y = -my;
+                s.x = -mx + Math.random() * (this.W + mx * 2);
+            } else if (s.y < -my) {
+                s.y = this.H + my;
                 s.x = -mx + Math.random() * (this.W + mx * 2);
             }
         }
@@ -5920,130 +5989,86 @@ export class NeonStrikeEngine {
     /* Perk UI (canvas: works the same on host and guest)                  */
     /* ------------------------------------------------------------------ */
 
-    /** Geometry of the 3 cards offered to the local slot. */
+    /**
+     * Everything the upgrade screen draws from, in one object. It is built the
+     * same way on host and guest: the phase packet plus the local ship's own
+     * perks and summed modifiers, so nothing here needs simulating.
+     *
+     * @returns {Object|null}
+     */
+    _perkModel() {
+        const ph = this.perkPhase;
+        if (!ph) {
+            return null;
+        }
+        const sp = this.ships.find((s) => s.slot === this.localSlot);
+        const offers = ph.offers[this.localSlot] || [];
+        const picked = ph.picks[this.localSlot];
+        return {
+            W: this.W,
+            H: this.H,
+            wave: this.wave,
+            t: ph.t,
+            tMax: PERK_TIMEOUT,
+            offers,
+            picked: picked == null ? null : picked,
+            hover: this._perkHover(offers),
+            timedOut: this.perkTimedOut,
+            owned: sp ? sp.perks.map((id) => PERKS[PERK_INDEX[id]]).filter(Boolean) : [],
+            ownedIds: sp ? sp.perks : [],
+            sums: sp ? sp.mods : BASE_MODS,
+            bases: MOD_BASES,
+            actives: sp ? sp.actives.length : 0,
+            chips: this.ships.map((s) => ({
+                label: "P" + (s.slot + 1),
+                picked: ph.picks[s.slot] != null,
+                me: s.slot === this.localSlot,
+            })),
+            pending: this.ships.filter((s) => ph.picks[s.slot] == null).length,
+        };
+    }
+
+    /** Which card the pointer is over, or -1. Cheap: it re-runs the layout. */
+    _perkHover(offers) {
+        if (!this._hover || !offers.length || this.perkPhase.picks[this.localSlot] != null) {
+            return -1;
+        }
+        for (const c of this._perkCards()) {
+            if (
+                this._hover.x >= c.x && this._hover.x <= c.x + c.w &&
+                this._hover.y >= c.y && this._hover.y <= c.y + c.h
+            ) {
+                return c.i;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Geometry of the cards offered to the local slot. The layout is measured
+     * from the text at the live card width, and this is the same array the
+     * screen paints from -- a card can never be clickable somewhere it is not
+     * drawn, which is the defect the study was written against.
+     */
     _perkCards() {
         const ph = this.perkPhase;
         if (!ph) {
             return [];
         }
         const offers = ph.offers[this.localSlot] || [];
-        const w = 188;
-        const h = 250;
-        const gap = 16;
-        const total = offers.length * w + Math.max(0, offers.length - 1) * gap;
-        const x0 = (this.W - total) / 2;
-        const y = this.H / 2 - h / 2 + 26;
-        return offers.map((idx, i) => ({ idx, i, x: x0 + i * (w + gap), y, w, h }));
-    }
-
-    _wrapText(text, maxW) {
-        const g = this.g;
-        const words = String(text).split(" ");
-        const lines = [];
-        let line = "";
-        for (const word of words) {
-            const next = line ? line + " " + word : word;
-            if (g.measureText(next).width > maxW && line) {
-                lines.push(line);
-                line = word;
-            } else {
-                line = next;
-            }
+        if (!offers.length) {
+            return [];
         }
-        if (line) {
-            lines.push(line);
-        }
-        return lines;
+        // `_perkHover` is not called here: it would recurse through layout.
+        return this.perkUI.layout(this.g, { W: this.W, H: this.H, offers }).cards;
     }
 
     _renderPerkChoice() {
-        const g = this.g;
-        const W = this.W;
-        const H = this.H;
-        const ph = this.perkPhase;
-        const picked = ph.picks[this.localSlot];
-        // Drawn in HUD space: overshoot to cover the letterbox and, if the
-        // camera is still pulled back, the margin around the arena.
-        g.fillStyle = "rgba(4,5,12,0.86)";
-        g.fillRect(-W, -H, W * 3, H * 3);
-        g.textAlign = "center";
-        g.textBaseline = "middle";
-        g.fillStyle = "#eaf6ff";
-        g.font = "500 26px system-ui,sans-serif";
-        g.fillText("CHOOSE AN UPGRADE", W / 2, 74);
-        g.fillStyle = "rgba(180,210,255,0.75)";
-        g.font = "400 14px system-ui,sans-serif";
-        g.fillText(
-            "Wave " + this.wave + " cleared · you keep it for the rest of the run",
-            W / 2,
-            100
-        );
-
-        for (const card of this._perkCards()) {
-            const perk = PERKS[card.idx];
-            if (!perk) {
-                continue;
-            }
-            const chosen = picked === card.idx;
-            const hover =
-                picked == null &&
-                this._hover &&
-                this._hover.x >= card.x && this._hover.x <= card.x + card.w &&
-                this._hover.y >= card.y && this._hover.y <= card.y + card.h;
-            g.fillStyle = chosen ? rgba(perk.tint, 0.22) : hover ? "rgba(255,255,255,0.09)" : "rgba(255,255,255,0.04)";
-            g.fillRect(card.x, card.y, card.w, card.h);
-            g.strokeStyle = chosen || hover ? perk.tint : rgba(perk.tint, 0.45);
-            g.lineWidth = chosen || hover ? 2.5 : 1.2;
-            g.strokeRect(card.x, card.y, card.w, card.h);
-            const cx = card.x + card.w / 2;
-            // Key hint.
-            g.fillStyle = rgba(perk.tint, 0.75);
-            g.font = "500 12px system-ui,sans-serif";
-            g.fillText("[" + (card.i + 1) + "]", cx, card.y + 22);
-            // Kind + name.
-            g.fillStyle = perk.tint;
-            g.font = "500 11px system-ui,sans-serif";
-            g.fillText(perk.kind.toUpperCase() + " · " + perk.tag.toUpperCase(), cx, card.y + 46);
-            g.fillStyle = "#eaf6ff";
-            g.font = "500 18px system-ui,sans-serif";
-            for (const [k, line] of this._wrapText(perk.name, card.w - 24).entries()) {
-                g.fillText(line, cx, card.y + 76 + k * 22);
-            }
-            // Description.
-            g.fillStyle = "rgba(200,220,255,0.85)";
-            g.font = "400 13px system-ui,sans-serif";
-            const lines = this._wrapText(perk.desc, card.w - 28);
-            lines.forEach((line, k) => {
-                g.fillText(line, cx, card.y + 132 + k * 18);
-            });
-            if (perk.kind === "active") {
-                g.fillStyle = "rgba(255,179,71,0.9)";
-                g.font = "400 12px system-ui,sans-serif";
-                g.fillText("cooldown " + Math.round((perk.cd || 600) / 60) + " s", cx, card.y + card.h - 22);
-            }
-            if (chosen) {
-                g.fillStyle = perk.tint;
-                g.font = "500 13px system-ui,sans-serif";
-                g.fillText("SELECTED", cx, card.y + card.h - 22);
-            }
+        const m = this._perkModel();
+        if (!m) {
+            return;
         }
-
-        g.textAlign = "center";
-        if (picked != null) {
-            const pending = this.ships.filter((sp) => ph.picks[sp.slot] == null).length;
-            g.fillStyle = "rgba(180,210,255,0.8)";
-            g.font = "400 15px system-ui,sans-serif";
-            g.fillText(
-                pending ? "Waiting for " + pending + " player(s)… " + Math.ceil(ph.t / 60) + " s" : "Get ready…",
-                W / 2,
-                H - 42
-            );
-        } else {
-            const pul = 0.7 + Math.sin(this.frame * 0.08) * 0.3;
-            g.fillStyle = "rgba(255,255,255," + pul + ")";
-            g.font = "500 15px system-ui,sans-serif";
-            g.fillText("Click a card or press 1, 2 or 3 · " + Math.ceil(ph.t / 60) + " s", W / 2, H - 42);
-        }
+        this.perkUI.draw(this.g, m);
     }
 
     /** Wide health bar for the colossus on duty (it has no floating bar). */

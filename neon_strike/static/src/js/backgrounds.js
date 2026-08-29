@@ -84,6 +84,75 @@
  *      is squashed and the hole is not, so the innermost grains crossed the
  *      black circle and lit up inside it.
  *
+ * -------------------------------------------------------------------------
+ * GAS GIANT DESCENT, smooth branch (2026-08-29)
+ * -------------------------------------------------------------------------
+ * Place 6 is the study's **version B**. The study itself prefers A, its pixel
+ * version, and it is right about the reasons -- but A is the treatment places
+ * 1-5 already have, and the catalogue would then read pixel for six places,
+ * soft for twenty-one and pixel again for none. B keeps place 6 in the same
+ * language as the twenty-one it sits among, and it is the version the study
+ * itself calls the fallback that still reads. Nothing here forecloses A: the
+ * quantise helper would go in `beltTile` and the ramp in `p`.
+ *
+ * The whole study lands on the shared `surface` painter as parameters, so the
+ * other six atmosphere worlds run on the same code path. Verified rather than
+ * asserted: 26 of the 27 places hash byte-identical over the full 1428x1162
+ * box **and** their 272 px glossary thumbnail, before and after.
+ *
+ * Axes added to `surface`: `flow`, `bandForm`, `bandSpread`, `skyStops`,
+ * `glow`, `decks[]` (rate, thickness, gap, wave, alpha, filaments, streaks),
+ * `flakes`, `vortices`, `density`. Identity on all of them is today's bank
+ * world, so a place that sets none of them is unchanged.
+ *
+ * Departures from the study, and why:
+ *   1. Version A is not built. See above -- the choice is B, not a limitation.
+ *   2. `bandSpread` defaults to today's [0.30, 0.60] rather than the study's
+ *      [0, 1]. The study calls the clustering a bug and it is right, but the
+ *      six bank worlds were composed against it and re-tuning them is not this
+ *      port. The axis is here; flipping one is a two-word edit to its entry.
+ *   3. The study places a streak at `b.y + b.h * (b.h + 2)`, which is h
+ *      squared: on 9-70 px bands that is 100-5000 px down the tile, and every
+ *      second streak was culled before it drew. Fixed to the evident intent
+ *      (2 px clear of the band edge), which is what makes the sheet's counts
+ *      -- 2 far, 3 mid, 1 near -- real. Streaks are the most planet-like
+ *      feature after the vortices, so half of them missing is not cosmetic.
+ *   4. Tiles are baked at `layerScale`, the same 0.5 every soft place already
+ *      uses, not at the study's full box resolution. That is 4 tiles + a mask
+ *      + a scratch at 714x581 instead of 1428x1164: ~10 MB rather than ~40,
+ *      and it is the resolution the study itself rendered and measured at.
+ *   5. The tile wraps at `bd.h` (1162 px here) rather than the study's 1164,
+ *      because that is the box this engine actually has. Periods come out at
+ *      7263 / 3873 / 2767 / 1056 frames instead of 7275 / 3880 / 2771 / 1058.
+ *   6. Drift stays the engine's `t * 0.0016`, not the study's 0.0031, for the
+ *      same reason the Direction A places kept it: one place breathing out of
+ *      step with the other 26 is the worse defect.
+ *   7. The engine's near star field takes the place's `flow` (`bgFlow`). The
+ *      study left this open and recommended exactly this; without it the
+ *      backdrop rises while the stars fall, which is visible. Every other
+ *      place is +1 and reads as before.
+ *   8. The near plane's density ramp is strips of constant alpha, not the
+ *      study's scratch plus `destination-in`. It is the same picture -- max
+ *      channel difference 2 over the box -- for one box area of fill instead
+ *      of three, and no scratch canvas: 8.5 ms a frame down to 4.6 at zoom 1
+ *      on a CPU rasteriser. This place is blit-bound by construction, which is
+ *      the cheap side of the trade on a GPU-backed canvas and the expensive
+ *      one without, so the box areas are worth counting. Measured against the
+ *      soft places it sits among: 4.6 ms against ICE WORLD's 1.3 at zoom 1,
+ *      21.9 against 6.2 with the camera pulled back for a colossus.
+ *   9. A place carrying its own `p.veil` is now composed at full value, not at
+ *      the 0.85 the soft places are dimmed to. That was already true of the
+ *      five Direction A places; it is what "the composition buys the contrast"
+ *      means, and without it the descent gradient flattens.
+ *
+ * Measured here, at frame 1500, on the 680x540 arena on a 3 px lattice, in
+ * linear light: mean L 0.0397, 95th percentile 0.0854, brightest 0.1398. The
+ * 4:1 threshold against the brightest enemy bullet (#ffb45e, L = 0.543) puts
+ * the ceiling on p95 at 0.098, so the place clears it with **no veil at all**
+ * and `veil` is 0 -- the second place in the catalogue that needs none. The
+ * study's own version B, run headless from its page for comparison, measures
+ * p95 0.0854 and mean 0.0422 on the same lattice.
+ *
  * Measured against this arena rather than carried over: the box is the same
  * 1428x1162 the study drew for, so its geometry transfers unchanged. The two
  * numbers that had to be checked here are the belt's separation from the wave
@@ -105,6 +174,10 @@ const DRIFT = 14;
 // flat number fixes those nine and flattens the other eighteen, which is why a
 // Direction A place carries its own `p.veil` instead -- see `bgScrim`.
 export const BG_SCRIM = "rgba(5,6,14,0.30)";
+// Where an atmosphere's sky colours sit down the box, by default. A place may
+// pass its own `skyStops` when three stops cannot hold it -- the gas giant runs
+// near-black to lit haze and needs four.
+const SKY_STOPS = [0, 0.55, 1];
 // One baked sky pixel, in logical pixels. At 3 the whole box bakes into a
 // 476x388 buffer that is blown back up with filtering off, so the sky lands on
 // the same lattice as the sprites in front of it.
@@ -238,6 +311,19 @@ function clamp(v, lo, hi) {
 export function bgScrim(def) {
     const veil = def && def.p ? def.p.veil : undefined;
     return veil === undefined ? BG_SCRIM : "rgba(6,4,12," + (veil / 100).toFixed(3) + ")";
+}
+
+/**
+ * Which way the scenery of a place moves, +1 (falls past you) or -1 (rises).
+ * The engine's own near star field takes it too: on a descent place the
+ * backdrop rises, and a star field still drifting down is a contradiction you
+ * can see. One sign, and the parallax agrees everywhere.
+ *
+ * @param {object} def - one entry of BACKGROUNDS
+ * @returns {number}
+ */
+export function bgFlow(def) {
+    return def && def.p && def.p.flow ? def.p.flow : 1;
 }
 
 /**
@@ -389,6 +475,376 @@ function twinkles(bd, g) {
         g.fillStyle = q > 0.66 ? ramp[2] : q > 0.33 ? ramp[1] : ramp[0];
         g.fillRect(snapTo(bd.x0, t.x), snapTo(bd.y0, t.y), ART_PIX, ART_PIX);
     }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Belt decks                                                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The planes of a `bandForm: "belt"` world, on the shared `surface` painter.
+ *
+ * A belt world is a stack of full-width tiles that wrap vertically and each
+ * translate at their own rate. The rate difference is the whole point: shear
+ * between two decks is only visible as a rate difference, so a single plane --
+ * which is all `bandForm: "bank"` has ever had -- cannot paint this place.
+ *
+ * Everything below is bake-time except `beltBlit`, which is `drawImage` only.
+ * A tile is the size of the box at `layerScale`, the same buffer every soft
+ * place already keeps; a belt world just keeps one per plane plus a mask and a
+ * scratch to apply it in.
+ */
+
+// The study's literal seed. The band layout, the filaments and the vortex
+// placements were tuned by eye against this stream, so it is kept rather than
+// reseeded off the place id -- the same reason `mulberry32` is in this file at
+// all.
+const BELT_SEED = 20260829;
+// Band edges are polylines sampled this often across the box. At 24 logical px
+// the wave (2-14 px amplitude, 0.0035-0.0115 rad per px) is smooth and a deck
+// bakes in ~120 segments an edge.
+const BELT_STEP = 24;
+// The vortex is baked square and stretched at draw time, so one sprite serves
+// both of them at two sizes. `VORTEX_CULL` is how far off the box its centre
+// may sit before the blit is skipped.
+const VORTEX_SIZE = 220;
+const VORTEX_RINGS = 34;
+const VORTEX_CULL = 260;
+// Where a bank world puts its cloud centres, as a fraction of the box: today
+// every one of the six is hard-coded to 30-60% of it. The study calls that a
+// bug rather than a style and wants [0, 1] everywhere; the six were composed
+// against it, so it stays the default and the axis is here for when they are
+// re-tuned one at a time.
+const BAND_SPREAD = [0.3, 0.6];
+// The screen-space density ramp is applied as strips of constant alpha rather
+// than through a scratch and a `destination-in`. The strips write one box area
+// between them where the mask wrote three, and at 48 logical px a step is a
+// third of an RGB level on a plane this faint. Checked against the mask rather
+// than assumed: over the whole 1428x1162 box the two agree to a maximum
+// channel difference of 2, and 1044 pixels of 1.66 M differ by more than 1.
+const DENSITY_STRIP = 48;
+
+/** An offscreen the size of `w` x `h` logical px, drawn in logical px. */
+function beltCanvas(w, h, k) {
+    const cv = document.createElement("canvas");
+    cv.width = Math.max(1, Math.round(w * k));
+    cv.height = Math.max(1, Math.round(h * k));
+    const g = cv.getContext("2d");
+    g.setTransform(k, 0, 0, k, 0, 0);
+    return g;
+}
+
+/**
+ * One deck's bands, boundary filaments and streaks, in tile coordinates. State
+ * only: this is the `init` half of the study and it touches no pixels.
+ */
+function beltDeck(rng, d, w, tileH) {
+    const list = [];
+    let y = 0;
+    let i = 0;
+    while (y < tileH) {
+        // Thickness is biased low: a deck is mostly thin bands with a few fat
+        // ones, which is what a banded planet actually looks like.
+        const h = d.h[0] + (d.h[1] - d.h[0]) * Math.pow(rng(), 1.5);
+        list.push({
+            y,
+            h,
+            // Belts (dark) and zones (light) alternate down the tile.
+            belt: i % 2 === 0,
+            a1: d.wave[0] + (d.wave[1] - d.wave[0]) * rng(),
+            a2: d.wave[0] + (d.wave[1] - d.wave[0]) * rng(),
+            f1: 0.0035 + 0.008 * rng(),
+            f2: 0.0035 + 0.008 * rng(),
+            p1: rng() * 6.2832,
+            p2: rng() * 6.2832,
+            al: d.alpha[0] + (d.alpha[1] - d.alpha[0]) * rng(),
+        });
+        y += h + d.gap[0] + (d.gap[1] - d.gap[0]) * rng();
+        i++;
+    }
+    // Filaments sit on a band edge: the tearing where two rates meet.
+    const fil = [];
+    for (let k = 0; k < (d.fil || 0); k++) {
+        const b = list[Math.floor(rng() * list.length)];
+        fil.push({
+            x: rng() * w,
+            y: b.y + b.h * (rng() < 0.5 ? 0 : 1),
+            w: 60 + rng() * 240,
+            h: 2 + rng() * 5,
+            a: 0.04 + rng() * 0.08,
+        });
+    }
+    // Streaks are full-width lines riding a boundary, and after the vortices
+    // they are the most planet-like thing in the place.
+    const streak = [];
+    for (let k = 0; k < (d.streaks || 0); k++) {
+        const b = list[Math.floor(rng() * list.length)];
+        streak.push({
+            y: rng() < 0.5 ? b.y - 2 : b.y + b.h + 2,
+            h: 4 + rng() * 5,
+            f: 0.0022 + 0.004 * rng(),
+            p: rng() * 6.2832,
+            a: 6 + rng() * 10,
+        });
+    }
+    return { list, fil, streak };
+}
+
+/**
+ * Bake one deck as a tile that wraps vertically. Every element is drawn three
+ * times -- one tile height up, in place, and one down -- so a band crossing
+ * the seam comes out whole on both sides of it and the wrap is invisible.
+ */
+function beltTile(bd, d, deck, k, tileH) {
+    const g = beltCanvas(bd.w, tileH, k);
+    const wraps = [-tileH, 0, tileH];
+    const dark = d.dark || bd.p.beltColor;
+    const light = d.light || bd.p.band;
+    const edge = (y, b) => {
+        g.beginPath();
+        g.moveTo(0, y + b.a1 * Math.sin(b.p1));
+        for (let x = 0; x <= bd.w; x += BELT_STEP) {
+            g.lineTo(x, y + b.a1 * Math.sin(x * b.f1 + b.p1));
+        }
+        for (let x = bd.w; x >= 0; x -= BELT_STEP) {
+            g.lineTo(x, y + b.h + b.a2 * Math.sin(x * b.f2 + b.p2));
+        }
+        g.closePath();
+    };
+    for (const b of deck.list) {
+        for (const wy of wraps) {
+            const y = b.y + wy;
+            if (y + b.h < -40 || y > tileH + 40) {
+                continue;
+            }
+            edge(y, b);
+            // Soft: a band fades in and out across its own height. This is the
+            // whole difference between the two versions of the study -- the
+            // pixel one fills the same shape flat at one rung of a ramp.
+            const grd = g.createLinearGradient(0, y, 0, y + b.h);
+            grd.addColorStop(0, "rgba(0,0,0,0)");
+            grd.addColorStop(0.5, b.belt ? dark : light);
+            grd.addColorStop(1, "rgba(0,0,0,0)");
+            g.globalAlpha = b.al;
+            g.fillStyle = grd;
+            g.fill();
+        }
+    }
+    for (const st of deck.streak) {
+        for (const wy of wraps) {
+            const y = st.y + wy;
+            if (y < -40 || y > tileH + 40) {
+                continue;
+            }
+            g.beginPath();
+            g.moveTo(0, y + st.a * Math.sin(st.p));
+            for (let x = 0; x <= bd.w; x += BELT_STEP) {
+                g.lineTo(x, y + st.a * Math.sin(x * st.f + st.p));
+            }
+            for (let x = bd.w; x >= 0; x -= BELT_STEP) {
+                g.lineTo(x, y + st.h + st.a * Math.sin(x * st.f + st.p));
+            }
+            g.closePath();
+            g.globalAlpha = 0.42;
+            g.fillStyle = bd.p.streak;
+            g.fill();
+        }
+    }
+    for (const f of deck.fil) {
+        for (const wy of wraps) {
+            const y = f.y + wy;
+            if (y < -40 || y > tileH + 40) {
+                continue;
+            }
+            // Three nested ellipses: wide and thin at the core, shorter and
+            // taller outside it, which reads as a filament rather than a blob.
+            for (let n = 0; n < 3; n++) {
+                g.globalAlpha = f.a * (1 - n * 0.3);
+                g.fillStyle = bd.p.filament;
+                g.beginPath();
+                g.ellipse(f.x, y, f.w * (1 - n * 0.22), f.h * (1 + n * 0.9), 0, 0, 6.2832);
+                g.fill();
+            }
+        }
+    }
+    g.globalAlpha = 1;
+    return g.canvas;
+}
+
+/**
+ * The motes of a belt world, baked into a plane of their own instead of
+ * simulated. They are far away, so they move at a plane's rate rather than at
+ * their own, and they sit deliberately between two band decks: nothing at that
+ * size and alpha can be mistaken for a bullet.
+ */
+function flakeTile(bd, f, list, k, tileH) {
+    const g = beltCanvas(bd.w, tileH, k);
+    for (const p of list) {
+        for (const wy of [-tileH, 0, tileH]) {
+            g.globalAlpha = p.a;
+            g.fillStyle = f.color;
+            g.beginPath();
+            g.ellipse(p.x, p.y + wy, p.s, p.s * 0.72, 0, 0, 6.2832);
+            g.fill();
+        }
+    }
+    g.globalAlpha = 1;
+    return g.canvas;
+}
+
+/**
+ * The vortex, baked circular and squashed at draw time. It is the one feature
+ * that says gas giant rather than warm sky: bands on their own read as haze.
+ */
+function vortexSprite(bd, k) {
+    const v = bd.p.vortices;
+    const g = beltCanvas(VORTEX_SIZE, VORTEX_SIZE, k);
+    const R = VORTEX_SIZE / 2;
+    const rng = mulberry32(7717);
+    for (let i = 0; i < VORTEX_RINGS; i++) {
+        const t = i / VORTEX_RINGS;
+        const rad = R * (1 - t * 0.94);
+        g.globalAlpha = (i % 2 ? 0.085 : 0.075) * (1 - t * 0.25);
+        g.fillStyle = i % 2 ? v.hi : v.lo;
+        g.beginPath();
+        // Each ring is offset and turned a little further than the last, which
+        // is what gives a stack of ellipses a curl.
+        g.ellipse(
+            R + Math.sin(t * 9.4) * rad * 0.34,
+            R + Math.cos(t * 8.1) * rad * 0.16,
+            rad, rad * (0.8 + 0.16 * rng()), t * 2.6, 0, 6.2832
+        );
+        g.fill();
+    }
+    g.globalAlpha = 1;
+    g.globalCompositeOperation = "destination-in";
+    const vm = g.createRadialGradient(R, R, R * 0.05, R, R, R);
+    vm.addColorStop(0, "rgba(0,0,0,1)");
+    vm.addColorStop(0.62, "rgba(0,0,0,0.85)");
+    vm.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = vm;
+    g.fillRect(0, 0, VORTEX_SIZE, VORTEX_SIZE);
+    return g.canvas;
+}
+
+/** Where a plane has scrolled to, in 0..tileH. */
+function beltWrap(v, tileH) {
+    const s = v % tileH;
+    return s < 0 ? s + tileH : s;
+}
+
+/**
+ * Blit one wrapping plane. Two source sub-rects rather than two whole tiles, so
+ * a plane costs exactly one box area a frame and not two. `dens` is the
+ * screen-space alpha ramp [top, bottom] the nearest plane wants, or nothing.
+ */
+function beltBlit(g, bd, tile, s, k, dens, base) {
+    const sw = bd.w * k;
+    const rest = bd.h - s;
+    if (s > 0.5) {
+        beltRun(g, bd, tile, sw, rest, 0, s, k, dens, base);
+    }
+    if (rest > 0.5) {
+        beltRun(g, bd, tile, sw, 0, s, rest, k, dens, base);
+    }
+    if (dens) {
+        g.globalAlpha = base;
+    }
+}
+
+/**
+ * One contiguous run of the tile. With a density ramp it is cut into strips of
+ * constant alpha; the cuts land on whole tile pixels, so every strip is scaled
+ * exactly as the whole run would be and no seam can open between two of them.
+ */
+function beltRun(g, bd, tile, sw, sy, dy, hh, k, dens, base) {
+    if (!dens) {
+        g.drawImage(tile, 0, sy * k, sw, hh * k, bd.x0, bd.y0 + dy, bd.w, hh);
+        return;
+    }
+    const q = 1 / k;
+    const n = Math.max(1, Math.round(hh / DENSITY_STRIP));
+    let a = 0;
+    for (let i = 0; i < n; i++) {
+        const b = i === n - 1 ? hh : Math.round(((hh * (i + 1)) / n) / q) * q;
+        if (b <= a) {
+            continue;
+        }
+        g.globalAlpha = base * (dens[0] + (dens[1] - dens[0]) * ((dy + (a + b) / 2) / bd.h));
+        g.drawImage(tile, 0, (sy + a) * k, sw, (b - a) * k, bd.x0, bd.y0 + dy + a, bd.w, b - a);
+        a = b;
+    }
+}
+
+/** `init` for a belt world: every list the bake will need, and no pixels. */
+function beltInit(bd) {
+    const rng = mulberry32(BELT_SEED);
+    bd.decks = bd.p.decks.map((d) => beltDeck(rng, d, bd.w, bd.h));
+    bd.flakeList = [];
+    const f = bd.p.flakes;
+    if (f) {
+        for (let i = 0; i < f.n; i++) {
+            bd.flakeList.push({
+                x: rng() * bd.w,
+                y: rng() * bd.h,
+                s: f.size[0] + rng() * (f.size[1] - f.size[0]),
+                a: f.alpha[0] + rng() * (f.alpha[1] - f.alpha[0]),
+            });
+        }
+    }
+}
+
+/** `paint` for a belt world: every layer, baked once. */
+function beltPaint(bd) {
+    const k = bd.layerScale;
+    bd.planes = bd.p.decks.map((d, i) => ({
+        rate: d.rate,
+        tile: beltTile(bd, d, bd.decks[i], k, bd.h),
+        density: d.density,
+    }));
+    const f = bd.p.flakes;
+    if (f) {
+        bd.planes.splice(f.plane, 0, {
+            rate: f.rate,
+            tile: flakeTile(bd, f, bd.flakeList, k, bd.h),
+        });
+    }
+    bd.vortex = bd.p.vortices ? vortexSprite(bd, k) : null;
+}
+
+/** `live` for a belt world: blits only. */
+function beltLive(bd, g) {
+    const k = bd.layerScale;
+    const flow = bd.p.flow || 1;
+    const vx = bd.p.vortices;
+    g.save();
+    g.imageSmoothingEnabled = true;
+    const base = g.globalAlpha;
+    for (let i = 0; i < bd.planes.length; i++) {
+        const pl = bd.planes[i];
+        const off = beltWrap(pl.rate * flow * bd.t, bd.h);
+        beltBlit(g, bd, pl.tile, off, k, pl.density, base);
+        if (vx && vx.plane === i) {
+            // The vortices ride this plane, so they take its offset rather
+            // than a clock of their own and cannot drift off the deck.
+            const ang = bd.t * vx.spin;
+            for (const v of vx.list) {
+                const y = beltWrap(v.y * bd.h + off, bd.h);
+                for (const wy of [y - bd.h, y]) {
+                    if (wy < -VORTEX_CULL || wy > bd.h + VORTEX_CULL) {
+                        continue;
+                    }
+                    g.save();
+                    g.translate(bd.x0 + v.x * bd.w, bd.y0 + wy);
+                    g.scale(2.25 * v.s, 0.88 * v.s);
+                    g.rotate(ang * v.dir);
+                    g.drawImage(bd.vortex, -VORTEX_SIZE / 2, -VORTEX_SIZE / 2, VORTEX_SIZE, VORTEX_SIZE);
+                    g.restore();
+                }
+            }
+        }
+    }
+    g.restore();
 }
 
 /* -------------------------------------------------------------------------- */
@@ -990,20 +1446,33 @@ const PAINTERS = {
     },
 
     /**
-     * Flying inside a planet's atmosphere: baked sky, live cloud bands
-     * scrolling past. `motes` adds embers, snow or spores on top.
+     * Flying inside a planet's atmosphere. Two forms on one code path:
+     *
+     * `bandForm: "bank"` -- the default, and what the six other worlds are: a
+     * baked sky with 16 soft ellipses scrolling over it in `lighter`, plus
+     * `motes` (embers, snow, spores, sand) simulated on top.
+     *
+     * `bandForm: "belt"` -- GAS GIANT DESCENT: the sky plus a stack of tiles
+     * that wrap and translate at their own rates, so the decks shear against
+     * each other; vortices riding one of them; and a screen-space density ramp
+     * on the nearest, so the deck thickens as you sink into it. Everything is
+     * baked in `paint` and `live` is blits only. See the belt-deck helpers.
      */
     surface: {
         init(bd) {
             bd.bands = [];
-            for (let i = 0; i < 16; i++) {
-                bd.bands.push({
-                    y: bd.rng(),
-                    h: 14 + bd.rng() * 60,
-                    a: 0.05 + bd.rng() * 0.16,
-                    w: 0.5 + bd.rng() * 0.6,
-                    x: bd.rng(),
-                });
+            if (bd.p.bandForm === "belt") {
+                beltInit(bd);
+            } else {
+                for (let i = 0; i < 16; i++) {
+                    bd.bands.push({
+                        y: bd.rng(),
+                        h: 14 + bd.rng() * 60,
+                        a: 0.05 + bd.rng() * 0.16,
+                        w: 0.5 + bd.rng() * 0.6,
+                        x: bd.rng(),
+                    });
+                }
             }
             bd.motes = [];
             if (bd.p.motes) {
@@ -1018,12 +1487,30 @@ const PAINTERS = {
             }
         },
         paint(bd, g) {
+            // Three stops at 0 / 0.55 / 1 unless the place says otherwise: the
+            // gas giant needs four to get the near-black top and the lit floor
+            // into the same gradient.
+            const stops = bd.p.skyStops || SKY_STOPS;
             const grd = g.createLinearGradient(0, bd.y0, 0, bd.y0 + bd.h);
-            grd.addColorStop(0, bd.p.sky[0]);
-            grd.addColorStop(0.55, bd.p.sky[1]);
-            grd.addColorStop(1, bd.p.sky[2]);
+            for (let i = 0; i < bd.p.sky.length; i++) {
+                grd.addColorStop(stops[i], bd.p.sky[i]);
+            }
             g.fillStyle = grd;
             g.fillRect(bd.x0, bd.y0, bd.w, bd.h);
+            if (bd.p.glow) {
+                // The light comes from below because you are falling towards
+                // it. Centred just under the box so only its shoulder shows.
+                const cx = bd.x0 + bd.w * 0.5;
+                const cy = bd.y0 + bd.h * 1.02;
+                const gl = g.createRadialGradient(cx, cy, 40, cx, cy, bd.w * 0.62);
+                gl.addColorStop(0, rgba(bd.p.glow, 0.3));
+                gl.addColorStop(1, rgba(bd.p.glow, 0));
+                g.fillStyle = gl;
+                g.fillRect(bd.x0, bd.y0, bd.w, bd.h);
+            }
+            if (bd.p.bandForm === "belt") {
+                beltPaint(bd);
+            }
         },
         update(bd, ts) {
             bd.scroll = (bd.scroll || 0) + (bd.p.speed || 0.7) * ts;
@@ -1034,17 +1521,23 @@ const PAINTERS = {
             }
         },
         live(bd, g) {
-            g.save();
-            g.globalCompositeOperation = bd.p.dark ? "source-over" : "lighter";
-            for (const b of bd.bands) {
-                let y = bd.y0 + ((b.y * bd.h + bd.scroll) % bd.h);
-                const x = bd.x0 + b.x * bd.w * 0.3;
-                g.fillStyle = rgba(bd.p.band, b.a);
-                g.beginPath();
-                g.ellipse(x + bd.w * 0.3, y, bd.w * 0.36 * b.w, b.h * 0.5, 0, 0, 6.2832);
-                g.fill();
+            if (bd.p.bandForm === "belt") {
+                beltLive(bd, g);
+            } else {
+                const sp = bd.p.bandSpread || BAND_SPREAD;
+                const span = sp[1] - sp[0];
+                g.save();
+                g.globalCompositeOperation = bd.p.dark ? "source-over" : "lighter";
+                for (const b of bd.bands) {
+                    let y = bd.y0 + ((b.y * bd.h + bd.scroll) % bd.h);
+                    const x = bd.x0 + b.x * bd.w * span;
+                    g.fillStyle = rgba(bd.p.band, b.a);
+                    g.beginPath();
+                    g.ellipse(x + bd.w * sp[0], y, bd.w * 0.36 * b.w, b.h * 0.5, 0, 0, 6.2832);
+                    g.fill();
+                }
+                g.restore();
             }
-            g.restore();
             if (bd.motes.length) {
                 g.save();
                 g.globalCompositeOperation = "lighter";
@@ -1447,8 +1940,38 @@ export const BACKGROUNDS = [
     },
     {
         id: "gas_giant", name: "GAS GIANT DESCENT", tint: "#ffca8a", kind: "surface",
-        p: { sky: ["#3a1f12", "#8a4a1e", "#d98b3a"], band: "#ffd9a0", speed: 0.8, motes: null },
-        desc: "Inside the cloud deck of a gas giant. Amber bands scroll past and the sky runs from near black at the top to lit haze at the bottom.",
+        // The GAS GIANT DESCENT study, smooth branch. Rates are logical px per
+        // frame and `flow: -1` turns all of them negative: the deck rises past
+        // the camera because the camera is falling. The ladder 0.16 / 0.30 /
+        // 0.42 / 1.10 steps by about 2.6x, the smallest ratio at which the
+        // shear between two decks reads without the near plane looking loose.
+        p: {
+            veil: 0, flow: -1, bandForm: "belt", bandSpread: [0, 1],
+            sky: ["#0b0605", "#3a1d0f", "#70401d", "#a86c31"],
+            skyStops: [0, 0.45, 0.8, 1],
+            glow: "#d69654",
+            beltColor: "#2a1409", band: "#b3743a",
+            filament: "#d0995e", streak: "#c0703a",
+            decks: [
+                // far: thin, low wave, nearly still.
+                { rate: 0.16, h: [5, 26], gap: [3, 12], wave: [2, 6], alpha: [0.14, 0.3], fil: 18, streaks: 2, light: "#a06a33" },
+                // mid: the carrying plane, and the one the vortices ride.
+                { rate: 0.42, h: [9, 44], gap: [5, 20], wave: [4, 10], alpha: [0.16, 0.34], fil: 26, streaks: 3, light: "#b3743a" },
+                // near: few, thick, torn, and masked thin at the top of the box.
+                { rate: 1.1, h: [16, 70], gap: [26, 80], wave: [6, 14], alpha: [0.1, 0.22], fil: 14, streaks: 1, light: "#c68a4a", dark: "#1e0f07", density: [0.3, 1] },
+            ],
+            // Ash, baked into a plane of its own between the two band decks:
+            // far enough away that nothing at that size can read as a bullet.
+            flakes: { plane: 1, rate: 0.3, n: 22, size: [4, 9], alpha: [0.05, 0.09], color: "#8a5a34" },
+            vortices: {
+                plane: 2, spin: 0.00085, lo: "#25120a", hi: "#c07a3a",
+                list: [
+                    { x: 0.34, y: 0.28, s: 1, dir: 1 },
+                    { x: 0.73, y: 0.74, s: 0.62, dir: -1 },
+                ],
+            },
+        },
+        desc: "Falling through the cloud deck of a gas giant. Belts and zones rise past at their own speeds, tearing where they meet, and the haze thickens and brightens the further you sink.",
     },
     {
         id: "system", name: "INNER SYSTEM", tint: "#ffe9a8", kind: "system",
@@ -1704,9 +2227,10 @@ export class Backdrop {
     draw(g) {
         g.save();
         // Soft places are drawn dim so the enemies in front of them keep their
-        // contrast. A Direction A place is already dark by construction and
-        // pays for its contrast with `p.veil`, so it goes down at full value.
-        g.globalAlpha = this.pixel ? 1 : 0.85;
+        // contrast. A place that carries its own measured `p.veil` pays for its
+        // contrast there instead and goes down at full value -- that is every
+        // Direction A place, and GAS GIANT DESCENT.
+        g.globalAlpha = this.pixel || this.p.veil !== undefined ? 1 : 0.85;
         const drift = Math.sin(this.t * 0.0016) * DRIFT;
         if (this.layer) {
             g.save();
