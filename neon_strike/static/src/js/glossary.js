@@ -100,6 +100,15 @@ export const GLOSSARY = [
                 practice: { type: "kami", v: 0 },
                 desc: "Chases you, accelerating, and blows up on contact. It has no idle: it is under full thrust from the moment it spawns, and the burn is the speedometer -- the trail grows and brightens as it winds up, and the core throbs faster the closer it is to the cap. When it dies there is no wreck, only the detonation. Dodge it or shoot it down first; it toughens up every 8 waves.",
             },
+            {
+                // Not a wave enemy: it only ever exists because LANCER planted
+                // it, so the practice button opens that fight rather than
+                // spawning six of them with nothing to anchor a beam to.
+                sprite: "lnode0", tint: "#ffd166", px: 7,
+                label: "LANCE EMPLACEMENT", sub: "LANCER's furniture · 260 pts",
+                practice: { boss: 2 },
+                desc: "Not an enemy so much as a wall LANCER leaves behind. It never shoots and it does no damage if you touch it; what it does is hold a lance beam across the arena, and the beam dies the instant the emplacement does. It never expires -- four more are planted every dive, up to twelve, and each one re-arms forever. Read the pips under it: they count down to the moment it goes live, and they count back up while it is dark, which is the only warning that one which looks spent is coming back. Only four beams exist at once however many are standing, so a crowded arena means more targets and a shorter wait between beams, never a fifth beam.",
+            },
         ],
     },
     {

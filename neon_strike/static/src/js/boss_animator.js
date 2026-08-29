@@ -91,6 +91,9 @@ const lift = (rung, k) => (k >= 0 ? rung + (TOP - rung) * k : rung * (1 + k));
 /** Hull cells that make up WARDEN's core window: glass and hot white. */
 const CORE_CHARS = "70";
 
+/** Glass. HIVE's belly well is painted in it, and it breathes. */
+const GLASS_RUNG = RUNG["7"];
+
 /**
  * The darkest rung the hardening sweep is allowed to touch. Rungs 0 and 1 are
  * the dark hull and the dark accent, and the second of those is magenta on
@@ -272,6 +275,296 @@ function bestPipRow(cells, cols, rows, from) {
  *   HIVE         x += sin(t*0.008) * 1.1           -> peak 66 px/s
  *   LANCER       dive vy = 7, hover |dx| <= 2.2    -> 420 px/s down, 132 across
  */
+/** The bank's dark accent: the rung HIVE's hangar pods are painted in. */
+const ACCENT_RUNG = RUNG["9"];
+
+const hiveGeo = new Map();
+
+/**
+ * HIVE's hull, read off the art the way `wardenGeometry` reads WARDEN's.
+ *
+ * `boss3` already **is** the study's carrier -- four hangar pods hanging under
+ * the belly, a glass well down the middle and six neon grilles across the chest
+ * -- so the bays are found rather than invented, and retouching the sprite moves
+ * both the doors that open and the boxes the player shoots at.
+ *
+ * What it finds on `boss3` (48 x 22 cells):
+ *   - `bays`  the pieces the silhouette breaks into on its **bottom row**,
+ *             extended upwards while they stay painted in the dark accent. On
+ *             this hull that is four 5 x 4 pods at columns 8, 17, 26 and 35,
+ *             rows 16..19. The same rule reads one piece on every other boss in
+ *             the bank, which is how a hull answers for itself instead of a
+ *             name being written down.
+ *   - `well`  the glass diamond in the belly, rows 11..15. Its idle pulse is
+ *             the hive's only resting brightness change, and the ring telegraph
+ *             brightens the same cells -- so the tell survives being read behind
+ *             twenty adds, because it is where the player is already looking.
+ *   - `rim`   the plating that touches the glass. It is where the ring tell
+ *             has any headroom at all -- the glass itself sits one rung under
+ *             white -- and it is a *rim*: lighting the whole belly instead put
+ *             162 cells to near-white across the full width of the hull, which
+ *             is not a warning, it is a lamp.
+ *
+ * @param {string} name key in the sprite bank
+ */
+function hiveGeometry(name) {
+    let geo = hiveGeo.get(name);
+    if (geo) {
+        return geo;
+    }
+    const grid = spriteGrid(name);
+    const rows = grid.length;
+    const cols = rows ? grid[0].length : 0;
+    const cells = new Int8Array(cols * rows).fill(-1);
+    const used = new Uint8Array(TOP + 1);
+    let w0 = cols;
+    let w1 = -1;
+    let wr0 = rows;
+    let wr1 = -1;
+    let last = -1;
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            const ch = grid[r][c];
+            if (ch === ".") {
+                continue;
+            }
+            cells[r * cols + c] = RUNG[ch];
+            used[RUNG[ch]] = 1;
+            last = r;
+            if (ch === "7") {
+                if (c < w0) { w0 = c; }
+                if (c > w1) { w1 = c; }
+                if (r < wr0) { wr0 = r; }
+                if (r > wr1) { wr1 = r; }
+            }
+        }
+    }
+    const bays = [];
+    for (let c = 0; last >= 0 && c < cols; c++) {
+        if (cells[last * cols + c] < 0) {
+            continue;
+        }
+        let c1 = c;
+        while (c1 + 1 < cols && cells[last * cols + c1 + 1] >= 0) {
+            c1++;
+        }
+        let r0 = last;
+        while (r0 > 0) {
+            let all = true;
+            for (let k = c; k <= c1 && all; k++) {
+                all = cells[(r0 - 1) * cols + k] === ACCENT_RUNG;
+            }
+            if (!all) {
+                break;
+            }
+            r0--;
+        }
+        bays.push({ c0: c, c1, r0, r1: last });
+        c = c1;
+    }
+    // The rim: plating with a glass neighbour. Computed after the pass, so it
+    // is the art's own outline and not a guessed band.
+    const rim = [];
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            const rung = cells[r * cols + c];
+            // Plating only. Promoting the darkest rung walks it into the bank's
+            // dark accent, which is magenta on every hull -- WARDEN's rim found
+            // that one and it does not survive a look.
+            if (rung < RIM_MIN_RUNG || rung >= GLASS_RUNG) {
+                continue;
+            }
+            const touches = [[-1, 0], [1, 0], [0, -1], [0, 1]].some(([dc, dr]) => {
+                const nb = c + dc >= 0 && r + dr >= 0 && c + dc < cols && r + dr < rows
+                    ? cells[(r + dr) * cols + c + dc] : -1;
+                return nb >= GLASS_RUNG;
+            });
+            if (touches) {
+                rim.push(c, r);
+            }
+        }
+    }
+    geo = {
+        cols, rows, cells, rim,
+        rungs: rungFold(used),
+        // Two pods would be a hull with a split tail, not a carrier.
+        bays: bays.length >= 3 && bays.length <= 6 ? bays : null,
+        well: w1 >= w0 ? { c0: w0, c1: w1, r0: wr0, r1: wr1 } : null,
+    };
+    hiveGeo.set(name, geo);
+    return geo;
+}
+
+const lancerGeo = new Map();
+
+/**
+ * LANCER's hull, same rule. `boss2` carries both of the things the study asks
+ * the animation to say:
+ *
+ *   - `wings` the two accent blocks on the flanks. The hull is one cached
+ *             raster, so a wing cannot be re-posed; what it can do is say where
+ *             it is by how it is lit, which is the lesson HYDRA's heads taught.
+ *             Spread on the hover, swept and hot on the run.
+ *   - `mount` the lance mount: the narrow stack under the hull, i.e. the mirror
+ *             of the chimney rule in `colossus_animator.js` -- the run of bottom
+ *             rows no more than six cells wide. It used to fire a beam; now it
+ *             lets one go, and the deploy flash is the frame it does.
+ *
+ * @param {string} name key in the sprite bank
+ */
+function lancerGeometry(name) {
+    let geo = lancerGeo.get(name);
+    if (geo) {
+        return geo;
+    }
+    const grid = spriteGrid(name);
+    const rows = grid.length;
+    const cols = rows ? grid[0].length : 0;
+    const cells = new Int8Array(cols * rows).fill(-1);
+    const used = new Uint8Array(TOP + 1);
+    const wings = [];
+    const wide = new Int16Array(rows);
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            const ch = grid[r][c];
+            if (ch === ".") {
+                continue;
+            }
+            cells[r * cols + c] = RUNG[ch];
+            used[RUNG[ch]] = 1;
+            wide[r]++;
+            // The flanks only: the accent also paints trim near the centre line.
+            if (RUNG[ch] === ACCENT_RUNG && Math.abs(c + 0.5 - cols / 2) > cols * 0.25) {
+                wings.push(c, r);
+            }
+        }
+    }
+    let m0 = rows;
+    for (let r = rows - 1; r >= 0; r--) {
+        if (!wide[r]) {
+            continue;
+        }
+        if (wide[r] > 6) {
+            break;
+        }
+        m0 = r;
+    }
+    const mount = [];
+    for (let r = m0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            if (cells[r * cols + c] >= 0) {
+                mount.push(c, r);
+            }
+        }
+    }
+    geo = { cols, rows, cells, wings, mount, rungs: rungFold(used) };
+    lancerGeo.set(name, geo);
+    return geo;
+}
+
+/** Cells across the emplacement's stem: what "wider than the leg" means. */
+const NODE_STEM_W = 4;
+
+const nodeGeo = new Map();
+
+/**
+ * A LANCER emplacement, split into the three pieces the study animates: the
+ * head that anchors the beam, the stem it stands on and the base plate.
+ *
+ * The head is the topmost run of rows the sprite paints wider than the stem;
+ * everything under it down to the first row that widens again is the stem, and
+ * the rest is the plate. `off` is how far the sprite has to be drawn
+ * below the entity's own position so the **head** -- which is the thing you
+ * aim at and the thing the beam leaves from -- sits on it, instead of the
+ * geometric middle of a grid that is mostly leg.
+ *
+ * @param {string} name key in the sprite bank
+ */
+function nodeGeometry(name) {
+    let geo = nodeGeo.get(name);
+    if (geo) {
+        return geo;
+    }
+    const grid = spriteGrid(name);
+    const rows = grid.length;
+    const cols = rows ? grid[0].length : 0;
+    const cells = new Int8Array(cols * rows).fill(-1);
+    const used = new Uint8Array(TOP + 1);
+    const wide = new Int16Array(rows);
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            const ch = grid[r][c];
+            if (ch === ".") {
+                continue;
+            }
+            cells[r * cols + c] = RUNG[ch];
+            used[RUNG[ch]] = 1;
+            wide[r]++;
+        }
+    }
+    let h0 = -1;
+    let h1 = -1;
+    for (let r = 0; r < rows; r++) {
+        if (wide[r] > NODE_STEM_W) {
+            if (h0 < 0) {
+                h0 = r;
+            }
+            h1 = r;
+        } else if (h0 >= 0) {
+            break;
+        }
+    }
+    if (h0 < 0) {
+        h0 = 0;
+        h1 = Math.max(0, rows - 1);
+    }
+    let p0 = h1 + 1;
+    for (let r = h1 + 1; r < rows; r++) {
+        if (wide[r] > NODE_STEM_W) {
+            p0 = r;
+            break;
+        }
+        p0 = rows;
+    }
+    geo = {
+        cols, rows, cells, rungs: rungFold(used),
+        head: { r0: h0, r1: h1 },
+        stem: { r0: h1 + 1, r1: p0 - 1 },
+        plate: { r0: p0, r1: rows - 1 },
+        // In cells, positive downwards.
+        off: rows / 2 - (h0 + h1 + 1) / 2,
+    };
+    nodeGeo.set(name, geo);
+    return geo;
+}
+
+/**
+ * The destructible parts of a regular boss, as fractions of the drawn hull --
+ * exactly what `hullParts` is to a colossus, and for the same reason: HIVE's
+ * bays are shot at, opened and wrecked, and the box the player hits has to be
+ * the cells that light up. A second copy of these offsets in the engine would
+ * drift from the art the first time the sprite is retouched.
+ *
+ * @param {string} name key in the sprite bank
+ * @returns {Object|null} `{ bays: [{x, y, hw, hh}] }`, or null for a hull with
+ *      no parts. `x`/`y` are offsets from the hull's centre and `hw`/`hh` half
+ *      extents, all as fractions of the drawn width and height.
+ */
+export function bossParts(name) {
+    const geo = hiveGeometry(name);
+    if (!geo.bays) {
+        return null;
+    }
+    return {
+        bays: geo.bays.map((b) => ({
+            x: (b.c0 + b.c1 + 1) / 2 / geo.cols - 0.5,
+            y: (b.r0 + b.r1 + 1) / 2 / geo.rows - 0.5,
+            hw: (b.c1 - b.c0 + 1) / 2 / geo.cols,
+            hh: (b.r1 - b.r0 + 1) / 2 / geo.rows,
+        })),
+    };
+}
+
 export const BOSS_ANIM = {
     global: {
         smoothing: 12,          // 1/s, exponential ease for boolean -> 0..1
@@ -361,7 +654,30 @@ export const BOSS_ANIM = {
     },
 
     LANCER: {
-        chargeTime: 0.85,       // s the telegraph takes to fill
+        // The dive cycle said as light, not as a re-pose: the hull is one
+        // cached raster, so a wing says where it is by how it is lit -- the
+        // lesson HYDRA's heads taught. Spread on the hover, hot while swept.
+        // A fraction of the way to white on the wing cells. 0.35 and not more:
+        // the wings are the hull's dark accent (rung 1) and this is a *pose*
+        // held for the whole 140-frame run, not a flash -- 0.55 walks them all
+        // the way to the flat tint and the boss spends half its cycle with two
+        // gold lamps on its flanks. 0.35 lands on the dark tint, one clear step.
+        sweepLift: 0.35,
+        // The lance mount used to fire; now it lets one go, and this is the
+        // frame it does.
+        mountLift: 0.8,
+        mountFrames: 8,
+        // The bounce off the floor. Baked, so the hull sits at 2 px, then 1,
+        // then 0 -- never at 1.4, which is what a tween would draw.
+        bounceFrames: 10,
+        bouncePx: 2,
+        // The aimed 3-shot's muzzle flash. LANCER never had one before -- the
+        // hover shot fired without a cue -- and without these two the effect is
+        // pushed with an undefined life, never ages out and fills the cap with
+        // NaN-alpha blocks. The spread matches what `_lancerAimed` fires.
+        salvoFlashLife: 0.14,   // s
+        salvoFlashLen: 20,      // px
+        chargeTime: 0.55,       // s the wind-up glow takes to fill
         diveRefSpeed: 420,      // px/s at which the dive stretch saturates
         diveStretchMax: 1.30,
         diveEnter: 210,         // px/s of downward speed that counts as diving
@@ -374,18 +690,40 @@ export const BOSS_ANIM = {
     },
 
     HIVE: {
-        bayTime: 0.26,          // s to open or close a door
-        bayOpenHold: 0.34,      // s the doors stay open after a launch
-        bayTravel: 5,           // px each door slides
-        bayFlareLife: 0.25,     // s
-        bayFlareLen: 16,        // px
-        bobAmp: 3.2,            // px
-        bobHz: 0.34,
-        rimLights: 5,
-        rimCycle: 1.7,          // s for one chase along the rim
+        // The doors. Four baked aperture steps over the 24-frame charge and the
+        // same four reversed at double rate over the 12-frame close: the open
+        // is a warning, the close is bookkeeping, and reading faster is how the
+        // close says so.
+        steps: 4,
+        doorLift: 0.62,         // the well interior, at the last open step
+        launchFrames: 10,       // ...and it goes white for this long on launch
+        recoilFrames: 9,        // the pod kicks a cell down and comes back
+        wreckSteps: 3,
+        scar: 0.55,             // how far the dead pod falls back down the ramp
+        // The ring tell. Not on the glass -- that is already one rung under
+        // white and has nowhere to go -- but on the tint plating around it,
+        // where 0.25 / 0.55 / 0.9 are three clean steps and nothing in between
+        // repaints. Brightness only, so it survives being read behind 20 adds.
+        ringSteps: [0.25, 0.55, 0.9],
+        // Where in the engine's telegraph ramp the tell starts. A fraction and
+        // not a frame count, so `TELEGRAPH_FRAMES` stays in one file.
+        ringFrom: 0.55,
+        // The idle pulse of the belly well. Measured, not chosen: on glass
+        // (rung 7) nothing under half way to white moves a cell at all, so a
+        // trough of 0.35 and a peak of 0.75 is what actually breathes.
+        wellLow: 0.35, wellHigh: 0.78, wellHz: 0.48,
+        // ...and it steps down one row at a time away from the mouth, so what
+        // breathes is the opening and not the whole lens. Without the falloff
+        // the entire glass diamond goes white at the peak and the carrier grows
+        // an eye.
+        wellFalloff: 0.19,
+        // Enrage. Two rungs on the whole hull is 1,056 cells a frame as an
+        // overlay; as a lighter TINT it is the same read for one more cached
+        // raster, and the three steps are three cache entries.
+        rageTint: 0.30, rageSteps: 3, rageFrames: 30,
+        tetherDash: 4,          // frames per pixel the dashes travel
         hullRollRef: 66,        // px/s
         maxRoll: 0.07,          // rad
-        hangarGlowHz: 0.8,
     },
 
     PRISM: {
@@ -411,6 +749,16 @@ export const BOSS_ANIM = {
 
 /** Tuning key per BOSSES index — the array order is wire format, so is this. */
 export const BOSS_ANIM_KINDS = ["DREADNOUGHT", "WARDEN", "LANCER", "HIVE", "PRISM"];
+
+/** Blend two hex colours. The bank's own `palette` mixes the same way. */
+function mixHex(a, b, k) {
+    const pa = parseInt(String(a).slice(1), 16);
+    const pb = parseInt(String(b).slice(1), 16);
+    const ch = (sh) => Math.round(
+        ((pa >> sh) & 255) + (((pb >> sh) & 255) - ((pa >> sh) & 255)) * k
+    );
+    return "#" + ((1 << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).slice(1);
+}
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const clamp01 = (v) => clamp(v, 0, 1);
@@ -459,8 +807,6 @@ export class BossAnimator {
         this.breath = 0;
         this.shield01 = 0;
         this.charge01 = 0;
-        this.bay01 = 0;
-        this.bayHold = 0;
         this.stretch = 1;
         this.spin = 0;
         this.facet = 0;
@@ -482,13 +828,51 @@ export class BossAnimator {
         this.trail = [];
         this._trailD = 0;
         this.ramp = null;
+        this.rampFor = null;
+        // --- LANCER ------------------------------------------------------
+        this.sweep = 0;
+        this.mountF = 1e9;
+        this.bounceF = 1e9;
+        // --- HIVE --------------------------------------------------------
+        // `raged` starts null so the first frame it is observed adopts the
+        // state without playing the transition: a boss that spawns already
+        // hurt (a practice run) should not flash its way into second phase.
+        this.raged = null;
+        this.rageF = 0;
+        this.bays = null;
+        this.tel = 0;
+    }
+
+    /**
+     * The hull's colour this frame. Everything the animator paints resolves
+     * through it, so an overlay can never disagree with the raster under it.
+     */
+    hullTint() {
+        if (this.kind !== "HIVE" || !this.raged) {
+            return this.tint;
+        }
+        const t = this.t;
+        const step = Math.min(t.rageSteps,
+            1 + Math.floor(this.rageF / (t.rageFrames / t.rageSteps)));
+        return mixHex(this.tint, "#ffffff", (step / t.rageSteps) * t.rageTint);
+    }
+
+    /** The bank's ramp resolved for the tint actually being drawn. */
+    _ramp(tint) {
+        if (this.rampFor !== tint) {
+            const pal = palette(tint);
+            this.ramp = RAMP_CHARS.map((ch) => pal[ch]);
+            this.rampFor = tint;
+        }
+        return this.ramp;
     }
 
     /**
      * Advance the cosmetics from state the engine already owns.
      *
      * @param {number} dt seconds
-     * @param {Object} s read-only view of the boss: x, y, hp01, armor, charging
+     * @param {Object} s read-only view of the boss: x, y, hp01, armor, charge,
+     *   head, raged, tel/telK
      */
     observe(dt, s) {
         if (!(dt > 0)) {
@@ -586,9 +970,18 @@ export class BossAnimator {
                 break;
             }
             case "LANCER": {
-                // `charging` is read off the beam the engine already owns, so it
-                // is true on a guest too: beams travel in the snapshot.
-                this.charge01 = ease(this.charge01, s.charging ? 1 : 0, 3 / t.chargeTime, dt);
+                // The wind-up. `charge` is the beat of the dive cycle the AI is
+                // on -- 0 hover, 1 wind-up, 2 dive, 3 climb -- and it travels,
+                // so a guest crouches on the same frame. It replaces the old
+                // read (a beam telegraph near the hull): LANCER no longer owns
+                // a beam, its emplacements do, and they are 140 px away.
+                const f = dt * 60;
+                this.mountF += f;
+                this.bounceF += f;
+                // Swept on the run, spread on the hover. No tween: a pose the
+                // hull snaps between is a pose you can read at a glance.
+                this.sweep = s.charge >= 2 ? 1 : 0;
+                this.charge01 = ease(this.charge01, s.charge === 1 ? 1 : 0, 3 / t.chargeTime, dt);
                 this.lean = ease(this.lean,
                     clamp(this.vx / t.tiltRefSpeed, -1, 1) * t.maxTilt, g.smoothing, dt);
                 const diving = this.vy > t.diveEnter;
@@ -618,12 +1011,27 @@ export class BossAnimator {
                 break;
             }
             case "HIVE":
-                // The doors are held open by the launch cue, then close again.
-                this.bayHold = Math.max(0, this.bayHold - dt);
-                this.bay01 = ease(this.bay01, this.bayHold > 0 ? 1 : 0, 3 / t.bayTime, dt);
+                // Every door state is a pure function of the bay clock the
+                // engine already owns and already ships, so the animator keeps
+                // no per-bay state and the hive needs no cosmetic cue at all.
+                this.bays = s.bays || null;
                 this.lean = ease(this.lean,
                     clamp(this.vx / t.hullRollRef, -1, 1) * t.maxRoll, g.smoothing, dt);
-                this.breath = Math.sin(this.time * 6.2832 * t.bobHz);
+                // Frames since the enrage flipped. Three steps of ten and then
+                // it simply stays there: a change the player is going to be
+                // looking at for the next forty seconds does not need an event,
+                // and the fight is already loud.
+                if (this.raged === null) {
+                    this.raged = !!s.raged;
+                    this.rageF = t.rageFrames;
+                } else if (!!s.raged !== this.raged) {
+                    this.raged = !!s.raged;
+                    this.rageF = 0;
+                } else if (this.rageF < t.rageFrames) {
+                    this.rageF += dt * 60;
+                }
+                // The ring tell, off the telegraph the engine already computes.
+                this.tel = s.telK === "ring" ? clamp01(s.tel || 0) : 0;
                 break;
             case "PRISM":
                 this.spin = (this.spin + t.spiralSpin * dt) % 6.2832;
@@ -686,15 +1094,13 @@ export class BossAnimator {
             this.recoil = 1;
             const life = t.fanFlashLife || t.salvoFlashLife;
             this._push({ type: "muzzle", a, life, max: life });
-        } else if (name === "launch" && this.kind === "HIVE") {
-            // `c` is the bay offset as a fraction of the half-width, straight
-            // from the AI (`off / e.r`), so the flare lands on the door that
-            // actually opened instead of a fixed slot.
-            this.bayHold = t.bayOpenHold;
-            this._push({
-                type: "bay", c: clamp(o.c == null ? 0 : o.c, -1, 1),
-                life: t.bayFlareLife, max: t.bayFlareLife,
-            });
+        } else if (name === "deploy" && this.kind === "LANCER") {
+            // The frame four emplacements leave the hull. Not derivable from a
+            // position, and a guest that only sees a node appear 14 frames into
+            // its flight would light the mount too late.
+            this.mountF = 0;
+        } else if (name === "bounce" && this.kind === "LANCER") {
+            this.bounceF = 0;
         } else if (name === "blink" && this.kind === "PRISM") {
             this._push({
                 type: "shock", x: o.x, y: o.y, r: t.shockStartR,
@@ -722,8 +1128,11 @@ export class BossAnimator {
         } else if (this.kind === "LANCER") {
             sy = this.stretch;
             sx = 1 / this.stretch;
-        } else if (this.kind === "HIVE") {
-            oy += this.breath * t.bobAmp;
+            if (this.bounceF < t.bounceFrames) {
+                // Baked: 2 px, then 1, then 0. The hull sat on the floor for
+                // three frames and it should look like it did.
+                oy += Math.round(t.bouncePx * (1 - this.bounceF / t.bounceFrames));
+            }
         } else if (this.kind === "PRISM") {
             const b = t.blinkScaleMin + (1 - t.blinkScaleMin) * this.blink;
             sx = b;
@@ -758,10 +1167,14 @@ export class BossAnimator {
         const h = size.h * o.px;
         this.halfW = w / 2;
         const p = this.pose();
+        // The enrage promotion is a lighter tint rather than 1,056 promoted
+        // cells; everything drawn over the hull has to resolve through the same
+        // one, or an overlay disagrees with the raster under it.
+        const tint = this.hullTint();
 
         g.save();
         g.imageSmoothingEnabled = false;
-        this._behind(g, o, cell, w, h);
+        this._behind(g, o, cell, w, h, tint);
 
         if (p.alpha > 0.01) {
             g.save();
@@ -773,12 +1186,18 @@ export class BossAnimator {
                 this._plates(g, cell, w, -1);
                 this._plates(g, cell, w, 1);
             }
-            drawSprite(g, o.sprite, 0, 0, { tint: this.tint, px: o.px, flash: o.flash });
+            drawSprite(g, o.sprite, 0, 0, { tint, px: o.px, flash: o.flash });
             this._core(g, cell);
-            if (this.kind === "WARDEN" && !o.flash) {
+            if (!o.flash) {
                 // Skipped on the hit flash: the silhouette is white that frame
                 // and a promotion has nothing left to promote.
-                this._wardenHull(g, o);
+                if (this.kind === "WARDEN") {
+                    this._wardenHull(g, o);
+                } else if (this.kind === "HIVE") {
+                    this._hiveHull(g, o, tint);
+                } else if (this.kind === "LANCER") {
+                    this._lancerHull(g, o);
+                }
             }
             g.restore();
         }
@@ -789,7 +1208,7 @@ export class BossAnimator {
 
     /* ---------------- effects under the hull ---------------- */
 
-    _behind(g, o, cell, w, h) {
+    _behind(g, o, cell, w, h, tint) {
         const t = this.t;
         // LANCER dive afterimages.
         for (const e of this.effects) {
@@ -801,7 +1220,7 @@ export class BossAnimator {
             g.globalAlpha = t.afterimageAlpha * k * k;
             g.translate(e.x, e.y);
             g.scale(1 / e.sy, e.sy);
-            drawSprite(g, o.sprite, 0, 0, { tint: this.tint, px: o.px });
+            drawSprite(g, o.sprite, 0, 0, { tint: tint || this.tint, px: o.px });
             g.restore();
         }
         if (this.kind === "PRISM") {
@@ -810,6 +1229,9 @@ export class BossAnimator {
         if (this.kind === "WARDEN") {
             this._trail(g, cell);
             this._ring(g, cell, w, h);
+        }
+        if (this.kind === "HIVE") {
+            this._tethers(g, o, cell);
         }
     }
 
@@ -846,21 +1268,11 @@ export class BossAnimator {
                             this.y + Math.sin(a) * d - cell, cell * 2, cell * 2, cell);
                     }
                 }
-            } else if (e.type === "bay") {
-                const bx = this.x + (w / 2) * e.c;
-                const by = this.y + cell * 3;
-                g.globalAlpha = k;
-                for (let d = 0; d < t.bayFlareLen * k; d += cell) {
-                    pxRect(g, bx - cell, by + d, cell * 2, cell * 2, cell);
-                }
             }
             g.restore();
         }
         if (this.kind === "DREADNOUGHT") {
             this._thrusters(g, cell, w);
-        }
-        if (this.kind === "HIVE") {
-            this._rimLights(g, cell, w);
         }
     }
 
@@ -874,8 +1286,6 @@ export class BossAnimator {
             glow = 0.5 + 0.5 * Math.sin(this.time * 6.2832 * t.coreGlowHz) * t.coreGlowAmp;
         } else if (this.kind === "LANCER") {
             glow = this.charge01 * 0.8;
-        } else if (this.kind === "HIVE") {
-            glow = 0.25 + 0.25 * Math.sin(this.time * 6.2832 * t.hangarGlowHz);
         }
         if (glow <= 0.01) {
             return;
@@ -1042,10 +1452,7 @@ export class BossAnimator {
         if (!geo.cols) {
             return;
         }
-        if (!this.ramp) {
-            const pal = palette(this.tint);
-            this.ramp = RAMP_CHARS.map((ch) => pal[ch]);
-        }
+        this._ramp(this.tint);
         const px = o.px;
         const f = {
             px,
@@ -1174,25 +1581,345 @@ export class BossAnimator {
     }
 
     /** HIVE: a light chasing along the rim, so the carrier reads as powered. */
-    _rimLights(g, cell, w) {
+    /**
+     * Everything HIVE says on its own plating: the four doors, the pods it has
+     * lost, the belly well breathing and the ring it is about to throw.
+     *
+     * All of it is promotion along the sprite bank's ramp over the cached
+     * raster, and only over the cells an effect actually changes -- a closed,
+     * healthy bay and a sealed one both cost nothing at all, because both of
+     * them are already what the art paints.
+     *
+     * There is no per-bay state here. Every door state is a pure function of
+     * the clock the engine owns and ships (`b.ph`, turned into a pose by
+     * `_bayPose`), which is why the hive needs no cosmetic cue on the bus.
+     */
+    _hiveHull(g, o, tint) {
         const t = this.t;
-        const half = w / 2;
-        const phase = (this.time % t.rimCycle) / t.rimCycle;
-        g.save();
-        g.globalCompositeOperation = "lighter";
-        g.fillStyle = this.tint;
-        const n = t.rimLights * 2;
-        for (let i = 0; i < n; i++) {
-            const u = i / (n - 1);
-            const lx = this.x - half * 0.86 + u * half * 1.72;
-            const ly = this.y + cell * 1.5 + Math.abs(u - 0.5) * cell * 3
-                + this.bay01 * t.bayTravel;
-            const k = (u + phase) % 1;
-            g.globalAlpha = 0.25 + 0.75 * Math.pow(1 - Math.abs(k - 0.5) * 2, 3);
-            pxRect(g, lx - cell / 2, ly, cell, cell, cell);
+        const geo = hiveGeometry(o.sprite);
+        if (!geo.cols || !geo.bays) {
+            return;
         }
+        const ramp = this._ramp(tint);
+        const f = {
+            px: o.px,
+            sz: Math.ceil(o.px),
+            ox: Math.round(-Math.round(geo.cols * o.px) / 2),
+            oy: Math.round(-Math.round(geo.rows * o.px) / 2),
+        };
+        const cellAt = (c, r) => (c < 0 || r < 0 || c >= geo.cols || r >= geo.rows
+            ? -1 : geo.cells[r * geo.cols + c]);
+        const paint = (c, r, rung) => {
+            g.fillStyle = ramp[clamp(rung, 0, TOP)];
+            g.fillRect(f.ox + Math.round(c * f.px), f.oy + Math.round(r * f.px), f.sz, f.sz);
+        };
+
+        // --- the belly well, and the ring it telegraphs -------------------
+        // The glass breathes; its own outline is where the ring tell has any
+        // headroom to be seen at all. Both are the same piece of the hull,
+        // which is the point: the warning is where the player is already
+        // looking, and it survives being read behind twenty adds.
+        if (geo.well) {
+            const pulse = t.wellLow + (t.wellHigh - t.wellLow)
+                * (0.5 + 0.5 * Math.sin(this.time * 6.2832 * t.wellHz));
+            for (let r = geo.well.r0; r <= geo.well.r1; r++) {
+                const k = pulse - (geo.well.r1 - r) * t.wellFalloff;
+                if (k <= 0) {
+                    continue;
+                }
+                for (let c = geo.well.c0; c <= geo.well.c1; c++) {
+                    if (cellAt(c, r) >= GLASS_RUNG) {
+                        this._promoteCell(g, geo, f, c, r, k);
+                    }
+                }
+            }
+        }
+        if (this.tel > 0) {
+            const u = clamp01((this.tel - t.ringFrom) / (1 - t.ringFrom));
+            const tel = t.ringSteps[clamp(
+                Math.floor(u * t.ringSteps.length), 0, t.ringSteps.length - 1
+            )];
+            for (let i = 0; i < geo.rim.length; i += 2) {
+                this._promoteCell(g, geo, f, geo.rim[i], geo.rim[i + 1], tel);
+            }
+        }
+
+        const bays = o.bays || [];
+
+        // --- the four bays ------------------------------------------------
+        for (let i = 0; i < geo.bays.length; i++) {
+            const b = bays[i];
+            const pod = geo.bays[i];
+            if (!b || !b.on) {
+                // Sealed plating, which is exactly what the art already paints:
+                // the silhouette must not change with the wave.
+                continue;
+            }
+            if (b.dead) {
+                // Three wreck steps, each demoting one further rung, and then a
+                // scar that stays for the rest of the fight. It is the one
+                // demotion below the art in this animator, and it is earned:
+                // the pod is gone, so the hull should not still be showing one.
+                const step = 1 + Math.min(t.wreckSteps - 1, Math.floor(b.wreck * t.wreckSteps));
+                const k = -t.scar * (step / t.wreckSteps);
+                for (let r = pod.r0; r <= pod.r1; r++) {
+                    for (let c = pod.c0; c <= pod.c1; c++) {
+                        this._promoteCell(g, geo, f, c, r, k);
+                    }
+                }
+                continue;
+            }
+            // The shell kicks down on the launch and comes back: 1 px per 3
+            // frames of the recoil left, capped at two. Drawn as the pod's own
+            // cells moved a row, so it is the plating that moves and not a
+            // rectangle over it.
+            const rec = b.since >= 0 && b.since < t.recoilFrames
+                ? Math.min(2, Math.ceil((t.recoilFrames - b.since) / 3)) : 0;
+            if (rec) {
+                for (let r = pod.r1; r >= pod.r0; r--) {
+                    for (let c = pod.c0; c <= pod.c1; c++) {
+                        const src = cellAt(c, r - rec);
+                        paint(c, r, src < 0 ? cellAt(c, pod.r0 - 1) : geo.rungs[src]);
+                    }
+                }
+            }
+            if (b.step > 0 || b.since >= 0) {
+                // Four baked aperture states. The interior promotes one rung a
+                // step on the way open, and goes to the top of the ramp for the
+                // ten frames after a launch.
+                const mid = (pod.c0 + pod.c1) / 2;
+                const half = (b.step / (t.steps - 1)) * (pod.c1 - pod.c0) / 2;
+                const flare = b.since >= 0 && b.since < t.launchFrames;
+                const k = flare ? 1 : t.doorLift * ((b.step + 1) / t.steps);
+                for (let r = pod.r0 + 1 + rec; r <= pod.r1; r++) {
+                    for (let c = Math.ceil(mid - half); c <= Math.floor(mid + half); c++) {
+                        this._promoteCell(g, geo, f, c, r, k);
+                    }
+                }
+            }
+            if (b.flash > 0) {
+                // The whole window and a pixel of its footprint, white. No
+                // displacement: the hull must not appear to flinch from fire
+                // that was aimed at the swarm around it.
+                g.fillStyle = ramp[TOP];
+                g.fillRect(
+                    f.ox + Math.round((pod.c0 - 0.5) * f.px),
+                    f.oy + Math.round((pod.r0 - 0.5) * f.px),
+                    Math.ceil((pod.c1 - pod.c0 + 2) * f.px),
+                    Math.ceil((pod.r1 - pod.r0 + 2) * f.px)
+                );
+            }
+        }
+    }
+
+    /**
+     * The tether: one dashed line from each live add back to the pod that made
+     * it. It owns no state -- the endpoints are entities, so the engine hands
+     * them over -- and it does two jobs for the price of one stroke: it makes
+     * "the swarm stops when the hive does" literally true, and it turns the
+     * lines into a live read of which bay is producing the thing chasing you,
+     * which is what makes aiming at one feel informed rather than arbitrary.
+     */
+    _tethers(g, o) {
+        const list = o.tether;
+        if (!list || !list.length) {
+            return;
+        }
+        g.save();
+        g.strokeStyle = mixHex(this.tint, "#0a0418", 0.45);
+        g.lineWidth = 1;
+        g.setLineDash([3, 5]);
+        g.lineDashOffset = -Math.floor(this.time * 60 / this.t.tetherDash);
+        g.beginPath();
+        for (let i = 0; i + 3 < list.length; i += 4) {
+            g.moveTo(Math.round(list[i]) + 0.5, Math.round(list[i + 1]) + 0.5);
+            g.lineTo(Math.round(list[i + 2]) + 0.5, Math.round(list[i + 3]) + 0.5);
+        }
+        g.stroke();
         g.restore();
     }
+
+    /**
+     * LANCER's two beats that are not motion: the wings swept for the run, and
+     * the lance mount the frame four emplacements leave it.
+     *
+     * The hull is one cached raster, so a wing cannot be re-posed. What it can
+     * do is say where it is by how it is lit -- and on this hull the wings are
+     * painted in the dark accent, which has seven rungs of headroom above it,
+     * so the difference between spread and swept is dark magenta against the
+     * hull's own dark gold, which reads at a glance and does not shout.
+     */
+    _lancerHull(g, o) {
+        const t = this.t;
+        const geo = lancerGeometry(o.sprite);
+        if (!geo.cols) {
+            return;
+        }
+        this._ramp(this.tint);
+        const f = {
+            px: o.px,
+            sz: Math.ceil(o.px),
+            ox: Math.round(-Math.round(geo.cols * o.px) / 2),
+            oy: Math.round(-Math.round(geo.rows * o.px) / 2),
+        };
+        if (this.sweep) {
+            for (let i = 0; i < geo.wings.length; i += 2) {
+                this._promoteCell(g, geo, f, geo.wings[i], geo.wings[i + 1], t.sweepLift);
+            }
+        }
+        if (this.mountF < t.mountFrames) {
+            const k = t.mountLift * (1 - this.mountF / t.mountFrames);
+            for (let i = 0; i < geo.mount.length; i += 2) {
+                this._promoteCell(g, geo, f, geo.mount[i], geo.mount[i + 1], k);
+            }
+        }
+    }
+}
+
+/**
+ * Tuning for a LANCER emplacement. It has no animator object and no per-entity
+ * state: the engine ships which stage the node is on and how many frames are
+ * left of it, and every one of these beats is a pure function of those two --
+ * which is what makes thirty of them affordable and what makes a guest draw
+ * exactly what the host does.
+ */
+export const LNODE_ANIM = {
+    settleSteps: 3,         // baked steps of the head landing on its plate
+    settlePx: 1,            // ...cells per step
+    litLift: 1,             // the core, while it holds a lance
+    telBlink: 3,            // frames on, frames off, while the beam telegraphs
+    telSolid: 8,            // ...and it goes solid over the last of them
+    darkMix: 0.5,           // how far towards the dark hull it drops while dark
+    pips: 4,                // arming pips, one per 8 frames of delay left
+    pipFrames: 8,
+    pipFrom: 12,            // frames into the dark before they start refilling
+};
+
+/**
+ * One LANCER emplacement.
+ *
+ * Not a class and not per-instance state, for the reason the drone kit is not:
+ * there can be twelve of these on the field and the engine's own clock is
+ * already the shared timeline. Two beats are drawn as a whole different cached
+ * raster rather than as promoted cells -- the dark re-arm is the hull tinted
+ * darker, which is 94 cells a node saved -- and the only per-frame overlay is
+ * the dozen cells of the eye.
+ *
+ * @param {CanvasRenderingContext2D} g
+ * @param {Object} o
+ * @param {string} o.name sprite key
+ * @param {string} o.tint the parent boss's colour: this is its furniture
+ * @param {number} o.px logical pixel size
+ * @param {number} o.x arena position of the HEAD, not of the grid
+ * @param {number} o.y
+ * @param {number} o.stage 0 flying, 1 rooting, 2 arming, 3 waiting, 4
+ *      telegraphing, 5 dark, 6 lit
+ * @param {number} o.left frames left of that stage
+ * @param {number} o.hp
+ * @param {number} o.mhp
+ * @param {boolean} o.flash the engine's own hit flash
+ * @param {number} o.frame the simulation frame, for the telegraph blink
+ * @param {number} o.root frames a node takes to root, and
+ * @param {number} o.cool frames it stays dark for -- both of them gameplay, so
+ *      they are handed over rather than copied into the tuning above
+ */
+export function drawLanceNode(g, o) {
+    const A = LNODE_ANIM;
+    const geo = nodeGeometry(o.name);
+    if (!geo.cols) {
+        return;
+    }
+    const px = o.px;
+    // Dark while it re-arms: the only tell that a node which looks spent is
+    // coming back. As a tint it is one more cached raster instead of a hundred
+    // promoted cells a frame, and it reads as the same two rungs down.
+    const tint = o.stage === 5 ? mixHex(o.tint, "#0a0418", A.darkMix) : o.tint;
+    const cv = sprite(o.name, tint, px, !!o.flash);
+    if (!cv) {
+        return;
+    }
+    const w = cv.width;
+    const h = cv.height;
+    const x0 = Math.round(o.x - w / 2);
+    // `off` puts the HEAD on the entity's position rather than the middle of a
+    // grid that is mostly leg: the head is what the player aims at, what the
+    // beam leaves from and what the hit circle is.
+    const y0 = Math.round(o.y - h / 2 + geo.off * px);
+    g.save();
+    g.imageSmoothingEnabled = false;
+    if (o.stage === 1) {
+        // Rooting: the head settles onto its stem in three baked steps while
+        // the plate stays put, which is the compression the study asks for
+        // without a second raster or a sub-pixel scale.
+        const raise = Math.ceil((o.left / (o.root || 1)) * A.settleSteps) * A.settlePx * px;
+        // Rounded: a fractional source rect on a pixel-art raster is a filtered
+        // seam at the split, and `px` is 1.5 on this sprite.
+        const hh = Math.round((geo.head.r1 + 1) * px);
+        g.drawImage(cv, 0, 0, w, hh, x0, y0 - raise, w, hh);
+        g.drawImage(cv, 0, hh, w, h - hh, x0, y0 + hh, w, h - hh);
+    } else {
+        g.drawImage(cv, x0, y0);
+    }
+
+    // --- the eye: the whole read of what this node is about to do ----------
+    let lit = 0;
+    if (o.stage === 6) {
+        lit = A.litLift;
+    } else if (o.stage === 4) {
+        // Three frames on, three off, then solid over the last eight: a
+        // telegraph that stops blinking is a telegraph that is about to stop
+        // being one.
+        const solid = o.left <= A.telSolid;
+        lit = solid || Math.floor(o.frame / A.telBlink) % 2 === 0 ? A.litLift : 0;
+    }
+    if (lit > 0 && !o.flash) {
+        const pal = palette(tint);
+        const ramp = RAMP_CHARS.map((ch) => pal[ch]);
+        const sz = Math.ceil(px);
+        for (let r = geo.head.r0; r <= geo.head.r1; r++) {
+            for (let c = 0; c < geo.cols; c++) {
+                const rung = geo.cells[r * geo.cols + c];
+                if (rung < GLASS_RUNG) {
+                    continue;
+                }
+                const to = geo.rungs[clamp(Math.round(lift(rung, lit)), 0, TOP)];
+                if (to === rung) {
+                    continue;
+                }
+                g.fillStyle = ramp[to];
+                g.fillRect(x0 + Math.round(c * px), y0 + Math.round(r * px), sz, sz);
+            }
+        }
+    }
+
+    // --- arming pips: the countdown, read straight off the state -----------
+    let pips = 0;
+    if (o.stage === 2) {
+        pips = Math.min(A.pips, Math.ceil(o.left / A.pipFrames));
+    } else if (o.stage === 3) {
+        pips = A.pips;
+    } else if (o.stage === 5) {
+        const gone = (o.cool || 0) - o.left;
+        pips = gone < A.pipFrom ? 0
+            : Math.min(A.pips, Math.floor((gone - A.pipFrom) / A.pipFrames) + 1);
+    }
+    const py = y0 + h + Math.round(px);
+    const step = Math.max(2, Math.round(px * 2));
+    for (let i = 0; i < pips; i++) {
+        g.fillStyle = o.tint;
+        g.fillRect(x0 + Math.round(w / 2) - A.pips * step / 2 + i * step, py, step - 1, step - 1);
+    }
+    // --- and how much of it is left ---------------------------------------
+    if (o.mhp && o.hp < o.mhp) {
+        const bw = Math.round(w * 0.7);
+        const bx = x0 + Math.round((w - bw) / 2);
+        const by = py + step + 1;
+        g.fillStyle = "#2e1c56";
+        g.fillRect(bx, by, bw, 1);
+        g.fillStyle = "#4de3c1";
+        g.fillRect(bx, by, Math.round(bw * Math.max(0, o.hp) / o.mhp), 1);
+    }
+    g.restore();
 }
 
 /**
@@ -1306,14 +2033,27 @@ export function drawBossWreck(g, w) {
  *
  *   lean       DREADNOUGHT ±0.12 rad, saturates at 180 px/s (AI peaks at 209)
  *              LANCER      ±0.22 rad, saturates at 180 px/s (hover peaks at 132)
- *              HIVE        ±0.07 rad, saturates at  66 px/s (AI peaks at  66)
+ *              HIVE        ±0.07 rad, saturates at  66 px/s (drift peaks at 66,
+ *                          96 enraged -- so the roll is pinned through a turn)
  *   breath     -1..1 sine; ±1.8% scale (DREADNOUGHT), ±1.2% (WARDEN)
  *   stretch    LANCER 1.00 hovering, 1.30 cap; the dive runs at 420 px/s
+ *              (510 enraged), so it saturates through the whole run
  *   shield01   0..1, 95% of a transition in ~0.34 s
- *   charge01   0..1, ~0.85 s to 95% while the engine's beam is telegraphing
- *   bay01      0..1, opens in ~0.26 s, held 0.34 s per launch
+ *   charge01   0..1, ~0.55 s to 95% over LANCER's 40-frame wind-up
+ *   sweep      0/1, no tween: 1 for the 140 frames of a dive and climb
+ *   mountF     frames since the deploy; the mount is lit for the first 8
+ *   bounceF    frames since the floor; the hull sits 2 px low, then 1, then 0
+ *   rageF      HIVE, 0..30 frames; the tint lifts 10% / 20% / 30% towards white
+ *   tel        HIVE, the engine's own ring telegraph 0..1; the rim steps at
+ *              0.55 / 0.70 / 0.85 of it, i.e. over the last 20 of its 45 frames
  *   blink      0..1, reset to 0 on a detected teleport, back to 1 in ~0.16 s
  *   shake      0 while hp01 >= 0.30, rising to 2.4 px at hp01 = 0
  *   recoil     0..1 over 0.18 s; peak hull offset 5 px (3 for WARDEN)
  *   effects    <= 12 in normal play; hard cap 48
+ *
+ * Per-frame overlay cost, measured on `boss3` at the 120 px row: 14 cells for
+ * the belly well at the peak of its breath (0 at the trough -- the art is the
+ * baseline), 16 for the ring rim while it telegraphs, 15 per open bay and 20
+ * per wrecked one. A closed, healthy or sealed bay costs nothing at all,
+ * because all three of them are already what the art paints.
  * ========================================================================== */

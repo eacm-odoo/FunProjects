@@ -22,7 +22,9 @@ import { BOSSES, bossForWave } from "./bosses";
 import { COLOSSI, colossusForWave } from "./colossi";
 import { SHIPS, SHIP_COLORS } from "./ships";
 import { ShipFlight } from "./ship_flight";
-import { BossAnimator, WARDEN_DEATH, drawBossWreck } from "./boss_animator";
+import {
+    BossAnimator, WARDEN_DEATH, bossParts, drawBossWreck, drawLanceNode,
+} from "./boss_animator";
 import { COLOSSUS_ANIM_KINDS, ColossusAnimator, hullParts } from "./colossus_animator";
 import { DRONE_ANIM, drawDrone, drawDroneWreck, droneTier } from "./drone_animator";
 import {
@@ -192,6 +194,9 @@ const HITSTOP_HEAVY = 3;
 const HITSTOP_BOSS = 8;
 const HITSTOP_COLOSSUS = 12;
 const HITSTOP_HURT = 6;
+// How much of ONE angled pair lands on a small target the ship is sitting
+// under, and it is a measured number, not a guess: see `_teamFirepower`.
+const SMALL_TARGET_PAIR = 0.86;
 // Frames a bomb's shockwave ring takes to cross the field. Cosmetic: the
 // clear itself is still instant, the ring is what makes it read as a blast
 // sweeping outward instead of the bullets simply ceasing to exist.
@@ -255,6 +260,200 @@ const WARDEN_RAM = {
     floorGap: 150,
 };
 
+/**
+ * LANCER, from the "LANCER Study" design sheet.
+ *
+ * It stops firing the lance and starts **planting** them. The dive is the
+ * delivery run: four emplacements leave the hull on the frame it passes 32% of
+ * the way down, fly to a ring around the middle of the arena and root there.
+ * Nothing decays -- an ignored emplacement re-arms forever -- so the only thing
+ * that removes furniture from this arena is the gun, and the fight becomes
+ * target prioritisation instead of patience.
+ *
+ * Three decisions the sheet measured and this port keeps:
+ *
+ *   - **Static, tangential beams.** A ring of chords leaves 91% of the floor
+ *     standable *as one connected region*, so you can always reach the boss;
+ *     you just cannot get there in a straight line. The rejected alternative
+ *     (beams aimed inward) leaves the same amount of floor but quarters it, and
+ *     locks the player away from the boss for 240 frames.
+ *   - **A fixed formation whose rotation is the player's own fault.** The ring
+ *     is always the same shape -- learnable, and its gaps memorisable -- but it
+ *     is rotated onto the player's angle from the ring centre, quantised to
+ *     15 degrees.
+ *   - **Four beams, however many emplacements.** A token pool: on any frame
+ *     below the cap the next beam goes to the rooted emplacement that has been
+ *     waiting longest. A crowded field is therefore more *targets*, a shorter
+ *     dark interval and less idea of which node lights up next -- never a fifth
+ *     beam. Get this wrong and twelve emplacements spawn twelve beams.
+ *
+ * Frames at `mv` = 1, on the 680x540 floor the sheet was tuned on. Anything
+ * measured against the arena is written as a fraction of it instead.
+ */
+const L_HOVER = 1;
+const L_WINDUP = 2;
+const L_DIVE = 3;
+const L_CLIMB = 4;
+const LANCER = {
+    // Phase lengths, normal / enraged. The cycle is 290 frames against 550 for
+    // the pattern it replaces: 1.9x the traversals per minute, and the boss is
+    // exposed for every frame of the dive and the climb.
+    hover: [120, 90],
+    windup: [40, 30],
+    // The wind-up is the guard on the fight's central trap (parking under a
+    // node and being run over): 40 frames of a visible 6 px crouch, at 0.15
+    // px/frame, before anything moves fast.
+    crouch: 0.15,
+    dive: [7, 8.5],
+    climb: [6.5, 7.5],
+    hoverY: 78,         // the line it climbs back to, from the top of the field
+    floorGap: 30,       // where the dive bottoms out
+    bounce: 10,         // frames of squash and sparks off the floor
+    dropAt: 0.32,       // fraction of the field height the four nodes leave at
+    lead: 0.02, leadMax: 2.2,   // horizontal tracking during hover and dive
+    homeK: 0.02, homeMax: 1.4,  // ...and the ease back to centre on the climb
+    aimed: [30, 22], aimedSpeed: [3.4, 4.2],
+    strafe: [12, 9], strafeSpeed: [3.0, 3.6], strafeSpread: 0.34,
+    fan: 5, fanSpread: 0.42, fanSpeed: [2.6, 3.0],
+};
+/**
+ * The emplacements, and the beams they hold.
+ *
+ * `hp` is a rule rather than a number, and the rule matters more: player damage
+ * grows all run, so a flat value stops forming a maze by the late waves -- at
+ * 20 frames of time-to-kill the pattern is furniture that clears itself. Three
+ * times the wave's grunt, floored against a share of LANCER's own pool.
+ */
+const LNODE = {
+    perDive: 4,
+    max: 12,            // the field cap, i.e. three dives' worth
+    ringR: 140,         // ...on the 680x540 floor; scaled with the arena below
+    ringY: 0.52,        // of the field height
+    genPull: 26,        // px each successive ring is pulled inward
+    ringMin: 74,
+    genTurn: Math.PI / 8,   // ...and rotated, so generations interleave
+    quant: Math.PI / 12,    // the ring's rotation, quantised to 15 degrees
+    spacing: 34,        // px: a slot this close to a live node is skipped
+    fly: 14,            // frames of travel, closing 28% of the gap each
+    flyK: 0.28,
+    root: 10,           // ...then it plants itself, and only then can it arm
+    stagger: [14, 10],  // frames between one node arming and the next
+    cool: 60,           // dark frames after a beam ends, before it may re-arm
+    dying: 12,
+    hp: 3,              // times the wave's drone, ...
+    hpFloor: 0.06,      // ...floored at this share of the boss's own pool,
+    // ...and then clamped to a TIME. This is the part of the sheet's rule that
+    // matters, and measuring it is what showed the rest is not enough: three
+    // times the wave-24 grunt floored against LANCER's pool is 12 points, which
+    // a bare gun grinds through in 107 frames and a four-perk build deletes in
+    // 9. Both ends are wrong -- at 107 the maze is a chore, and at 9 it is
+    // furniture that clears itself, which is exactly the failure the sheet
+    // names. An emplacement is a wall, so what has to be constant is how long
+    // it takes to open one, and the hit points are how that is expressed.
+    // The band is the sheet's own 45-60, opened a little at the bottom so a
+    // bare gun is not made to grind: measured, a node now takes 42-58 frames of
+    // held fire to open whatever the player is flying, against 107 frames for a
+    // bare build and 9 for a four-perk one before the clamp.
+    ttk: [42, 60],
+    r: 11,              // bullet radius; the hull does no contact damage
+    val: 260,
+    beams: 4,           // the token pool, and the only cap on live beams
+    beam: {
+        w: 22, len: 1200,           // >= the arena diagonal at any window shape
+        warn: [48, 36], life: [240, 194],
+        // Enrage is the only spin, and 0.0020 rather than the sheet's 0.0035.
+        // The sheet set that against its *parkability* cliff (94.3% of the
+        // floor still parkable at 0.0035 against 38.1% at 0.012) and never
+        // measured the metric it had itself just used to reject a design.
+        // Measured here over 826 four-beam samples at wave 24, on an 8 px grid
+        // against the real 6.5 px hitbox, with all three generations of rings
+        // on the field: the safe area stays ONE connected region up to 0.0022
+        // and splits at 0.0025 -- 0.0035 leaves the player a 25.7% pocket for
+        // runs of 60 frames, which is the inward-crossfire failure the sheet
+        // says cannot ship, arrived at by spinning into it. Worst connected
+        // region here: 89.0% static, 84.1% at 0.0020.
+        spin: [0, 0.0020],          // rad/frame
+        oy: -4,                     // the beam leaves the head, not the plate
+    },
+};
+
+/**
+ * HIVE, from the "HIVE carrier redesign" study.
+ *
+ * The old carrier had no ceiling: it poured adds out on a clock and a player
+ * who fell behind received *more* enemies, which is a death spiral with a
+ * cosmetic boss attached. The redesign makes the ceiling a property of the
+ * boss's body, and lets the player lower it by shooting.
+ *
+ * Four bays, each with its own clock and its own brood. **A bay will not begin
+ * a charge while six of its own children are alive**; nothing else limits
+ * spawning and no global cap is consulted, so the live-add ceiling is exactly
+ * (bays alive) x 6 -- 24, 18, 12, 6. A player who falls behind stops receiving
+ * new enemies instead of accelerating, and the only difficulty number in the
+ * fight is one the player can change.
+ *
+ * The bays are real targets on the hull: permanent when destroyed, no repair.
+ * A repairing bay makes killing one a chore with a timer; a permanent one makes
+ * it a decision with a payoff visible in the enemy count within two seconds.
+ * And every add remembers the bay that launched it, which is what makes the
+ * tether -- and the old description's last promise ("the swarm stops when the
+ * hive does") literally true.
+ *
+ * Note what this deliberately is *not*: LANCER's emplacements are in the room,
+ * they are the attack, and the fight is about where you stand. HIVE's bays are
+ * on the body, they are the source, and the fight is about flying into the
+ * densest part of it to make there be less of it. The two guards that keep them
+ * apart: a bay never leaves the hull, and killing one never stops an incoming
+ * attack, only future ones.
+ */
+const HIVE = {
+    // Per-bay cycle, in frames: cooldown, then 24 charging (the tell), the
+    // launch on the frame the aperture is fully open, 18 held, 12 closing.
+    charge: 24, hold: 18, close: 12,
+    cool: 150, coolWave: 2, coolMin: 70, coolRaged: 0.72,
+    // The ceiling, per bay -- the whole mechanic. FIVE and not the sheet's six,
+    // which it names as "the number to re-measure first" because it was tuned
+    // against a harness at the under-levelled end of the damage curve. Measured
+    // here over full runs: at six, the two pilots that used to reach wave 40
+    // both stop at 20; at five they are back at 40 and 30, and the live-add
+    // count is still a flat number the player can lower by shooting. Ceiling
+    // 20 / 15 / 10 / 5 as the bays come off.
+    brood: 5,
+    broodHeld: 20,      // frames a full bay waits before re-checking
+    // How many bays are active, by wave: the same 2-then-3 escalation the old
+    // pattern had, extended by one. An inactive bay is drawn sealed rather than
+    // omitted, so the silhouette does not change with the wave.
+    bays: [[8, 2], [16, 3], [Infinity, 4]],
+    hp: 30, hpWave: 9,  // per bay -- about 2 s at 120 dps, 0.6 s at 400
+    pad: 4,             // px of slack on the bay hit box
+    val: 0.045,         // of the hive's score, per bay
+    wreck: 18,          // frames of the collapse, then a scar for the fight
+    orphan: 40,         // frames a dead bay's brood is stunned for
+    launch: [1, 2],     // adds per launch, normal / enraged
+    ejectX: 1.8, ejectY: 1.6, ejectFrames: 22,
+    ejectDragX: 0.93, ejectDragY: 0.95,
+    // Drift: a sine on a *line*, not an increment, for the reason WARDEN's is
+    // (an increment integrates from wherever the hull happens to be).
+    driftAmp: 84, driftPeriod: [480, 330], driftMargin: 66,
+    ring: [130, 95], ringN: [7, 9], ringSpeed: 2.4, ringR: 30,
+    // The swarm goes out as a wave from the oldest add outward when the hive
+    // dies, rather than all at once: `boom` + 3 frames per add.
+    tetherDie: 3,
+    // Hive brood comes back round instead of leaving. Measured before it was
+    // added: a drone crosses the arena in 126 frames at wave 44 and the four
+    // bays produce 0.077 of them a frame, so the steady state is under ten
+    // adds and **the ceiling never binds at any wave** -- the brood counter
+    // drains for free and the one mechanic the fight is about is inert. A
+    // swarm that flies off the bottom on its own is also not a swarm, and it
+    // makes the description's promise ("the swarm stops when the hive does")
+    // into something the player can never see. Only the hive's own children
+    // wrap; everything else in the game still leaves.
+    wrapY: 30,
+    // Which bays wake up first as the wave count grows. The inner pair, so the
+    // early hive is a compact source and the late one is a wide one.
+    order: [1, 2, 0, 3],
+};
+
 // Perk phase: every PERK_WAVES cleared waves each ship keeps 1 of 3 perks.
 const PERK_WAVES = 5;
 const PERK_OPTIONS = 3;
@@ -280,6 +479,9 @@ const ENEMY_SPRITES = {
     tank: ["tank0", "tank1"],
     sniper: ["sniper0"],
     kami: ["kami0"],
+    // LANCER's furniture. Not a wave enemy: it only ever exists because the
+    // boss planted it, and it never shoots.
+    lnode: ["lnode0"],
     // The boss family is indexed by `e.k`, see BOSSES.
     boss: BOSSES.map((b) => b.sprite),
 };
@@ -1398,7 +1600,10 @@ export class NeonStrikeEngine {
     /* ------------------------------------------------------------------ */
 
     _enemyR(type) {
-        const r = { boss: 44, colossus: 140, tank: 20, speedy: 10, sniper: 16, kami: 12 };
+        const r = {
+            boss: 44, colossus: 140, tank: 20, speedy: 10, sniper: 16, kami: 12,
+            lnode: LNODE.r,
+        };
         return r[type] != null ? r[type] : 14;
     }
 
@@ -1406,6 +1611,9 @@ export class NeonStrikeEngine {
         const c = {
             boss: "#ff4d4d", tank: "#9b5de5", speedy: "#ffd166",
             sniper: "#4de3c1", kami: "#ff8f3d",
+            // LANCER's own gold: the furniture has to read as the boss's, not
+            // as one more enemy on the field.
+            lnode: BOSSES[2].tint,
         };
         return c[type] || "#ff5d8f";
     }
@@ -1496,6 +1704,44 @@ export class NeonStrikeEngine {
         this._ev({ k: "boom", x: hx, y: hy, c: e.c, b: 1 });
     }
 
+    /**
+     * The team's sustained forward damage per frame.
+     *
+     * It exists for one thing: a LANCER emplacement is a wall, and how long a
+     * wall takes to open is the only property of it the fight cares about.
+     * Player damage grows all run and the wave term does not keep up, so hit
+     * points scaled off the wave alone stop forming a maze exactly when the
+     * maze is supposed to start mattering. This is the denominator that turns
+     * the sheet's "45-60 frames to kill" into a number of points.
+     *
+     * The centre bullet plus most of ONE angled pair, and every part of that is
+     * measured rather than assumed. Counting the whole volley is eight times
+     * out on a three-pair build: the pairs diverge (0.15 rad per level, from a
+     * muzzle already 7 px per level off centre), so against an 11 px target
+     * everything past the first pair misses, and the first one lands about
+     * 43% of its two bullets across the alignments a player actually gets.
+     *
+     * Measured against real time-to-kill over 15 alignments (+-14 px across,
+     * 34..70 px below) on three builds at waves 12, 24 and 44: this model is
+     * within 7% of the damage that actually lands, where counting every bullet
+     * is 130% out and counting none of them is 60% out.
+     *
+     * Broadside's flank salvo and the actives are deliberately not counted:
+     * they are bursts, and this is the rate a player can hold.
+     */
+    _teamFirepower() {
+        let d = 0;
+        for (const sp of this.ships) {
+            if (sp.down) {
+                continue;
+            }
+            const pairs = (sp.weapon === "triple" ? 1 : 0) + Math.max(0, sp.mods.side);
+            d += (this._bulletDmg(sp) * (1 + SMALL_TARGET_PAIR * Math.min(1, pairs)))
+                / this._fireDelay(sp);
+        }
+        return Math.max(0.05, d);
+    }
+
     /** `hp`/`mhp` pair, so the wave scaling is written once per enemy type. */
     _hp(n) {
         const hp = Math.max(1, Math.round(n));
@@ -1557,12 +1803,34 @@ export class NeonStrikeEngine {
             // Locks onto a ship and accelerates; dies on contact (generic collision).
             return Object.assign(base, this._hp(2 + Math.floor(w / 8)), { t: 0, val: 350, vx: 0, vy: 1.2, rot: 0 });
         }
+        if (type === "lnode") {
+            // A LANCER emplacement. `k` is the parent's maximum hull, because
+            // the hit points are a *rule*, not a number: three times the wave's
+            // grunt, floored against a share of the boss's own pool. A flat
+            // value stops forming a maze by the late waves -- player damage
+            // grows all run, and at 20 frames of time-to-kill the pattern is
+            // furniture that clears itself.
+            const grunt = 1 + Math.floor(w / 9);
+            const scaled = Math.max(grunt * LNODE.hp, (k || 0) * LNODE.hpFloor);
+            const rate = this._teamFirepower();
+            const hp = Math.round(Math.max(
+                LNODE.ttk[0] * rate, Math.min(LNODE.ttk[1] * rate, scaled)
+            ));
+            return Object.assign(base, this._hp(hp), {
+                t: 0, val: LNODE.val,
+                // Where it is flying to, and the slot angle its beam is
+                // tangential to. `src` is the parent: the pool that hands out
+                // beams is the boss's, and the nodes die with it.
+                tx: x, ty: y, sa: 0, src: 0,
+                fly: LNODE.fly, root: 0, arm: 0, bm: 0, le: 0,
+            });
+        }
         // Regular boss: `k` picks which one of the family it is. It is only
         // passed in by a practice run; a normal wave reads it off the rotation.
         const bk = Math.max(0, k != null ? k : bossForWave(this.wave));
         const d = BOSSES[bk] || BOSSES[0];
         const hp = Math.round((35 + this.wave * 9 + (this.players - 1) * 25) * d.hp);
-        return Object.assign(base, {
+        const boss = Object.assign(base, {
             type: "boss", k: bk, hp, mhp: hp, t: 0,
             r: d.r, c: d.tint, v: bk,
             val: Math.round(5000 * d.val), dropAt: 0.75,
@@ -1580,6 +1848,55 @@ export class NeonStrikeEngine {
             // stops firing so the change is something you can see happen.
             raged: 0, hold: 0,
         });
+        if (bk === 3) {
+            // HIVE's four bays. `parts` comes out of the art the way HYDRA's
+            // heads and VULCAN's fans do, so the pod you shoot is the pod that
+            // opens; `bw`/`bh` are the drawn hull, which is a pure function of
+            // the catalogue radius and therefore the same answer on a guest.
+            Object.assign(boss, this._hiveBays0(d, hp));
+        }
+        return boss;
+    }
+
+    /** How many of HIVE's bays are awake at this wave. */
+    _hiveBayCount() {
+        for (const [upTo, n] of HIVE.bays) {
+            if (this.wave < upTo) {
+                return n;
+            }
+        }
+        return HIVE.bays[HIVE.bays.length - 1][1];
+    }
+
+    /** Frames between one bay closing and the next time it may open. */
+    _hiveCool(rage) {
+        return Math.max(HIVE.coolMin, HIVE.cool - this.wave * HIVE.coolWave)
+            * (rage ? HIVE.coolRaged : 1);
+    }
+
+    /**
+     * The bay records, and the drawn hull they are positioned inside. Built the
+     * same way on both roles -- everything here is a pure function of the
+     * catalogue entry, the wave and the hull's own maximum -- so `applySnapshot`
+     * rebuilds it from the boss index and only the hit points travel.
+     */
+    _hiveBays0(d, hp) {
+        const parts = bossParts(d.sprite);
+        const px = pxFor(d.sprite, d.r * 2);
+        const size = spriteSize(d.sprite);
+        const bayHp = Math.max(1, Math.round(HIVE.hp + this.wave * HIVE.hpWave));
+        const cool = this._hiveCool(0);
+        const n = this._hiveBayCount();
+        return {
+            parts, bw: size.w * px, bh: size.h * px, hmhp: hp, dr: 0,
+            bays: (parts && parts.bays ? parts.bays : []).map((b, i) => ({
+                hp: bayHp, mhp: bayHp, t: 0,
+                // Phase-offset so the four clocks never come round together:
+                // the pressure is a trickle from four points, not a volley.
+                cd: 40 + i * Math.round(cool / 4), ph: 0, f: 0,
+                on: HIVE.order.indexOf(i) < n ? 1 : 0,
+            })),
+        };
     }
 
     /**
@@ -1988,6 +2305,34 @@ export class NeonStrikeEngine {
             // number, so a guest spawns the same corpse from the same event.
             boom.bs = [e.armor ? 1 : 0];
             this._bossWreck(e.x, e.y, e.c, boom.bs);
+        } else if (e.type === "boss" && (e.k || 0) === 2) {
+            // LANCER's furniture goes with it. The emplacements have no
+            // lifetime of their own -- destroyed or nothing -- so leaving them
+            // standing would hold the wave open forever, and a lance with
+            // nothing holding it is a beam the fight no longer owns.
+            for (const n of this.enemies.slice()) {
+                if (n.type !== "lnode" || n.src !== e.id) {
+                    continue;
+                }
+                this.enemies.splice(this.enemies.indexOf(n), 1);
+                this.beams = this.beams.filter((b) => b.src !== n.id);
+                this.burst(n.x, n.y, n.c, 16, 3.5);
+                this._ev({ k: "boom", x: Math.round(n.x), y: Math.round(n.y), c: n.c, b: 0 });
+            }
+        } else if (e.type === "boss" && (e.k || 0) === 3) {
+            // The hive is down, so the swarm is. The death of the parent has to
+            // tolerate four live bays -- the reverse (every bay dead, hull
+            // alive) is a normal end state and must not shortcut the fight.
+            let n = 0;
+            for (const a of this.enemies) {
+                if (a.osrc === e.id) {
+                    a.dyn = 12 + (n++) * HIVE.tetherDie;
+                }
+            }
+            for (const b of e.bays || []) {
+                b.hp = 0;
+                b.ph = 0;
+            }
         }
         this._ev(boom);
         if (killer && killer.dash > 0 && killer.flags.dash_refund) {
@@ -2791,6 +3136,18 @@ export class NeonStrikeEngine {
                 return false;
             }
         }
+        if (e.bays && hx != null) {
+            // HIVE's bays sit inside the hull's own circle, so this is routing
+            // and not a second hit box: a bullet inside a pod damages the pod
+            // and is spent, and the hull takes nothing from it. Aiming a bay is
+            // a decision, not a side effect of clearing the adds around it.
+            const i = this._bayAt(e, hx, hy, HIVE.pad);
+            if (i >= 0) {
+                this._damageBay(e, i, dmg, killer);
+                e.part = 1;
+                return false;
+            }
+        }
         if (e.fans && hx != null) {
             // VULCAN's shoulder fans sit inside the chest's box, so this is a
             // routing question and not a second hitbox: a hit that lands on one
@@ -3477,25 +3834,11 @@ export class NeonStrikeEngine {
                 anim = new BossAnimator(k, e.c);
                 this._bossAnims.set(k, anim);
             }
-            // LANCER: the telegraph is the engine's own beam. A guest loses the
-            // `src` id in the snapshot but still gets the beam's origin and warn
-            // frames, so proximity is what both sides can agree on.
-            let charging = false;
-            if (k === 2) {
-                for (const b of this.beams) {
-                    if (b.warn > 0 && Math.abs(b.x - e.x) < e.r * 2
-                            && Math.abs(b.y - e.y) < e.r * 3) {
-                        charging = true;
-                        break;
-                    }
-                }
-            }
             anim.observe(dt, {
                 x: e.x,
                 y: e.y,
                 hp01: e.mhp ? e.hp / e.mhp : 1,
                 armor: !!e.armor,
-                charging,
                 // WARDEN's ram. Both travel in the snapshot, so the ring locks
                 // on the first wind-up frame on a guest too. `raged` is derived
                 // here rather than in the animator so `BOSS_RAGE_AT` stays in
@@ -3504,6 +3847,11 @@ export class NeonStrikeEngine {
                 charge: e.ch || 0,
                 head: e.ca || 0,
                 raged: !!(e.mhp && e.hp <= e.mhp * BOSS_RAGE_AT),
+                // HIVE reads its own bays: every door state is a pure function
+                // of the clock the engine already owns and already ships, so
+                // the animator keeps no per-bay state and needs no cue.
+                tel: e.tel || 0,
+                telK: e.telK || "",
             });
         }
         // Forget a boss that is gone, so the next one of the same kind starts
@@ -4328,11 +4676,18 @@ export class NeonStrikeEngine {
     }
 
     /**
-     * LANCER: hovers, charges a lance beam straight down, then dives through
-     * the arena and climbs back. Light hull, so it punishes standing still.
+     * LANCER: hovers, crouches, dives through the arena and climbs back out --
+     * and on the way down it plants four emplacements (see `LANCER`/`LNODE`).
+     *
+     * `e.ch` is which beat of the cycle it is on (0 hover, 1 wind-up, 2 dive,
+     * 3 climb). It exists because the animator needs it and it already travels:
+     * WARDEN put the same field on the wire for its ram, and reusing it costs
+     * nothing rather than adding a LANCER-only one. `e.gen` counts the dives,
+     * which is what rotates and shrinks each successive ring.
      */
     _bossLancer(e, mv) {
-        if (e.y < 110 && e.phase === 0) {
+        const top = this.fy0 + LANCER.hoverY;
+        if (e.y < top && !e.phase) {
             e.y += 2 * mv;
             return;
         }
@@ -4340,95 +4695,584 @@ export class NeonStrikeEngine {
             return;
         }
         e.tel = 0;
-        // Second phase: it charges sooner and dives harder. The lance keeps its
-        // full 55 frames of warning -- a phase change is allowed to make an
-        // attack worse, never to make it less readable.
         const rage = this._bossRage(e, mv);
-        // The beat holds the hovering half of the cycle only: a hull stopped
-        // dead halfway through a dive reads as the game having crashed.
-        if (e.hold > 0 && e.phase !== 3) {
+        const i = rage ? 1 : 0;
+        // The token pool runs whatever the hull is doing: an emplacement's clock
+        // belongs to the emplacement, and the boss never stops to manage what it
+        // dropped. It is also the only thing that keeps twelve nodes from
+        // spawning twelve beams.
+        this._lancerBeams(e, i);
+        // The enrage beat holds the hovering half of the cycle only: a hull
+        // stopped dead halfway through a dive reads as the game having crashed.
+        if (e.hold > 0 && e.phase !== L_DIVE && e.phase !== L_CLIMB) {
             return;
         }
-        e.phase = e.phase || 1;
-        if (e.phase === 1) {
-            // Hover over a target and charge the lance.
-            const tgt = this._target(e.x, e.y);
+        if (!e.phase) {
+            e.phase = L_HOVER;
+            e.pt = LANCER.hover[i];
+            e.gen = 0;
+        }
+        const tgt = this._target(e.x, e.y);
+        e.pt -= mv;
+        if (e.phase === L_HOVER) {
+            e.ch = 0;
             if (tgt) {
-                e.x += Math.max(-2.2, Math.min(2.2, (tgt.x - e.x) * 0.02)) * mv;
+                e.x += this._cap((tgt.x - e.x) * 0.06, LANCER.leadMax) * mv;
             }
-            e.a1 = (e.a1 || 0) - mv;
-            if (e.a1 <= 0) {
-                e.a1 = rage ? 190 : 250;
-                this.beams.push(this.mkBeam({
-                    src: e.id, oy: e.r * 0.7, a: Math.PI / 2,
-                    warn: 55, life: 90, w: 34, spin: 0, c: "#ffd166", len: 900,
-                }));
-                e.phase = 2;
-                e.a2 = 150;
-            }
+            // Idle bob. Cosmetic, but it is the AI's own position so it travels
+            // for free instead of being a second sine in the animator.
+            e.y = top + Math.sin(e.t * 0.05) * 3;
             this._tel(e, e.a4, "aimed");
-            if (this._every(e, "a4", rage ? 22 : 30, mv)) {
-                this._ebAimed(e.x, e.y, 3.6);
+            if (this._every(e, "a4", LANCER.aimed[i], mv)) {
+                this._lancerAimed(e, i);
             }
-        } else if (e.phase === 2) {
-            // The dive starts once the beam is spent.
-            e.a2 -= mv;
-            if (e.a2 <= 0) {
-                e.phase = 3;
-                const tgt = this._target(e.x, e.y);
-                e.vx = tgt ? Math.max(-3, Math.min(3, (tgt.x - e.x) * 0.03)) : 0;
-                e.vy = rage ? 8.5 : 7;
+            if (e.pt <= 0) {
+                e.phase = L_WINDUP;
+                e.pt = LANCER.windup[i];
             }
-        } else {
+        } else if (e.phase === L_WINDUP) {
+            // The crouch: six pixels of rise over forty frames, in full view.
+            // It is the guard on the whole pattern -- parking under a node and
+            // being run over is the fight's central tension, and it is only
+            // fair if the run is something you can read coming.
+            e.ch = 1;
+            e.y -= LANCER.crouch * mv;
+            if (tgt) {
+                e.x += this._cap((tgt.x - e.x) * 0.05, 1.1) * mv;
+            }
+            // The lane it is about to come down, on WARDEN's own `charge`
+            // telegraph: a wind-up nobody can read is not a guard, and the trap
+            // this fight is built on -- parking under an emplacement and being
+            // run over -- is only fair if the run is marked before it starts.
+            // `ca` is the heading the dive will actually take, computed the way
+            // the dive computes it, so what is drawn is where the hull goes.
+            e.ca = Math.atan2(
+                LANCER.dive[i],
+                tgt ? this._cap((tgt.x - e.x) * LANCER.lead, LANCER.leadMax) : 0
+            );
+            this._tel(e, e.pt, "charge");
+            if (e.pt <= 0) {
+                e.phase = L_DIVE;
+                e.pt = 0;
+                e.vx = tgt ? this._cap((tgt.x - e.x) * LANCER.lead, LANCER.leadMax) : 0;
+                e.vy = LANCER.dive[i];
+                e.drop = 0;
+            }
+        } else if (e.phase === L_DIVE) {
+            e.ch = 2;
             e.x += e.vx * mv;
             e.y += e.vy * mv;
-            if (this.frame % 3 === 0) {
-                this.burst(e.x, e.y, e.c, 3, 2);
+            if (this.frame % 2 === 0) {
+                this.burst(e.x, e.y - e.r * 0.4, e.c, 1, 1.1);
             }
-            if (e.y > this.fy1 - 40) {
-                e.vy = -6.5;   // climb back out
+            // The delivery run. All four leave the hull on the same frame, and
+            // the arena rearranges itself while the thing that planted it is
+            // already past you -- which is exactly why they are not deployed
+            // from the hover, where the boss would be standing still and
+            // legible during the only moment the pattern is.
+            if (!e.drop && e.y > this.fy0 + (this.fy1 - this.fy0) * LANCER.dropAt) {
+                e.drop = 1;
+                this._lancerDeploy(e, i);
             }
-            if (e.y < 110 && e.vy < 0) {
-                e.y = 110;
-                e.vy = 0;
-                e.phase = 1;
-                e.a1 = 120;
+            if (this._every(e, "a3", LANCER.strafe[i], mv)) {
+                this._lancerStrafe(e, i);
+            }
+            if (e.y > this.fy1 - LANCER.floorGap) {
+                e.y = this.fy1 - LANCER.floorGap;
+                e.phase = L_CLIMB;
+                e.pt = 0;
+                this._lancerFan(e, i);
+                this._bossCue(e, "bounce");
+                this.burst(e.x, e.y + e.r * 0.4, e.c, 12, 2.2);
+                this.hitstop = Math.max(this.hitstop, 3);
+                this.shake = Math.min(this.shake + 6, 24);
+                this.sTick();
+            }
+        } else {
+            e.ch = 3;
+            e.y -= LANCER.climb[i] * mv;
+            e.x += this._cap(
+                ((this.fx0 + this.fx1) / 2 - e.x) * LANCER.homeK, LANCER.homeMax
+            ) * mv;
+            if (e.y <= top) {
+                e.y = top;
+                e.phase = L_HOVER;
+                e.pt = LANCER.hover[i];
+            }
+        }
+        e.x = Math.max(this.fx0 + 40, Math.min(this.fx1 - 40, e.x));
+    }
+
+    /** Symmetric clamp, so the tracking caps read as the numbers they are. */
+    _cap(v, m) {
+        return v < -m ? -m : v > m ? m : v;
+    }
+
+    /** LANCER's aimed 3-shot. Never suppressed: it shoots in every phase. */
+    _lancerAimed(e, i) {
+        this._bossCue(e, "salvo", { a: Math.round(this._aimAngle(e.x, e.y) * 100) / 100 });
+        for (let k = -1; k <= 1; k++) {
+            this._ebAimed(e.x, e.y + e.r * 0.3, LANCER.aimedSpeed[i], k * 0.16);
+        }
+        this.sTick();
+    }
+
+    /** Two bullets either side of the line of flight, fired while diving. */
+    _lancerStrafe(e, i) {
+        for (let k = -1; k <= 1; k += 2) {
+            this._ebAimed(e.x, e.y, LANCER.strafeSpeed[i], k * LANCER.strafeSpread);
+        }
+    }
+
+    /** The bounce fan: five bullets off the floor. */
+    _lancerFan(e, i) {
+        for (let k = -2; k <= 2; k++) {
+            const a = -Math.PI / 2 + k * LANCER.fanSpread;
+            this._eb(e.x, e.y, Math.cos(a) * LANCER.fanSpeed[i],
+                Math.sin(a) * LANCER.fanSpeed[i], EB_SPREAD);
+        }
+    }
+
+    /**
+     * Plant a generation of emplacements: four slots on a ring about the middle
+     * of the arena, rotated onto the player's own angle from that centre and
+     * quantised to 15 degrees.
+     *
+     * The formation is therefore always the same shape -- learnable, and its
+     * gaps memorisable -- while *where* the gaps are is the player's own fault.
+     * Each generation is turned 22.5 degrees and pulled 26 px inward from the
+     * last, so successive rings interleave rather than collide: 4, then 8, then
+     * 12, which is the field cap.
+     *
+     * The radius is left in absolute pixels rather than scaled with the window.
+     * The arena never goes below the 680x540 the geometry was measured on, so
+     * 140 px always fits; and scaling it would make the maze a different size
+     * on every screen, which is the one thing a learnable formation cannot be.
+     */
+    _lancerDeploy(e, i) {
+        const cx = (this.fx0 + this.fx1) / 2;
+        const cy = this.fy0 + (this.fy1 - this.fy0) * LNODE.ringY;
+        const gen = e.gen || 0;
+        const R = Math.max(LNODE.ringMin, LNODE.ringR - (gen % 3) * LNODE.genPull);
+        const tgt = this._target(cx, cy);
+        const a0 = tgt ? Math.atan2(tgt.y - cy, tgt.x - cx) : -Math.PI / 2;
+        const rot = Math.round(a0 / LNODE.quant) * LNODE.quant + (gen % 8) * LNODE.genTurn;
+        let order = 0;
+        for (let k = 0; k < LNODE.perDive; k++) {
+            if (this.enemies.filter((n) => n.type === "lnode").length >= LNODE.max) {
+                break;
+            }
+            const a = rot + (k / LNODE.perDive) * 6.2832;
+            const x = Math.round(cx + Math.cos(a) * R);
+            const y = Math.round(cy + Math.sin(a) * R);
+            // A slot already occupied is skipped rather than doubled up: two
+            // emplacements on the same cell are one target and two beams.
+            const taken = this.enemies.some((n) => n.type === "lnode"
+                && (n.tx - x) ** 2 + (n.ty - y) ** 2 < LNODE.spacing ** 2);
+            if (taken) {
+                continue;
+            }
+            const n = this.mkEnemy("lnode", e.x, e.y, e.mhp);
+            n.tx = Math.max(this.fx0 + 24, Math.min(this.fx1 - 24, x));
+            n.ty = Math.max(this.fy0 + 30, Math.min(this.fy1 - 30, y));
+            n.sa = a;
+            n.src = e.id;
+            // The stagger. The last beam goes live 42 frames after the first, so
+            // the sequence reads as a rhythm you can move through rather than
+            // one decision with four answers -- and it hands the player an order
+            // of business: the first node to arm is the first worth killing.
+            n.arm = LNODE.stagger[i] * order;
+            this.enemies.push(n);
+            order++;
+        }
+        e.gen = gen + 1;
+        this._bossCue(e, "deploy");
+        this.burst(e.x, e.y, e.c, 14, 3);
+        this.sTick();
+    }
+
+    /**
+     * One emplacement's own clock: fly to the slot, root, then count down the
+     * stagger. Nothing after that is on a timer -- it waits for a beam token,
+     * holds it, goes dark for 60 frames and waits again, forever. The only
+     * thing that removes it from the arena is the gun.
+     */
+    _updateLanceNode(e, mv) {
+        if (e.fly > 0) {
+            // Closes 28% of the remaining gap per frame: 39 px on the first,
+            // 2 px on the last.
+            e.x += (e.tx - e.x) * LNODE.flyK * mv;
+            e.y += (e.ty - e.y) * LNODE.flyK * mv;
+            e.fly -= mv;
+            if (e.fly <= 0) {
+                e.fly = 0;
+                e.x = e.tx;
+                e.y = e.ty;
+                e.root = LNODE.root;
+                this.burst(e.x, e.y + 8, "#6b7099", 6, 1.2);
+            }
+            return;
+        }
+        if (e.root > 0) {
+            e.root = Math.max(0, e.root - mv);
+            return;
+        }
+        if (e.arm > 0) {
+            e.arm = Math.max(0, e.arm - mv);
+        }
+    }
+
+    /**
+     * Which stage of its life an emplacement is on, and how many frames are
+     * left of it: `[0 flying, 1 rooting, 2 arming, 3 waiting, 4 telegraphing,
+     * 5 dark, 6 holding a lance]`.
+     *
+     * It is the whole read of the thing -- the settle onto its plate, the
+     * arming pips counting down, the head lit while it holds a lance, the dim
+     * that is the only tell a dead-looking node is coming back -- and none of
+     * it can be derived from a position, so it travels. A guest is handed the
+     * answer and this returns it unchanged.
+     */
+    _nodeStage(n) {
+        if (n.np != null) {
+            return [n.np, n.nt || 0];
+        }
+        if (n.fly > 0) {
+            return [0, n.fly];
+        }
+        if (n.root > 0) {
+            return [1, n.root];
+        }
+        if (n.arm > 0) {
+            return [2, n.arm];
+        }
+        if (n.bm) {
+            const b = this.beams.find((q) => q.src === n.id);
+            if (b) {
+                return b.warn > 0 ? [4, b.warn] : [6, Math.max(0, b.life)];
+            }
+        }
+        const left = n.le ? LNODE.cool - (this.frame - n.le) : 0;
+        return left > 0 ? [5, left] : [3, 0];
+    }
+
+    /**
+     * The beam token pool -- the load-bearing piece of the whole pattern.
+     *
+     * At most `LNODE.beams` beams exist at any instant, and the next one goes to
+     * the rooted emplacement that has been waiting longest (one that has never
+     * held a beam beats one that has, oldest first). A crowded field therefore
+     * means more targets, a shorter dark interval and less idea of *which* node
+     * is about to light up -- but never a fifth beam.
+     */
+    _lancerBeams(e, i) {
+        let live = 0;
+        let best = null;
+        let bestWait = Infinity;
+        for (const n of this.enemies) {
+            if (n.type !== "lnode" || n.src !== e.id) {
+                continue;
+            }
+            if (n.bm) {
+                if (this.beams.some((b) => b.src === n.id)) {
+                    live++;
+                    continue;
+                }
+                // Its beam has just expired: the node goes dark and joins the
+                // back of the queue. `_updateBeams` owns the beam's lifetime,
+                // so this is where the node finds out about it.
+                n.bm = 0;
+                n.le = this.frame;
+            }
+            if (n.fly > 0 || n.root > 0 || n.arm > 0) {
+                continue;
+            }
+            if (n.le && this.frame - n.le < LNODE.cool) {
+                continue;
+            }
+            const w = n.le ? n.le : n.id - 1e9;
+            if (w < bestWait) {
+                bestWait = w;
+                best = n;
+            }
+        }
+        if (!best || live >= LNODE.beams) {
+            return;
+        }
+        best.bm = 1;
+        const B = LNODE.beam;
+        this.beams.push(this.mkBeam({
+            src: best.id, oy: B.oy,
+            // Tangential: a ring of chords. It leaves 91% of the floor standable
+            // as ONE connected region, so the arena is a maze rather than four
+            // sealed quarters -- which is what beams aimed inward would make it.
+            a: best.sa + Math.PI / 2,
+            warn: B.warn[i], life: B.life[i], w: B.w, len: B.len,
+            // Enrage adds motion, not beams and not width: on a maze pattern
+            // more of everything is how you get an unsurvivable frame.
+            spin: B.spin[i], c: e.c,
+        }));
+    }
+
+    /**
+     * HIVE: four bays, each with its own clock and its own brood.
+     *
+     * There are no global phases on purpose -- a phase-based carrier has quiet
+     * windows the player waits out, and an attrition fight cannot afford
+     * waiting. What bounds the swarm instead is the ceiling: **a bay will not
+     * begin a charge while six of its own children are alive**. Nothing else
+     * limits spawning and no global cap is consulted, so the number of live
+     * adds tops out at (bays alive) x 6 -- 24, 18, 12, 6 -- and the only
+     * difficulty number in the fight is one the player can change, by shooting.
+     */
+    _bossHive(e, mv) {
+        if (e.by == null) {
+            e.by = e.y;
+        }
+        e.tel = 0;
+        const rage = this._bossRage(e, mv);
+        const i = rage ? 1 : 0;
+        // Drift on a *line*, not as an increment: an increment integrates from
+        // wherever the hull happens to be, which is the bug WARDEN's ram found.
+        // The clamp is the study's 66 px of margin plus the drawn half-width,
+        // so the hull never touches the edge whatever the window shape is.
+        e.dr = (e.dr || 0) + (6.2832 / HIVE.driftPeriod[i]) * mv;
+        const amp = Math.max(0, Math.min(
+            HIVE.driftAmp,
+            (this.fx1 - this.fx0) / 2 - HIVE.driftMargin - (e.bw || e.r * 2) / 2
+        ));
+        e.x = (this.fx0 + this.fx1) / 2 + Math.sin(e.dr) * amp;
+        // The resting bob, rounded to whole pixels -- three held positions, not
+        // a slide. It lives here rather than in the animator because the bays
+        // are hit boxes: a hull that bobbed cosmetically would put the pod the
+        // player is aiming at three pixels off the pod the engine tests.
+        e.y = e.by + Math.round(Math.sin(e.t * 0.0654) * 3);
+        if (e.hold > 0) {
+            return;
+        }
+        this._hiveClocks(e, i, mv);
+        this._tel(e, e.a2, "ring");
+        if (this._every(e, "a2", HIVE.ring[i], mv)) {
+            const n = HIVE.ringN[i];
+            // Half-step rotated on alternate bursts, so two in a row do not
+            // leave the same corridor open twice.
+            const off = ((e.rb = (e.rb || 0) ^ 1) ? Math.PI / n : 0);
+            for (let k = 0; k < n; k++) {
+                const a = (k / n) * 6.2832 + off;
+                this._eb(
+                    e.x + Math.cos(a) * HIVE.ringR, e.y + Math.sin(a) * HIVE.ringR,
+                    Math.cos(a) * HIVE.ringSpeed, Math.sin(a) * HIVE.ringSpeed, EB_SPREAD
+                );
+            }
+            this.sTick();
+        }
+    }
+
+    /**
+     * One frame of the four bay clocks: cooldown, 24 frames of charge (the
+     * tell), the launch on the frame the aperture is fully open, 18 held and 12
+     * closing. `ph` is the whole cycle in one counter and it is what travels,
+     * so a guest draws the same door without a cue.
+     */
+    _hiveClocks(e, i, mv) {
+        for (let k = 0; k < e.bays.length; k++) {
+            const b = e.bays[k];
+            if (b.f > 0) {
+                b.f = Math.max(0, b.f - mv);
+            }
+            if (b.hp <= 0) {
+                // Wrecked: it runs out its collapse and then it is a scar for
+                // the rest of the fight. No repair -- a repairing bay makes
+                // killing one a chore with a timer instead of a decision.
+                b.t = Math.max(0, b.t - mv);
+                continue;
+            }
+            if (!b.on) {
+                continue;
+            }
+            if (b.ph <= 0) {
+                const brood = this._broodOf(e, k);
+                if (brood >= HIVE.brood) {
+                    // The ceiling, and the whole mechanic: it holds and
+                    // re-checks rather than queueing the launch it skipped.
+                    b.cd = HIVE.broodHeld;
+                    continue;
+                }
+                b.cd -= mv;
+                if (b.cd <= 0) {
+                    b.ph = 1e-3;
+                }
+                continue;
+            }
+            const was = b.ph;
+            b.ph += mv;
+            if (was < HIVE.charge && b.ph >= HIVE.charge) {
+                this._hiveLaunch(e, k, i);
+            }
+            if (b.ph >= HIVE.charge + HIVE.hold + HIVE.close) {
+                b.ph = 0;
+                b.cd = this._hiveCool(i);
             }
         }
     }
 
-    /** HIVE: barely shoots, keeps pouring interceptors out of its bays. */
-    _bossHive(e, mv) {
-        e.x += Math.sin(e.t * 0.008) * 1.1 * mv;
-        e.x = Math.max(this.fx0 + 70, Math.min(this.fx1 - 70, e.x));
-        e.tel = 0;
-        const rage = this._bossRage(e, mv);
-        if (e.hold > 0) {
+    /**
+     * How many of this spawner's own children are alive. An engine concept and
+     * not a scan inside `_bossHive`: the moment a second boss wants a bounded
+     * swarm, a local copy gets made and the two drift apart.
+     */
+    _broodOf(e, slot) {
+        let n = 0;
+        for (const a of this.enemies) {
+            if (a.osrc === e.id && a.own === slot) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** One bay opening: the brood leaves at the pod's own mouth. */
+    _hiveLaunch(e, k, i) {
+        const p = this._bayPos(e, k);
+        const kinds = this.wave > 8 ? ["drone", "speedy", "kami"] : ["drone", "speedy"];
+        let brood = this._broodOf(e, k);
+        for (let j = 0; j < HIVE.launch[i] && brood < HIVE.brood; j++, brood++) {
+            const type = kinds[Math.floor(Math.random() * kinds.length)];
+            const a = this.mkEnemy(type, p.x + (j ? 6 : -2), p.y + 4);
+            // The tether. Every add remembers the bay that launched it, which
+            // is what bounds the swarm, what makes aiming at a bay an informed
+            // choice rather than an arbitrary one, and what makes the old
+            // description's last promise literally true.
+            a.osrc = e.id;
+            a.own = k;
+            // Ejected outward and down, decaying into its normal behaviour over
+            // 22 frames: the swarm's shape is the hull's shape.
+            a.ej = HIVE.ejectFrames;
+            a.ex = Math.sign(p.x - e.x || 1) * HIVE.ejectX;
+            a.ey = HIVE.ejectY;
+            this.enemies.push(a);
+        }
+        this.burst(p.x, p.y + 4, e.c, 8, 2.4);
+        this.sTick();
+    }
+
+    /**
+     * One bay's clock turned into the pose the animator draws: which of the
+     * four baked aperture states it is in, how long since it launched, and how
+     * far through its collapse it is.
+     *
+     * It lives here and not in the animator because the door timings ARE the
+     * pattern -- the 24-frame charge is the tell the player reads -- and a
+     * second copy of them next to the drawing code would drift from the fight
+     * the first time either is retuned. `ph` is what travels; both roles turn
+     * it into a pose with this.
+     */
+    _bayPose(b) {
+        const p = {
+            on: !!b.on, dead: b.hp <= 0, flash: b.f || 0,
+            hp01: b.mhp ? Math.max(0, b.hp) / b.mhp : 0,
+            wreck: 0, step: 0, since: -1,
+        };
+        if (p.dead) {
+            p.wreck = Math.max(0, Math.min(1, 1 - (b.t || 0) / HIVE.wreck));
+            return p;
+        }
+        const ph = b.ph || 0;
+        if (ph <= 0) {
+            return p;
+        }
+        const open = HIVE.charge + HIVE.hold;
+        if (ph < HIVE.charge) {
+            p.step = Math.min(3, Math.floor(ph / (HIVE.charge / 4)));
+        } else if (ph < open) {
+            p.step = 3;
+            p.since = ph - HIVE.charge;
+        } else {
+            p.step = Math.max(0, 3 - Math.floor((ph - open) / (HIVE.close / 4)));
+            p.since = ph - HIVE.charge;
+        }
+        return p;
+    }
+
+    /** Where a bay sits, from the art, in arena coordinates. */
+    _bayPos(e, i) {
+        const b = e.parts && e.parts.bays && e.parts.bays[i];
+        if (!b) {
+            return { x: e.x, y: e.y };
+        }
+        return { x: e.x + b.x * e.bw, y: e.y + b.y * e.bh };
+    }
+
+    /**
+     * Which live bay a point falls on, or -1. The bays sit inside the hull's own
+     * circle, so like VULCAN's fans this is a routing question in
+     * `_damageEnemy` rather than a second hit box.
+     */
+    _bayAt(e, x, y, pad) {
+        if (!e.bays || !e.parts || !e.parts.bays) {
+            return -1;
+        }
+        for (let i = 0; i < e.bays.length; i++) {
+            const b = e.bays[i];
+            if (b.hp <= 0 || !b.on) {
+                continue;
+            }
+            const p = e.parts.bays[i];
+            if (Math.abs(x - (e.x + p.x * e.bw)) < p.hw * e.bw + pad
+                    && Math.abs(y - (e.y + p.y * e.bh)) < p.hh * e.bh + pad) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * A bay taking a hit. Bay damage does not come off the hull, for the same
+     * reason head and fan damage do not: what it buys has to be something you
+     * chose to fly into the densest part of the swarm and spend fire on.
+     *
+     * What it buys is permanent: six adds off the ceiling and a quarter of the
+     * spawn rate, visible in the enemy count within two seconds.
+     */
+    _damageBay(e, i, dmg, killer) {
+        const b = e.bays[i];
+        if (b.hp <= 0) {
             return;
         }
-        this._tel(e, e.a1, "spawn");
-        this._tel(e, e.a2, "ring");
-        e.a1 = (e.a1 || 0) - mv;
-        if (e.a1 <= 0) {
-            e.a1 = Math.max(62, 140 - this.wave * 2) * (rage ? 0.72 : 1);
-            const brood = this.wave > 8 ? ["drone", "speedy", "kami"] : ["drone", "speedy"];
-            // Three bays past the midgame: the flood is the whole point.
-            const bays = this.wave > 12 ? [-e.r * 0.6, 0, e.r * 0.6] : [-e.r * 0.55, e.r * 0.55];
-            for (const off of bays) {
-                const type = brood[Math.floor(Math.random() * brood.length)];
-                this.enemies.push(this.mkEnemy(type, e.x + off, e.y + e.r * 0.5));
-                // The door that opened, as a fraction of the half-width.
-                this._bossCue(e, "launch", { c: Math.round((off / e.r) * 100) / 100 });
-            }
-            this.burst(e.x, e.y + e.r * 0.5, e.c, 10, 3);
-            this.sTick();
+        b.hp -= dmg;
+        b.f = 4;
+        const p = this._bayPos(e, i);
+        if (b.hp > 0) {
+            this.burst(p.x, p.y, "#ffffff", 5, 2.2);
+            return;
         }
-        if (this._every(e, "a2", rage ? 95 : 130, mv)) {
-            for (let k = 0; k < 7; k++) {
-                const a = (k / 7) * 6.2832 + e.t * 0.02;
-                this._eb(e.x, e.y, Math.cos(a) * 1.9, Math.sin(a) * 1.9, EB_SPREAD);
+        b.hp = 0;
+        b.t = HIVE.wreck;
+        b.ph = 0;
+        // Its brood is stunned and orphaned -- not killed. Killing a bay never
+        // stops an incoming attack, only future ones; that guard is what keeps
+        // this fight from becoming LANCER's.
+        for (const a of this.enemies) {
+            if (a.osrc === e.id && a.own === i) {
+                a.own = null;
+                a.stun = Math.max(a.stun || 0, HIVE.orphan);
             }
         }
+        this.burst(p.x, p.y, e.c, 30, 5);
+        this.burst(p.x, p.y, "#ffffff", 10, 3);
+        this.shake = Math.min(this.shake + 6, 24);
+        this.hitstop = Math.max(this.hitstop, 4);
+        this.sBoom();
+        const live = e.bays.filter((q) => q.on && q.hp > 0).length;
+        // Paid like a part, not like a kill: it does not build the combo, which
+        // measures the rate you are clearing hulls at.
+        const pts = Math.round(
+            e.val * HIVE.val * this.combo * (1 + (killer ? killer.mods.scoreMul : 0))
+        );
+        this.score += pts;
+        this.pop(p.x, p.y + 20, "BAY DOWN  " + live * HIVE.brood + " MAX  +"
+            + pts.toLocaleString(), "#c092f2", 16, 80);
+        this._ev({ k: "boom", x: Math.round(p.x), y: Math.round(p.y), c: e.c, b: 1 });
     }
 
     /** PRISM: blinks around the arena, spinning a three-armed spiral. */
@@ -4494,7 +5338,33 @@ export class NeonStrikeEngine {
                 mv *= 1.9;
             }
             e.t += mv;
-            if (e.type === "colossus") {
+            if (e.dyn != null) {
+                // The hive is down and the tether is cut. It goes out in spawn
+                // order, `HIVE.tetherDie` frames apart, so the swarm dies as a
+                // wave running from the oldest add outward rather than all on
+                // one frame -- and it is frozen while it waits, which is what
+                // makes the cut read as a cut. `ts` and not `mv`: an add that
+                // is already dead should not be kept alive by slow motion.
+                e.dyn -= ts;
+                if (e.dyn <= 0) {
+                    const gone = this.enemies.indexOf(e);
+                    if (gone >= 0) {
+                        this.enemies.splice(gone, 1);
+                    }
+                    this.burst(e.x, e.y, e.c, 12, 3);
+                    this._ev({ k: "boom", x: Math.round(e.x), y: Math.round(e.y), c: e.c, b: 0 });
+                }
+                continue;
+            }
+            if (e.ej > 0) {
+                // Just out of a HIVE bay: it carries the ejection for 22 frames
+                // and decays into its own behaviour instead of snapping into it.
+                e.ej -= mv;
+                e.x += e.ex * mv;
+                e.y += e.ey * mv;
+                e.ex *= Math.pow(HIVE.ejectDragX, mv);
+                e.ey *= Math.pow(HIVE.ejectDragY, mv);
+            } else if (e.type === "colossus") {
                 this._updateColossus(e, mv);
             } else if (e.type === "drone") {
                 e.y += (1.2 + this.wave * 0.05) * mv;
@@ -4579,6 +5449,8 @@ export class NeonStrikeEngine {
                 e.y += e.vy * mv;
                 // The sprite looks downwards: rotate relative to +Y.
                 e.rot = Math.atan2(e.vy, e.vx) - Math.PI / 2;
+            } else if (e.type === "lnode") {
+                this._updateLanceNode(e, mv);
             } else {
                 this._updateBoss(e, mv);
             }
@@ -4593,15 +5465,26 @@ export class NeonStrikeEngine {
                 this.sPup();
             }
             if (e.y > this.fy1 + 50) {
+                if (e.osrc != null) {
+                    // Hive brood: it comes round the top rather than escaping
+                    // (see HIVE.wrapY). The only things that remove one from
+                    // the arena are the gun and the hive's own death.
+                    e.y = this.fy0 - HIVE.wrapY;
+                    continue;
+                }
                 const idx = this.enemies.indexOf(e);
                 if (idx >= 0) {
                     this.enemies.splice(idx, 1);
                 }
                 continue;
             }
-            // Collision with ships.
+            // Collision with ships. A LANCER emplacement is furniture: it does
+            // no contact damage and cannot be rammed to death, so the price of
+            // parking under one is the boss -- which is telegraphed by a
+            // 40-frame crouch and which you can see coming -- and never the
+            // thing you cannot dodge while you are shooting it.
             let killedByShip = false;
-            for (const sp of this.ships) {
+            for (const sp of (e.type === "lnode" ? [] : this.ships)) {
                 if (sp.down) {
                     continue;
                 }
@@ -4659,7 +5542,12 @@ export class NeonStrikeEngine {
                 if (dead) {
                     break;
                 }
-                e.flash = 6;
+                // A hit routed to a destructible part flashes the part, not the
+                // hull: a hive whose whole silhouette goes white every time a
+                // bay is chipped is telling the player they hit the carrier,
+                // which they did not.
+                e.flash = e.part ? 0 : 6;
+                e.part = 0;
                 this.noise(0.05, 0.06, 3000);
             }
         }
@@ -5174,7 +6062,9 @@ export class NeonStrikeEngine {
                 // exactly like a wind-up, and a ring that guessed would point
                 // the wrong way for 30 frames every ram. Only on the wire for
                 // the 74 frames a charge lasts.
-                ca: e.ch ? Math.round(e.ca * 100) / 100 : undefined,
+                // (LANCER reuses `cs` for which beat of its dive cycle it is
+                // on, and carries no heading, hence the null guard.)
+                ca: e.ch && e.ca != null ? Math.round(e.ca * 100) / 100 : undefined,
                 cs: e.ch || undefined,
                 // Telegraph: intensity, which warning, and where the hole in
                 // the next curtain is. It has to travel -- a guest does not
@@ -5208,6 +6098,27 @@ export class NeonStrikeEngine {
                 vp: e.heat != null ? e.ph : undefined,
                 vn: e.vn || undefined,
                 vf: e.fans ? e.fans.map((f) => Math.round(f.hp > 0 ? f.hp : -f.t)) : undefined,
+                // HIVE's bays, on exactly HYDRA's `hd` pattern: hit points
+                // while the pod works, minus the frames left of its collapse
+                // once it does not, so the wreck steps and the permanent scar
+                // come for free. `bp` is the door's own clock, which is the
+                // only thing the aperture, the launch flash and the recoil are
+                // drawn from -- packed with the four damage-flash frames, since
+                // neither is worth a field of its own.
+                by: e.bays ? e.bays.map((b) => Math.round(b.hp > 0 ? b.hp : -b.t)) : undefined,
+                bp: e.bays
+                    ? e.bays.map((b) => Math.round(b.ph) * 8 + Math.min(7, Math.ceil(b.f)))
+                    : undefined,
+                // Which bay launched this add: the tether, and the read of
+                // which pod is producing the thing currently chasing you.
+                ow: e.own != null ? e.own : undefined,
+                // A LANCER emplacement's own clock: which stage it is on and
+                // how many frames are left of it. Everything the node draws --
+                // the settle, the arming pips, the lit head, the dark re-arm --
+                // is those two numbers, and none of it can be derived from a
+                // position.
+                np: e.type === "lnode" ? this._nodeStage(e)[0] : undefined,
+                nt: e.type === "lnode" ? Math.round(this._nodeStage(e)[1]) : undefined,
             })),
             // 3rd slot = style bits: 1 critical, 2 explosive.
             bu: this.bullets.map((b) => [Math.round(b.x), Math.round(b.y), (b.cr ? 1 : 0) | (b.ex ? 2 : 0)]),
@@ -5334,11 +6245,30 @@ export class NeonStrikeEngine {
                 stun: e.sn ? 1 : 0, armor: e.ar ? 1 : 0, fire: e.fi || 0,
                 tel: (e.tl || 0) / 100, telK: e.tk || "", gap: e.gp,
                 ch: e.cs || 0, ca: e.ca || 0,
+                own: e.ow != null ? e.ow : null,
+                np: e.np, nt: e.nt,
             };
             if (e.t === "boss") {
                 // Radius, colour and hull come from the shared catalogue.
                 const d = BOSSES[e.ck || 0] || BOSSES[0];
                 Object.assign(en, { k: e.ck || 0, r: d.r, c: d.tint, v: e.ck || 0 });
+                if (e.by) {
+                    // HIVE. The bay records are a pure function of the
+                    // catalogue and the wave, which is already here, so only
+                    // the two clocks travel and the geometry is rebuilt.
+                    Object.assign(en, this._hiveBays0(d, e.mh || 1));
+                    en.bays.forEach((b, i) => {
+                        const v = e.by[i] != null ? e.by[i] : b.hp;
+                        b.hp = v > 0 ? v : 0;
+                        b.t = v > 0 ? 0 : -v;
+                        const q = (e.bp && e.bp[i]) || 0;
+                        b.ph = q >> 3;
+                        b.f = q & 7;
+                    });
+                }
+            }
+            if (e.t === "lnode") {
+                en.c = this._enemyColor("lnode");
             }
             if (e.t === "colossus") {
                 // Size, colour and zoom come from the shared catalogue, so only
@@ -5912,11 +6842,45 @@ export class NeonStrikeEngine {
             // the rest (see `boss_animator.js`). The pose was computed in the
             // simulation, so this only reads it.
             const anim = this._bossAnims.get(e.k || 0);
-            if (anim) {
-                anim.draw(g, { sprite: name, px: pxFor(name, e.r * 2), x: e.x, y: e.y, flash });
-            } else {
-                drawSprite(g, name, e.x, e.y, { tint: e.c, px: pxFor(name, e.r * 2), flash });
+            const o = { sprite: name, px: pxFor(name, e.r * 2), x: e.x, y: e.y, flash };
+            if (e.bays) {
+                // HIVE: the doors, the wrecks and the scars are drawn over the
+                // cached hull from the bay records themselves, and the tether
+                // is handed over as endpoints -- the animator owns no state for
+                // it, but only the engine can see the adds.
+                o.bays = e.bays.map((b) => this._bayPose(b));
+                o.parts = e.parts;
+                o.bw = e.bw;
+                o.bh = e.bh;
+                o.tether = [];
+                for (const a of this.enemies) {
+                    if (a.own == null || (a.osrc && a.osrc !== e.id)) {
+                        continue;
+                    }
+                    const b = e.bays[a.own];
+                    if (!b || b.hp <= 0) {
+                        continue;
+                    }
+                    const p = this._bayPos(e, a.own);
+                    o.tether.push(p.x, p.y, a.x, a.y);
+                }
             }
+            if (anim) {
+                anim.draw(g, o);
+            } else {
+                drawSprite(g, name, e.x, e.y, { tint: e.c, px: o.px, flash });
+            }
+        } else if (e.type === "lnode") {
+            // A LANCER emplacement: the settle onto its plate, the arming pips,
+            // the lit head while it holds a lance and the dim while it is
+            // coming back, all off the one stage the engine ships.
+            const st = this._nodeStage(e);
+            drawLanceNode(g, {
+                name, tint: e.c, px: pxFor(name, LNODE.r * 2.4),
+                x: e.x, y: e.y, stage: st[0], left: st[1],
+                hp: e.hp, mhp: e.mhp, flash, frame: this.frame,
+                root: LNODE.root, cool: LNODE.cool,
+            });
         } else if (e.type === "drone") {
             // The drone kit: the lean, the eyes, the hull tier and the turn
             // telegraph, all sampled from `e.t` and `e.hp` (see

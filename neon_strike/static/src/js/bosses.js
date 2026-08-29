@@ -50,19 +50,33 @@ export const BOSSES = [
         sprite: "boss2",
         tint: "#ffd166",
         r: 34,
+        // Unchanged at 0.8 on purpose. The emplacement pattern makes the fight
+        // *longer* by itself -- the boss is only exposed while it crosses --
+        // and the study's answer to a long fight is more exposure, not more
+        // hull: it is out of hover for 140 of every 290 frames now.
         hp: 0.8,
         val: 1.2,
-        desc: "Light and aggressive. Charges a telegraphed lance beam from above, then dives straight through the arena and climbs back up.",
+        desc: "Light and aggressive. Dives through the arena firing, and plants lance emplacements as it passes. They never leave on their own -- each one anchors a beam until it is destroyed, and the beam dies with it.",
     },
     {
         id: "hive",
         name: "HIVE",
         sprite: "boss3",
         tint: "#9b5de5",
-        r: 42,
-        hp: 0.9,
+        // 42 -> 58: four bays on an 84 px hull are five pixels apart and cannot
+        // be aimed at. At 120 px drawn they are six sprite cells wide each, and
+        // 58 sits two pixels inside the drawn half-width, so the hull never
+        // kills outside its own silhouette. It is the largest regular boss by a
+        // clear margin and still far short of the smallest colossus.
+        r: 58,
+        // 0.9 -> 1.15, not the ~1.3 that would hold the fight's length against
+        // a 43% wider target: the difference is spent on the four bays instead
+        // (30 + 9*wave each, ~19% of the fight at wave 24). Ignore them and the
+        // fight is a touch shorter than it was while you drown; clear them and
+        // you spend that 19% and fight a hive whose ceiling has dropped to six.
+        hp: 1.15,
         val: 1.3,
-        desc: "Carrier: it barely shoots, it keeps opening its bays and pouring out interceptors. The swarm stops when the hive does.",
+        desc: "Carrier: four bays, and each one waits for its own brood to thin before it opens again. Break a bay and that much of the swarm never exists. Break the hive and the swarm goes with it.",
     },
     {
         id: "prism",

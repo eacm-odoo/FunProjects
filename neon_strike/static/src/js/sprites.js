@@ -275,9 +275,9 @@ export const SPRITES = {
         "...144499899499899499899",
         "....14449994449994449994",
         "....14444444444444444777",
-        "....14444444444444447777",
-        "....14444444444444477777",
-        "....14444444444444447777",
+        "....14444444444444447770",
+        "....14444444444444477700",
+        "....14444444444444447770",
         "....11114444444444444777",
         "........9999944449999944",
         "........9999944449999944",
@@ -332,6 +332,32 @@ export const SPRITES = {
         "366663",
         "366663",
         ".3333.",
+    ] },
+
+    /* --- LANCER emplacement (18x17) ---------------------------------------
+       The furniture LANCER plants on its dive: a head that anchors a beam, a
+       stem and a base plate. Tinted gold like its parent, with the stem left in
+       the bank's fixed violet so it reads as something the boss dropped rather
+       than as an enemy that shoots -- it never fires, it only holds a lance.
+       Mirrored, so the half below is columns 0..8 of the 18. */
+    lnode0: { mir: true, rows: [
+        "......154",
+        ".....1544",
+        "...154444",
+        "..1544447",
+        "..1544470",
+        "..1544470",
+        "...154447",
+        ".....1544",
+        "......154",
+        ".......92",
+        ".......92",
+        ".......92",
+        ".......92",
+        ".......92",
+        "....33333",
+        "..3333333",
+        "133333333",
     ] },
 
     /* --- Colossal bosses (they do not fit the arena: the camera pulls back) --
