@@ -22,7 +22,7 @@ import { BOSSES, bossForWave } from "./bosses";
 import { COLOSSI, colossusForWave } from "./colossi";
 import { SHIPS, SHIP_COLORS } from "./ships";
 import { ShipFlight } from "./ship_flight";
-import { BossAnimator } from "./boss_animator";
+import { BossAnimator, WARDEN_DEATH, drawBossWreck } from "./boss_animator";
 import { COLOSSUS_ANIM_KINDS, ColossusAnimator, hullParts } from "./colossus_animator";
 import { DRONE_ANIM, drawDrone, drawDroneWreck, droneTier } from "./drone_animator";
 import {
@@ -209,6 +209,51 @@ const BASE_H = 540;
 // difficulty knob) would drift too far from what the waves are tuned for.
 const MIN_ASPECT = 0.85;
 const MAX_ASPECT = 2.1;
+
+/**
+ * WARDEN's ram, from the "WARDEN Study v2" design sheet.
+ *
+ * The armoured phase used to rake a horizontal curtain with one gap. That is
+ * the colossus' signature -- AEGIS opens a shutter over the hole it is about to
+ * leave -- and having a regular boss do the same thing meant the two competed
+ * for the same read. WARDEN spends its armoured phase closing distance instead:
+ * it commits to a heading, backs off along it, and comes through.
+ *
+ * The wind-up IS the telegraph, which is why it is long enough to be one: 24
+ * frames of backing off along the reverse of the heading, in full view, before
+ * anything moves fast. Contact damage needs no new code -- a ship touching a
+ * boss hull already takes a hit.
+ *
+ * Frames at `mv` = 1. Re-measured against this arena (680x540), not the sheet's
+ * 640x480 canvas: `lungeSpeed` and the clamps below are the two that changed.
+ */
+const WARDEN_RAM = {
+    windup: 24,
+    lunge: 20,
+    recover: 30,
+    backOff: 0.83,      // px/frame during the wind-up (20 px over the 24)
+    lungeSpeed: 13,     // px/frame at full speed
+    rageSpeed: 15.6,
+    accel: 4,           // frames to reach full speed, so the start is readable
+    homeY: 95,          // the patrol line it eases back onto
+    // Half the width of the patrol sweep. The drift used to be written as an
+    // increment (`x += sin(t) * 1.5`), which integrates to a 272 px sweep from
+    // wherever the hull happened to be -- fine when nothing else moved it, and
+    // wrong the moment the ram does: 260 px of lunge became a permanent
+    // relocation and the hull wandered the whole arena. The sheet eases back
+    // onto a *line*, so there has to be one. 136 = 1.5 / 0.011, i.e. exactly
+    // the sweep the increment produced.
+    driftAmp: 136,
+    driftRate: 0.011,
+    returnK: 0.12,      // ease back towards it...
+    returnMax: 4.5,     // ...capped: the sheet's uncapped lerp snaps 31 px on
+                        // the first frame after a lunge, faster than the lunge
+    // How far down the arena a lunge may reach. The sheet clamps at 71% of its
+    // canvas height; here that would put a 46 px hull on top of a ship sitting
+    // at its own floor clamp, so the ram stops short of the band the player
+    // lives in and the dodge stays a dodge rather than a coin toss.
+    floorGap: 150,
+};
 
 // Perk phase: every PERK_WAVES cleared waves each ship keeps 1 of 3 perks.
 const PERK_WAVES = 5;
@@ -968,6 +1013,9 @@ export class NeonStrikeEngine {
             }
             if (ev.fr) {
                 this._fryWreck(ev.x, ev.y, ev.fr);
+            }
+            if (ev.bs) {
+                this._bossWreck(ev.x, ev.y, ev.c, ev.bs);
             }
         } else if (ev.k === "hit") {
             this.burst(ev.x, ev.y, ev.c || "#5ee1ff", 40, 6);
@@ -1931,6 +1979,15 @@ export class NeonStrikeEngine {
                 this._fryStep(e),
             ];
             this._fryWreck(e.x, e.y, boom.fr);
+        } else if (e.type === "boss" && (e.k || 0) === 1) {
+            // WARDEN comes apart in an order: the hull collapses inward, then
+            // the four plates hold formation alone for a beat before they fall.
+            // That beat is the whole point of the death, and it cannot happen
+            // inside `killEnemy` -- it needs the hull to outlive its own
+            // removal. It rides the kill cue every enemy already sends, as one
+            // number, so a guest spawns the same corpse from the same event.
+            boom.bs = [e.armor ? 1 : 0];
+            this._bossWreck(e.x, e.y, e.c, boom.bs);
         }
         this._ev(boom);
         if (killer && killer.dash > 0 && killer.flags.dash_refund) {
@@ -3439,6 +3496,14 @@ export class NeonStrikeEngine {
                 hp01: e.mhp ? e.hp / e.mhp : 1,
                 armor: !!e.armor,
                 charging,
+                // WARDEN's ram. Both travel in the snapshot, so the ring locks
+                // on the first wind-up frame on a guest too. `raged` is derived
+                // here rather than in the animator so `BOSS_RAGE_AT` stays in
+                // one file: the animator needs it only to know how long the
+                // hurt window it is counting down actually is.
+                charge: e.ch || 0,
+                head: e.ca || 0,
+                raged: !!(e.mhp && e.hp <= e.mhp * BOSS_RAGE_AT),
             });
         }
         // Forget a boss that is gone, so the next one of the same kind starts
@@ -4116,13 +4181,16 @@ export class NeonStrikeEngine {
     }
 
     /**
-     * WARDEN: alternates an armoured phase (curtain of fire with one gap, hits
-     * barely scratch it) with an exposed one (aimed fans). The whole fight is
-     * about spending the window when the armour drops.
+     * WARDEN: alternates an armoured phase (it rams; hits barely scratch it)
+     * with an exposed one (aimed fans). The whole fight is about spending the
+     * window when the armour drops.
+     *
+     * The armoured phase fires nothing at all. That is deliberate: the two
+     * halves of the fight now ask for different things -- read a 92 px hull
+     * coming at you, then punish it while it is open -- instead of both being
+     * "thread the bullets". See `WARDEN_RAM`.
      */
     _bossWarden(e, mv) {
-        e.x += Math.sin(e.t * 0.011) * 1.5 * mv;
-        e.x = Math.max(this.fx0 + 80, Math.min(this.fx1 - 80, e.x));
         e.tel = 0;
         // Second phase: the armour spends less time up and more time down, and
         // both patterns speed up. The fight is about the hurt window, so that
@@ -4133,24 +4201,23 @@ export class NeonStrikeEngine {
             e.armor = e.armor ? 0 : 1;
             e.phase = e.armor ? (rage ? 240 : 330) : (rage ? 300 : 260);
             this.burst(e.x, e.y, e.armor ? "#4de3c1" : "#ffd166", 20, 4);
-            this.pop(e.x, e.y - e.r - 16, e.armor ? "ARMOUR UP" : "ARMOUR DOWN",
-                e.armor ? "#4de3c1" : "#ffd166", 13);
+            if (!e.armor) {
+                // Armour down cancels a ram in flight: the hull that just
+                // opened must not still be arriving at speed.
+                this._wardenEndRam(e);
+            }
         }
         if (e.hold > 0) {
             return;
         }
+        if (e.ch) {
+            this._wardenRam(e, mv, rage);
+        } else {
+            this._wardenHome(e, mv);
+        }
         if (e.armor) {
-            this._tel(e, e.a1, "curtain");
-            if (this._every(e, "a1", rage ? 82 : 105, mv)) {
-                for (let x = this.fx0 + 12; x < this.fx1; x += 40) {
-                    if (Math.abs(x - e.gap) < 66) {
-                        continue;
-                    }
-                    this._eb(x, e.y + e.r * 0.6, 0, 2.2, EB_CURTAIN);
-                }
-                this.sTick();
-                // Next gap decided now, so the telegraph can point at it.
-                e.gap = this.fx0 + 60 + ((e.gap + 151) % (this.fx1 - this.fx0 - 120));
+            if (this._every(e, "a1", rage ? 82 : 105, mv) && !e.ch) {
+                this._wardenStartRam(e);
             }
         } else {
             this._tel(e, e.a2, "aimed");
@@ -4162,6 +4229,102 @@ export class NeonStrikeEngine {
                 this._bossCue(e, "salvo", { a: Math.round(this._aimAngle(e.x, e.y) * 100) / 100 });
             }
         }
+    }
+
+    /**
+     * Commit to a heading and start the wind-up.
+     *
+     * The heading is decided once, here, and never revised: a ram that steered
+     * would be unreadable, and the whole attack is a promise the player is
+     * given 24 frames to answer.
+     */
+    _wardenStartRam(e) {
+        const tgt = this._target(e.x, e.y);
+        if (!tgt) {
+            return;
+        }
+        e.ca = Math.atan2(tgt.y - e.y, tgt.x - e.x);
+        e.ch = 1;
+        e.cf = 0;
+    }
+
+    _wardenEndRam(e) {
+        e.ch = 0;
+        e.cf = 0;
+    }
+
+    /** Where the patrol line puts the hull at this instant. */
+    _wardenDriftX(e) {
+        const c = (this.fx0 + this.fx1) / 2;
+        return c + Math.sin(e.t * WARDEN_RAM.driftRate) * WARDEN_RAM.driftAmp;
+    }
+
+    /**
+     * Ease back onto the patrol line, both axes.
+     *
+     * The way back has to be unconditional rather than a beat of the ram's own
+     * state machine: dropping the armour cancels a charge, and a cancel during
+     * the recover used to strand the hull wherever the lunge had ended.
+     * Measured before that fix, the whole 260-frame exposed phase was spent at
+     * y 344 instead of 95 -- the open, vulnerable boss parked in the band the
+     * player flies in.
+     *
+     * The x half matters just as much and for a less obvious reason. Without
+     * it, every lunge displaced the hull laterally and it kept the
+     * displacement, so a ship firing straight up found the boss above it
+     * **7.8% of the time instead of 14.3%** and the fight took 68% longer for
+     * exactly the same number of hits taken. Nobody asked for a longer fight;
+     * it was a side effect of porting only half of the sheet's recover.
+     */
+    _wardenHome(e, mv) {
+        const R = WARDEN_RAM;
+        const cap = R.returnMax;
+        const sx = (this._wardenDriftX(e) - e.x) * R.returnK;
+        const sy = (R.homeY - e.y) * R.returnK;
+        e.x += Math.max(-cap, Math.min(cap, sx)) * mv;
+        e.y += Math.max(-cap, Math.min(cap, sy)) * mv;
+        e.x = Math.max(this.fx0 + 80, Math.min(this.fx1 - 80, e.x));
+    }
+
+    /**
+     * Wind-up, lunge, recover. Movement only: what a lunging hull does to a
+     * ship it touches is the collision every boss already has.
+     */
+    _wardenRam(e, mv, rage) {
+        const R = WARDEN_RAM;
+        e.cf += mv;
+        const cos = Math.cos(e.ca);
+        const sin = Math.sin(e.ca);
+        if (e.ch === 1) {
+            // Backing off along the reverse of the heading. This is the
+            // telegraph, so it is driven off the wind-up's own clock rather
+            // than a pattern timer: the warning lasts exactly as long as the
+            // movement that is the warning.
+            this._tel(e, R.windup - e.cf, "charge");
+            e.x -= cos * R.backOff * mv;
+            e.y -= sin * R.backOff * mv;
+            if (e.cf >= R.windup) {
+                e.ch = 2;
+                e.cf = 0;
+                this.sTick();
+            }
+        } else if (e.ch === 2) {
+            const sp = (rage ? R.rageSpeed : R.lungeSpeed)
+                * Math.min(1, (e.cf + 2) / R.accel);
+            e.x += cos * sp * mv;
+            e.y += sin * sp * mv;
+            if (e.cf >= R.lunge) {
+                e.ch = 3;
+                e.cf = 0;
+            }
+        } else {
+            this._wardenHome(e, mv);
+            if (e.cf >= R.recover) {
+                this._wardenEndRam(e);
+            }
+        }
+        e.x = Math.max(this.fx0 + 80, Math.min(this.fx1 - 80, e.x));
+        e.y = Math.max(this.fy0 + 60, Math.min(this.fy1 - R.floorGap, e.y));
     }
 
     /**
@@ -4715,7 +4878,7 @@ export class NeonStrikeEngine {
      */
     _droneWreck(x, y, dr) {
         if (this.wrecks.length >= DRONE_ANIM.maxWrecks) {
-            this.wrecks.shift();
+            this._dropWreck();
         }
         const name = ENEMY_SPRITES.drone[(dr[0] || 0) % ENEMY_SPRITES.drone.length];
         this.wrecks.push({
@@ -4728,6 +4891,16 @@ export class NeonStrikeEngine {
         });
     }
 
+    /**
+     * Make room for a new wreck: the OLDEST one goes, which is the corpse the
+     * player has already stopped looking at -- except a boss, which is the one
+     * death worth keeping through a bomb that swept thirty hulls after it.
+     */
+    _dropWreck() {
+        const i = this.wrecks.findIndex((w) => !w.boss);
+        this.wrecks.splice(i < 0 ? 0 : i, 1);
+    }
+
     /** The yaw step a fry hull is posed in, for the corpse to open in it. */
     _fryStep(e) {
         const tgt = this._target(e.x, e.y);
@@ -4735,6 +4908,32 @@ export class NeonStrikeEngine {
             name: this._enemySprite(e), kit: fryKit(e.type),
             t: e.t, wave: this.wave, dx: tgt ? tgt.x - e.x : 0,
             tel: e.tel, aim: e.aim, rot: e.rot,
+        });
+    }
+
+    /**
+     * WARDEN's corpse: the hull collapsing inward and then the four plates,
+     * from the one number its kill cue carries (whether the armour was up).
+     * Cosmetic only -- no collision, no hit points, no bullets.
+     *
+     * It is exempt from the wreck cap rather than competing with the drones for
+     * a slot: there is at most one of these on screen, it is the death the
+     * player is actually looking at, and a bomb sweeping the field a second
+     * later must not delete it.
+     *
+     * @param {number} x
+     * @param {number} y
+     * @param {string} c
+     * @param {Array} bs `[armourUp]`
+     */
+    _bossWreck(x, y, c, bs) {
+        const d = BOSSES[1];
+        this.wrecks.push({
+            boss: 1, name: d.sprite, x, y, t: 0,
+            tint: c || d.tint,
+            px: pxFor(d.sprite, d.r * 2),
+            armor: bs[0] || 0,
+            life: WARDEN_DEATH.frames,
         });
     }
 
@@ -4759,7 +4958,7 @@ export class NeonStrikeEngine {
             return;
         }
         if (this.wrecks.length >= DRONE_ANIM.maxWrecks) {
-            this.wrecks.shift();
+            this._dropWreck();
         }
         const names = ENEMY_SPRITES[type];
         const name = names[(fr[1] || 0) % names.length];
@@ -4968,6 +5167,15 @@ export class NeonStrikeEngine {
                 // catalogues. `ar` is the WARDEN armour.
                 ck: e.k,
                 ar: e.armor ? 1 : 0,
+                // WARDEN's ram: the heading it has committed to and which beat
+                // of the charge it is on. The heading is what the animator
+                // locks its ring onto, and handing it over beats deriving it
+                // from observed motion -- the return trip after a lunge looks
+                // exactly like a wind-up, and a ring that guessed would point
+                // the wrong way for 30 frames every ram. Only on the wire for
+                // the 74 frames a charge lasts.
+                ca: e.ch ? Math.round(e.ca * 100) / 100 : undefined,
+                cs: e.ch || undefined,
                 // Telegraph: intensity, which warning, and where the hole in
                 // the next curtain is. It has to travel -- a guest does not
                 // simulate, and deriving it from the AI's own arithmetic would
@@ -5125,6 +5333,7 @@ export class NeonStrikeEngine {
                 flash: e.f ? 4 : 0, t: e.tt, v: e.v || 0, rot: e.rt, aim: e.am,
                 stun: e.sn ? 1 : 0, armor: e.ar ? 1 : 0, fire: e.fi || 0,
                 tel: (e.tl || 0) / 100, telK: e.tk || "", gap: e.gp,
+                ch: e.cs || 0, ca: e.ca || 0,
             };
             if (e.t === "boss") {
                 // Radius, colour and hull come from the shared catalogue.
@@ -5553,6 +5762,37 @@ export class NeonStrikeEngine {
                 g.lineTo(e.gap + 52, y + 9);
                 g.stroke();
             }
+        } else if (e.telK === "charge") {
+            // WARDEN's ram. The lane the hull is about to travel, drawn from
+            // the heading the AI committed to -- not recomputed here, so what
+            // is marked is exactly where the hull goes. It brightens and
+            // lengthens as the wind-up runs out.
+            const len = 120 + t * 260;
+            const cos = Math.cos(e.ca || 0);
+            const sin = Math.sin(e.ca || 0);
+            g.beginPath();
+            g.moveTo(e.x + cos * rad, e.y + sin * rad);
+            g.lineTo(e.x + cos * len, e.y + sin * len);
+            g.stroke();
+            // Two rails the width of the hull: what the lane costs you is being
+            // inside it, and a single line does not say how wide "inside" is.
+            g.setLineDash([]);
+            g.globalAlpha = a * 0.7;
+            for (const sgn of [-1, 1]) {
+                const nx = -sin * rad * sgn;
+                const ny = cos * rad * sgn;
+                g.beginPath();
+                g.moveTo(e.x + nx + cos * rad, e.y + ny + sin * rad);
+                g.lineTo(e.x + nx + cos * len, e.y + ny + sin * len);
+                g.stroke();
+            }
+            // The head of the lane, filling as the wind-up completes.
+            g.globalAlpha = Math.min(1, a + 0.3);
+            g.strokeStyle = "#7bffb0";
+            g.lineWidth = 3;
+            g.beginPath();
+            g.arc(e.x + cos * len, e.y + sin * len, 6 + t * 6, 0, 6.2832);
+            g.stroke();
         } else if (e.telK === "volley") {
             // The one telegraph that carries a number: one pip per rock in the
             // volley that is coming, filling left to right as the slot charges.
@@ -5953,7 +6193,9 @@ export class NeonStrikeEngine {
         // Under the living hulls: a wreck is scenery, and a drone flying over
         // one must not be hidden by it.
         for (const w of this.wrecks) {
-            if (w.kit) {
+            if (w.boss) {
+                drawBossWreck(g, w);
+            } else if (w.kit) {
                 drawFryWreck(g, w);
             } else {
                 drawDroneWreck(g, w);

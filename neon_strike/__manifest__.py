@@ -3,7 +3,7 @@
 # UI palette follows Odoo brand assets: https://www.odoo.com/page/brand-assets
 {
     "name": "Neon Strike",
-    "version": "19.0.23.0.0",
+    "version": "19.0.24.0.0",
     "category": "Productivity",
     "summary": "Neon arcade space shooter, playable without a login on a public page",
     "description": """
@@ -32,6 +32,16 @@ playable **without an account**: pick a nickname and go.
   Esc opens an overlay that holds them, and the arena takes the room back
 * 6 enemy types with distinct AI, asteroids, and a rotating family of 5 bosses
   every 4 waves (dreadnought, warden, lancer, hive, prism)
+* WARDEN fights in two halves that ask for different things. Behind its armour
+  it fires nothing: it picks a heading, backs off along it in full view for 24
+  frames and rams. The ring around it spins while it has committed to nobody and
+  locks its gap onto the charge it is about to make -- the rotation is
+  information now, where before it turned at a constant rate while the real hole
+  in the attack was somewhere else entirely. Then the armour drops, a vent seam
+  opens across the hull, and six pips on its plating count out how long the hurt
+  window has left (five on the first phase, six once it is enraged). It comes
+  apart in order too: the hull folds inward, and the plates hold formation alone
+  for eighteen frames before they fall
 * Remote co-op for up to 4 players over the Odoo bus (room by code), currently
   hidden in the UI while the netcode lag is worked on
 * Individual lives per player, with the option to revive a downed ally
