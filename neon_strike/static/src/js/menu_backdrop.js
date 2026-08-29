@@ -13,7 +13,7 @@
  * frame is painted instead of animating.
  */
 
-import { drawSprite, pxFor } from "./sprites";
+import { drawSprite, pxFor, rgba } from "./sprites";
 
 // Sprite -> tint, with the same colours the engine uses in game.
 const FLOATERS = [
@@ -30,11 +30,6 @@ const FLOATERS = [
 ];
 const SHIP_TINTS = ["#5ee1ff", "#ff8fb3", "#7bffb0", "#ffd166"];
 const BG = "#05060e";
-
-function rgba(hex, a) {
-    const n = parseInt(hex.slice(1), 16);
-    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
-}
 
 export class MenuBackdrop {
     /** @param {HTMLCanvasElement} canvas */

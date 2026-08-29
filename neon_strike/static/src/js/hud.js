@@ -500,7 +500,7 @@ export function drawBuffs(g, sp, W, frame, keys, maxOf, bottom) {
 }
 
 /** Combo, top-centre: the numeral, and a 60 px rail for what is left of it. */
-export function drawCombo(g, combo, comboT, comboTMax, W) {
+export function drawCombo(g, combo, comboT, comboTMax, W, frame) {
     if (combo <= 1) {
         return;
     }
@@ -509,10 +509,14 @@ export function drawCombo(g, combo, comboT, comboTMax, W) {
     const label = "X" + combo;
     const scale = hot ? 4 : 3;
     const w = textW(label, scale);
-    text(g, label, cx - w / 2, 10, scale, hot ? COMBO_TINT : HUD_FG, 0.9);
+    // The last second before the multiplier dies, said the way an expiring
+    // capsule says it: 8 frames on, 8 off, no movement. The rail alone was
+    // 60 px of top edge nobody is looking at mid-pattern.
+    const low = comboT < 60 && (frame % 16 < 8);
+    text(g, label, cx - w / 2, 10, scale, hot ? COMBO_TINT : HUD_FG, low ? 0.35 : 0.9);
     const ry = 10 + 5 * scale + 3;
     px(g, cx - 30, ry, 60, 2, COMBO_TINT, 0.18);
-    px(g, cx - 30, ry, Math.round(60 * Math.max(0, Math.min(1, comboT / comboTMax))), 2, COMBO_TINT, 0.85);
+    px(g, cx - 30, ry, Math.round(60 * Math.max(0, Math.min(1, comboT / comboTMax))), 2, COMBO_TINT, low ? 0.35 : 0.85);
 }
 
 /**

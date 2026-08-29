@@ -766,6 +766,17 @@ function hexToRgb(hex) {
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
+/**
+ * A hex colour at an alpha, as a canvas fill. Exported because half the render
+ * code wants exactly this and three copies of the parse had grown around it
+ * (the engine's `glow`, the menu backdrop's `rgba`): this file is the shared
+ * leaf module, so the one copy lives here.
+ */
+export function rgba(hex, a) {
+    const c = hexToRgb(hex);
+    return `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+}
+
 function mix(a, b, t) {
     const A = hexToRgb(a);
     const B = hexToRgb(b);

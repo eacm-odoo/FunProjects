@@ -162,9 +162,14 @@ function mkRng(seed) {
     };
 }
 
-function rgba(hex, a) {
+function hexRGB(hex) {
     const n = parseInt(hex.slice(1), 16);
-    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function rgba(hex, a) {
+    const c = hexRGB(hex);
+    return `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 }
 
 /** Soft radial glow: the building block of nearly everything in here. */
@@ -262,10 +267,7 @@ function hash2(x, y, s) {
 
 /** A ramp as RGB triplets, so the bake never parses a hex per art pixel. */
 function rampRGB(ramp) {
-    return ramp.map((hex) => {
-        const n = parseInt(hex.slice(1), 16);
-        return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-    });
+    return ramp.map(hexRGB);
 }
 
 /**

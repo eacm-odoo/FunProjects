@@ -15,7 +15,7 @@
 
 // Relative import (not `@neon_strike/...`): Odoo resolves it the same way and
 // the engine keeps loading as native ESM outside Odoo (the design sprite gallery).
-import { drawSprite, pxFor, spriteSize } from "./sprites";
+import { drawSprite, pxFor, rgba, spriteSize } from "./sprites";
 import { MAX_ACTIVES, PERKS, PERK_INDEX, rollOffers } from "./perks";
 import { BOSSES, bossForWave } from "./bosses";
 import { COLOSSI, colossusForWave } from "./colossi";
@@ -188,6 +188,10 @@ const HITSTOP_HEAVY = 3;
 const HITSTOP_BOSS = 8;
 const HITSTOP_COLOSSUS = 12;
 const HITSTOP_HURT = 6;
+// Frames a bomb's shockwave ring takes to cross the field. Cosmetic: the
+// clear itself is still instant, the ring is what makes it read as a blast
+// sweeping outward instead of the bullets simply ceasing to exist.
+const SHOCK_FRAMES = 26;
 
 // Arena. The logical space is still fixed *per match* (everything is simulated
 // in it, and in co-op the host's one travels in the snapshot), but it is sized
@@ -428,6 +432,8 @@ export class NeonStrikeEngine {
         this.decoys = [];
         // Arc Capacitor bolts: cosmetic, they live one blink (also on guests).
         this.zaps = [];
+        // Bomb shockwaves: cosmetic rings sweeping out from the detonation.
+        this.shocks = [];
         // Dead drones coming apart (see `drone_animator.js`). Cosmetic and
         // capped: a bomb can sweep thirty hulls on one frame.
         this.wrecks = [];
@@ -836,11 +842,6 @@ export class NeonStrikeEngine {
     /* Helpers                                                             */
     /* ------------------------------------------------------------------ */
 
-    glow(hex, a) {
-        const n = parseInt(hex.slice(1), 16);
-        return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
-    }
-
     initStars() {
         this.stars = [];
         // The field covers more than the arena: when the camera pulls back for
@@ -927,6 +928,9 @@ export class NeonStrikeEngine {
             this.sWave();
         } else if (ev.k === "bomb") {
             this.sBigBoom();
+            if (ev.x != null) {
+                this.shocks.push({ x: ev.x, y: ev.y, t: 0 });
+            }
         } else if (ev.k === "rage") {
             // Boss phase change. The threshold is derivable from `h`/`mh`, but
             // the beat itself is mirrored so it lands on the same frame here.
@@ -1112,7 +1116,9 @@ export class NeonStrikeEngine {
             this.combo++;
             this.comboT = Math.max(this.comboT, 170);
             this.pop(sp.x, sp.y - 38, "GRAZE x" + this.combo, "#eaf6ff", 13, 40);
-            this.tone(1500, 0.04, "square", 0.03);
+            // The pitch climbs with the ladder, so a run of grazes is audibly
+            // going somewhere instead of hitting the same key each time.
+            this.tone(1100 + this.combo * 30, 0.04, "square", 0.03);
         }
     }
 
@@ -1901,7 +1907,8 @@ export class NeonStrikeEngine {
     bomb(killer) {
         this.flashT = 12;
         this.sBigBoom();
-        this._ev({ k: "bomb" });
+        this.shocks.push({ x: killer.x, y: killer.y, t: 0 });
+        this._ev({ k: "bomb", x: Math.round(killer.x), y: Math.round(killer.y) });
         this.shake = 20;
         this.hitstop = Math.max(this.hitstop, 6);
         // `bombing` is read by `killEnemy`: everything caught in the blast is
@@ -2021,6 +2028,7 @@ export class NeonStrikeEngine {
         this.holes = [];
         this.decoys = [];
         this.zaps = [];
+        this.shocks = [];
         this.wrecks = [];
         this.beams = [];
         this._bossAnims.clear();
@@ -2126,6 +2134,15 @@ export class NeonStrikeEngine {
         if (this.comboT > 0) {
             this.comboT -= ts;
             if (this.comboT <= 0) {
+                // Losing the multiplier to the clock was the one loss in the
+                // game with no cue at all: an x18 quietly became an x1 while
+                // you watched the bullets. Small combos go without comment.
+                if (this.combo >= 5) {
+                    const me = this._shipBySlot(this.localSlot);
+                    this.pop(me ? me.x : this.W / 2, (me ? me.y : this.H / 2) - 38,
+                        "COMBO LOST", "#9aa6c4", 14, 55);
+                    this.tone(520, 0.18, "square", 0.05, 160);
+                }
                 this.combo = 1;
             }
         }
@@ -4618,6 +4635,12 @@ export class NeonStrikeEngine {
                 this.zaps.splice(i, 1);
             }
         }
+        for (let i = this.shocks.length - 1; i >= 0; i--) {
+            this.shocks[i].t += ts;
+            if (this.shocks[i].t >= SHOCK_FRAMES) {
+                this.shocks.splice(i, 1);
+            }
+        }
     }
 
     /* ------------------------------------------------------------------ */
@@ -5134,7 +5157,7 @@ export class NeonStrikeEngine {
             g.save();
             g.translate(tu.x, tu.y);
             g.globalCompositeOperation = "lighter";
-            g.fillStyle = this.glow(col, 0.14);
+            g.fillStyle = rgba(col, 0.14);
             g.beginPath();
             g.arc(0, 0, 20, 0, 6.2832);
             g.fill();
@@ -5195,7 +5218,7 @@ export class NeonStrikeEngine {
         }
         if (!hidden) {
             g.globalCompositeOperation = "lighter";
-            g.fillStyle = this.glow(sp.color, 0.12);
+            g.fillStyle = rgba(sp.color, 0.12);
             g.beginPath();
             g.arc(0, 0, 26, 0, 6.2832);
             g.fill();
@@ -5405,7 +5428,7 @@ export class NeonStrikeEngine {
         // Neon halo behind the sprite.
         g.save();
         g.globalCompositeOperation = "lighter";
-        g.fillStyle = this.glow(e.c, 0.14);
+        g.fillStyle = rgba(e.c, 0.14);
         g.beginPath();
         g.arc(e.x, e.y, e.r + 10, 0, 6.2832);
         g.fill();
@@ -5442,7 +5465,7 @@ export class NeonStrikeEngine {
             const px = pxFor(d.sprite, e.w);
             g.save();
             g.globalCompositeOperation = "lighter";
-            g.fillStyle = this.glow(e.c, 0.1);
+            g.fillStyle = rgba(e.c, 0.1);
             g.beginPath();
             g.ellipse(e.x, e.y, e.w * 0.55, e.h * 0.6, 0, 0, 6.2832);
             g.fill();
@@ -5652,6 +5675,26 @@ export class NeonStrikeEngine {
             g.arc(h.x, h.y, 26 * p, 0, 6.2832);
             g.fill();
         }
+        for (const s of this.shocks) {
+            const k = Math.min(1, s.t / SHOCK_FRAMES);
+            const e2 = 1 - Math.pow(1 - k, 3);
+            const r = 30 + e2 * Math.hypot(this.W, this.H) * 0.72;
+            g.save();
+            g.globalCompositeOperation = "lighter";
+            g.globalAlpha = (1 - k) * 0.8;
+            g.strokeStyle = "#ffffff";
+            g.lineWidth = 6 * (1 - k) + 1.5;
+            g.beginPath();
+            g.arc(s.x, s.y, r, 0, 6.2832);
+            g.stroke();
+            g.strokeStyle = "#ffb347";
+            g.lineWidth = 12 * (1 - k) + 2;
+            g.globalAlpha = (1 - k) * 0.35;
+            g.beginPath();
+            g.arc(s.x, s.y, r * 0.9, 0, 6.2832);
+            g.stroke();
+            g.restore();
+        }
         for (const z of this.zaps) {
             g.globalAlpha = Math.max(0, z.life / 8);
             g.strokeStyle = "#8be9ff";
@@ -5689,7 +5732,7 @@ export class NeonStrikeEngine {
         for (const b of this.ebullets) {
             const kd = EB_KINDS[b.k || 0] || EB_KINDS[0];
             const frozen = this.freezeT > 0;
-            g.fillStyle = frozen ? "rgba(94,225,255,0.3)" : this.glow(kd.c, 0.34);
+            g.fillStyle = frozen ? "rgba(94,225,255,0.3)" : rgba(kd.c, 0.34);
             g.beginPath();
             g.arc(b.x, b.y, kd.r, 0, 6.2832);
             g.fill();
@@ -5709,7 +5752,7 @@ export class NeonStrikeEngine {
             const bob = Math.sin(p.ph) * 2;
             g.save();
             g.globalCompositeOperation = "lighter";
-            g.fillStyle = this.glow(col, 0.16);
+            g.fillStyle = rgba(col, 0.16);
             g.beginPath();
             g.arc(p.x, p.y + bob, p.r + 6, 0, 6.2832);
             g.fill();
@@ -5833,14 +5876,14 @@ export class NeonStrikeEngine {
                 this._hover &&
                 this._hover.x >= card.x && this._hover.x <= card.x + card.w &&
                 this._hover.y >= card.y && this._hover.y <= card.y + card.h;
-            g.fillStyle = chosen ? this.glow(perk.tint, 0.22) : hover ? "rgba(255,255,255,0.09)" : "rgba(255,255,255,0.04)";
+            g.fillStyle = chosen ? rgba(perk.tint, 0.22) : hover ? "rgba(255,255,255,0.09)" : "rgba(255,255,255,0.04)";
             g.fillRect(card.x, card.y, card.w, card.h);
-            g.strokeStyle = chosen || hover ? perk.tint : this.glow(perk.tint, 0.45);
+            g.strokeStyle = chosen || hover ? perk.tint : rgba(perk.tint, 0.45);
             g.lineWidth = chosen || hover ? 2.5 : 1.2;
             g.strokeRect(card.x, card.y, card.w, card.h);
             const cx = card.x + card.w / 2;
             // Key hint.
-            g.fillStyle = this.glow(perk.tint, 0.75);
+            g.fillStyle = rgba(perk.tint, 0.75);
             g.font = "500 12px system-ui,sans-serif";
             g.fillText("[" + (card.i + 1) + "]", cx, card.y + 22);
             // Kind + name.
@@ -5965,7 +6008,7 @@ export class NeonStrikeEngine {
             // gone -- a name is only worth drawing when it belongs to someone
             // else, and that is what the crew tags are for.
             drawEscPip(g);
-            drawCombo(g, this.combo, this.comboT, 170, W);
+            drawCombo(g, this.combo, this.comboT, 170, W, this.frame);
             const me = this._shipBySlot(this.localSlot);
             let meta = "W" + this.wave + "  " + NeonStrikeEngine.formatTime(this.playSeconds());
             if (me) {
