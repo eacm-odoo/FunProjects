@@ -300,8 +300,10 @@
             <div class="ns_glossary_body" t-ref="glossaryBody">
                 <div t-if="state.picker" class="ns_practice_note">
                     Practice mode: pick an enemy, a boss or a colossus and the run
-                    spawns nothing else, wave after wave. Nothing is saved to the
-                    leaderboard.
+                    spawns nothing else, wave after wave. Pick a place instead and
+                    the run is the normal game with the sky pinned to it, which is
+                    the only way to see a backdrop with a real wave in front of it.
+                    Nothing is saved to the leaderboard.
                 </div>
                 <div class="ns_controls">
                     <span class="ns_key">Drag</span> move ·
@@ -334,7 +336,9 @@
                                 <button t-if="state.picker and item.practice"
                                         class="btn btn-sm ns_btn ns_practice_btn w-100"
                                         t-on-click="() => this.startPractice(item)">
-                                    <i class="fa fa-crosshairs me-1" role="img" aria-label="Practice"/>Practice
+                                    <i class="fa me-1" t-att-class="item.practiceIcon or 'fa-crosshairs'"
+                                       role="img" aria-label="Practice"/>
+                                    <t t-out="item.practiceCta or 'Practice'"/>
                                 </button>
                             </div>
                         </div>

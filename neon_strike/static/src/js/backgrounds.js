@@ -2081,13 +2081,27 @@ export const BACKGROUNDS = [
 ];
 
 /**
- * The place a wave is fought in. One per wave, in order, cycling: the run keeps
- * moving and a long one ends up going round again. Pure, so every client in a
- * co-op match paints the same sky without it travelling in the snapshot.
+ * How many waves are fought in one place before the route moves on. It was one,
+ * and one is too short: a wave is 6-17 seconds, so a place arrived, was read as
+ * a colour, and was gone -- and the ones with a slow feature in them (the gas
+ * giant's vortices turn once every 7400 frames, the comet crosses, the pulsar
+ * sweeps) were never on screen long enough to show it. Three waves is a minute
+ * or so in one sky, which is long enough to notice where you are.
+ *
+ * It is only the wave-to-place mapping, so it costs nothing: the function stays
+ * pure and the backdrop still never travels in the snapshot.
+ */
+export const WAVES_PER_PLACE = 3;
+
+/**
+ * The place a wave is fought in. `WAVES_PER_PLACE` waves each, in order,
+ * cycling: the run keeps moving and a long one ends up going round again. Pure,
+ * so every client in a co-op match paints the same sky without it travelling in
+ * the snapshot.
  */
 export function backgroundForWave(wave) {
-    const i = Math.max(0, (wave | 0) - 1) % BACKGROUNDS.length;
-    return BACKGROUNDS[i];
+    const w = Math.max(0, (wave | 0) - 1);
+    return BACKGROUNDS[Math.floor(w / WAVES_PER_PLACE) % BACKGROUNDS.length];
 }
 
 /* -------------------------------------------------------------------------- */

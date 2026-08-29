@@ -213,9 +213,11 @@ export class NeonStrikeGame extends Component {
     }
 
     /**
-     * Start a run against one glossary target. The descriptor travels straight
+     * Start a bench run from one glossary card. The descriptor travels straight
      * to the engine; nothing else about the run changes, so what you are
-     * watching is the real AI and not a rehearsal of it.
+     * watching is the real AI and not a rehearsal of it. Two shapes: a target
+     * (`{type}`, `{boss}`, `{colossus}`, `{rock}`) replaces the wave with that
+     * hull, a place (`{bg}`) keeps the whole game and pins the sky.
      */
     startPractice(item) {
         this.state.practice = item.practice;

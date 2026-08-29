@@ -30,7 +30,7 @@ import {
 } from "./fry_animator";
 import { AegisMotion } from "./aegis_motion";
 import { VulcanMotion } from "./vulcan_motion";
-import { Backdrop, backgroundForWave, bgFlow } from "./backgrounds";
+import { BACKGROUNDS, Backdrop, backgroundForWave, bgFlow } from "./backgrounds";
 import {
     HudFx, drawActives, drawBuffs, drawCombo, drawCrewTag, drawEscPip, drawMeta, drawVitals,
 } from "./hud";
@@ -374,6 +374,15 @@ export class NeonStrikeEngine {
         // `{boss: k}`, `{colossus: k}` or `{rock: v}`. Solo only, and the score
         // is not submitted (see `onGameOver` in the OWL component).
         this.practice = callbacks.practice || null;
+        // Two benches, and they are not the same shape. A **target** bench
+        // (`{type}`, `{boss}`, `{colossus}`, `{rock}`) replaces the wave: it
+        // spawns that hull and nothing else, so the perk phase, the boss escort
+        // and the mixed spawn table are all off. A **place** bench (`{bg}`) is
+        // the opposite -- the normal game, with the sky pinned to one entry --
+        // because a backdrop is only worth looking at with the real wave in
+        // front of it, which is the whole argument the veil is measured on.
+        // Both are still benches: neither posts a score.
+        this.practiceTarget = this.practice && this.practice.bg == null ? this.practice : null;
 
         this.state = "start";
         this.paused = false;
@@ -903,7 +912,9 @@ export class NeonStrikeEngine {
      * is what lets the guest drive it straight off the snapshot.
      */
     _syncBackground() {
-        const def = backgroundForWave(this.wave || 1);
+        const def = this.practice && this.practice.bg != null
+            ? BACKGROUNDS[this.practice.bg] || BACKGROUNDS[0]
+            : backgroundForWave(this.wave || 1);
         if (this.bg && this.bg.def === def) {
             return;
         }
@@ -1605,7 +1616,7 @@ export class NeonStrikeEngine {
             sp.standT = 0;
         }
         const p = this.players;
-        if (this.practice) {
+        if (this.practiceTarget) {
             this._spawnPracticeWave();
             return;
         }
@@ -1683,7 +1694,7 @@ export class NeonStrikeEngine {
      * mixed spawns (see `_updateSpawns` and the perk check in `update`).
      */
     _spawnPracticeWave() {
-        const pr = this.practice;
+        const pr = this.practiceTarget;
         if (pr.colossus != null) {
             const d = COLOSSI[pr.colossus] || COLOSSI[0];
             this.enemies.push(this.mkColossus(pr.colossus));
@@ -1730,8 +1741,8 @@ export class NeonStrikeEngine {
         const e = this.mkEnemy(type, 40 + Math.random() * (this.W - 80),
             y != null ? y : -30 - Math.random() * 20);
         // A practice run asked for one chassis, not for the random one.
-        if (this.practice && this.practice.v != null && this.practice.type === type) {
-            e.v = this.practice.v;
+        if (this.practiceTarget && this.practiceTarget.v != null && this.practiceTarget.type === type) {
+            e.v = this.practiceTarget.v;
         }
         this.enemies.push(e);
     }
@@ -1775,7 +1786,7 @@ export class NeonStrikeEngine {
         // minute. A thin escort stream keeps things moving (and keeps capsules
         // and score flowing) without competing with the boss pattern.
         const boss = this.enemies.find((e) => this._isBoss(e));
-        if (boss && alive < 3 + this.players && !this.practice) {
+        if (boss && alive < 3 + this.players && !this.practiceTarget) {
             this.escortT -= ts;
             if (this.escortT <= 0) {
                 this.escortT = boss.type === "colossus" ? 240 : 180;
@@ -2347,11 +2358,11 @@ export class NeonStrikeEngine {
 
         // Practising asteroids is the one case where nothing on the field is
         // an enemy, so the wave has to stay open until they are cleared.
-        const holdRocks = this.practice && this.practice.rock != null && this.rocks.length;
+        const holdRocks = this.practiceTarget && this.practiceTarget.rock != null && this.rocks.length;
         if (this.enemies.length === 0 && this.pending.length === 0 && !holdRocks) {
             this.waveDelay -= ts;
             if (this.waveDelay <= 0) {
-                if (this.wave >= this.nextPerkWave && !this.practice) {
+                if (this.wave >= this.nextPerkWave && !this.practiceTarget) {
                     // Every PERK_WAVES cleared waves, everyone upgrades.
                     this.nextPerkWave += PERK_WAVES;
                     this._openPerkPhase();

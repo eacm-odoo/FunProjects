@@ -24,14 +24,14 @@
  * Places carry a `bg` (the backdrop descriptor) instead of a `sprite`: their
  * card art is a still painted by `backdropThumb`, not a rasterized sprite.
  *
- * An item that carries `practice` can be fought on its own: the card grows a
+ * An item that carries `practice` can be tried on its own: the card grows a
  * button and the engine is started with that descriptor (see `practice` in
  * `game_engine.js`). This catalogue is the only place the list of practisable
  * targets exists -- the backend *Practice* menu just opens the picker, so
  * nothing about the roster has to be repeated in Python.
  */
 
-import { BACKGROUNDS } from "./backgrounds";
+import { BACKGROUNDS, WAVES_PER_PLACE } from "./backgrounds";
 import { BOSSES } from "./bosses";
 import { COLOSSI } from "./colossi";
 import { SHIPS } from "./ships";
@@ -148,17 +148,25 @@ export const GLOSSARY = [
     {
         title: "PLACES",
         note:
-            "The place a wave is fought in, one per wave and in this order: wave " +
-            BACKGROUNDS.length + " is the last of them and wave " + (BACKGROUNDS.length + 1) +
-            " starts the route again. The name flashes over the arena the moment you cross " +
-            "into a new one. They are scenery and nothing else: no place changes what spawns, " +
-            "how it shoots or what you score, and everybody in a co-op run flies the same sky.",
-        // Straight from the catalogue the engine paints from, in run order.
+            "The place a wave is fought in, " + WAVES_PER_PLACE + " waves each and in this " +
+            "order: wave " + BACKGROUNDS.length * WAVES_PER_PLACE + " is the last of them and " +
+            "wave " + (BACKGROUNDS.length * WAVES_PER_PLACE + 1) + " starts the route again. " +
+            "The name flashes over the arena the moment you cross into a new one. They are " +
+            "scenery and nothing else: no place changes what spawns, how it shoots or what " +
+            "you score, and everybody in a co-op run flies the same sky.",
+        // Straight from the catalogue the engine paints from, in run order. A
+        // place is not a target, so its bench is not the target bench: it pins
+        // the sky and otherwise plays the normal game, which is the only way to
+        // see a backdrop the way it is actually met.
         items: BACKGROUNDS.map((b, i) => ({
             bg: b, tint: b.tint,
             label: b.name,
-            sub: "wave " + (i + 1) + " · then every " + BACKGROUNDS.length,
+            sub: "waves " + (i * WAVES_PER_PLACE + 1) + "-" + (i + 1) * WAVES_PER_PLACE +
+                " · then every " + BACKGROUNDS.length * WAVES_PER_PLACE,
             desc: b.desc,
+            practice: { bg: i },
+            practiceCta: "Fly here",
+            practiceIcon: "fa-globe",
         })),
     },
     {
