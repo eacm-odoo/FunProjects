@@ -13,6 +13,7 @@ import { NeonStrikeEngine } from "./game_engine";
 import { MenuBackdrop } from "./menu_backdrop";
 import { GLOSSARY } from "./glossary";
 import { PERKS } from "./perks";
+import { shipCard } from "./ship_flight";
 import { SHIPS, hullIndex } from "./ships";
 import { sprite } from "./sprites";
 
@@ -27,6 +28,17 @@ const MULTIPLAYER_ENABLED = false;
 
 // Where the chosen hull is remembered between runs.
 const HULL_KEY = "neon_strike_hull";
+
+/**
+ * Who paints a live glossary card. Every one of them takes the catalogue entry
+ * and returns `{ width, height, draw(g, t) }`, so the panel drives all of them
+ * off one rAF without knowing what kind of hull it is looking at; anything not
+ * listed falls through to the small-ship kit.
+ */
+const CARD_KITS = {
+    ship: shipCard,
+    drone: droneCard,
+};
 
 // Perk families shown in the glossary, in reading order.
 const PERK_SECTIONS = [
@@ -247,7 +259,7 @@ export class NeonStrikeGame extends Component {
                 ...group,
                 items: group.items.map((item) => ({
                     ...item,
-                    // An enemy with a `kit` gets a live canvas instead of a
+                    // A hull with a `kit` gets a live canvas instead of a
                     // picture: its card *runs*, driven by its own animator (see
                     // `_startCards`), because a hull whose whole language is its
                     // engine says nothing in a still. Everything else is
@@ -572,7 +584,7 @@ export class NeonStrikeGame extends Component {
         for (const cv of root.querySelectorAll("canvas[data-kit]")) {
             const d = cv.dataset;
             const item = { sprite: d.sprite, kit: d.kit, tint: d.tint, px: Number(d.px) };
-            const card = d.kit === "drone" ? droneCard(item) : fryCard(item);
+            const card = CARD_KITS[d.kit] ? CARD_KITS[d.kit](item) : fryCard(item);
             cv.width = card.width;
             cv.height = card.height;
             const g = cv.getContext("2d");

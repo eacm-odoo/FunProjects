@@ -41,8 +41,10 @@ export const GLOSSARY = [
         title: "PLAYER SHIPS",
         note: "Pick yours in the menu. They change the look and colour, not the stats: they all fly and shoot the same.",
         // Straight from the same catalogue the picker and the engine read.
+        // `kit: "ship"` makes the card a live canvas `ship_flight.js` flies,
+        // the same way the enemies' cards are flown by their animators.
         items: SHIPS.map((s) => ({
-            sprite: s.sprite, tint: s.tint, px: 8,
+            sprite: s.sprite, tint: s.tint, px: 8, kit: "ship",
             label: s.label, sub: s.sub, desc: s.desc,
         })),
     },

@@ -23,7 +23,7 @@
  * the four ships apart).
  */
 
-import { bankSprite, spriteSize } from "./sprites";
+import { bankSprite, canvasBounds, spriteSize } from "./sprites";
 
 export const SHIP_FLIGHT = {
     // Speeds (logical px/s) that reach a full bank / full thrust. They are
@@ -324,4 +324,107 @@ export class ShipFlight {
         }
         g.restore();
     }
+}
+
+/* ------------------------------------------------------------------ */
+/* The glossary card                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The flight a card flies: a lateral weave under a spiking envelope, with a
+ * slower climb and brake beneath it, so the card shows every part of the
+ * animation the blurb promises -- all five tilt frames, the flame growing, the
+ * retros firing, and a barrel roll now and then.
+ *
+ * The envelope exists because of what a **measurement** said, and the first
+ * attempt here is worth recording: a plain sine weave peaking at 672 px/s --
+ * comfortably over `rollSpeed` -- rolled exactly **zero** times in 20 seconds.
+ * Two reasons, and neither is visible by reading the trigger. The `swing` term
+ * is bounded by the damping at ~0.20 against a `rollTrigger` of 0.26, so it is
+ * very nearly unreachable and the *flip* is the trigger that actually matters;
+ * and a flip only counts while `|vx| > rollSpeed`, which needs the bank to
+ * still be crossing zero once the speed has already built the other way. On a
+ * gentle weave the bank crosses at ~260 px/s and nothing fires. Only a weave
+ * fast enough to leave the bank behind rolls at all -- and one fast enough to
+ * roll *continuously* is worse than one that never does, because the roll is
+ * meant to punctuate. Hence the envelope: gentle most of the time, one hard
+ * flick when it spikes.
+ *
+ * Measured over 30 s at these numbers: **6 rolls, rolling 8% of the time,
+ * |vx| calm below 300 px/s for 46% of it**, and the five tilt frames used
+ * 11/25/28/25/11%.
+ *
+ * `ay` is smaller than it wants to be for a reason that is not about flight:
+ * the flame grows with thrust and the card's canvas is cut to what the loop
+ * paints, so a hull that pushes hard makes a *taller card* and therefore a
+ * *smaller hull* once the 118 px art box has scaled it. At 90 the box is 1.80x
+ * the hull and the hull lands at 66 px; at 55 it is 1.56x and 76 px, which is
+ * where the enemies' cards sit, and thrust still peaks at 0.30 -- enough for
+ * the flame to visibly swell and the retros to fire.
+ */
+const CARD_PATH = { ax: 140, wx: 9, wm: 0.65, envPow: 8, envBase: 0.28, ay: 55, wy: 2.9 };
+
+/** Frames of a card's loop sampled to find the box its art needs. */
+const CARD_FRAMES = 480;
+
+/**
+ * The card art for the catalogue: the hull flying, on a canvas cut to what the
+ * whole loop paints. Same contract as `fryCard` and `droneCard` -- a size and
+ * one function that paints a frame -- so the glossary drives all of them off
+ * one rAF without knowing what kind of thing it is looking at.
+ *
+ * The one difference is that this animation has **state**: `ShipFlight`
+ * integrates, so a frame is not a pure function of the clock. The card owns its
+ * own instance and steps it with the elapsed time, and the probe pass that
+ * measures the canvas uses a second one so the card starts from a clean hull.
+ *
+ * @param {Object} o `{ sprite, tint, px }` from the catalogue entry
+ * @returns {Object} `{ width, height, draw(g, t) }`, sizes in device pixels
+ */
+export function shipCard(o) {
+    const name = o.sprite;
+    const size = spriteSize(name);
+    const px = o.px;
+    // Room for the roll, the flame and the retros; the box is cut to what the
+    // loop actually painted, so this only has to be generous.
+    const margin = 14;
+    const W = Math.round((size.w + 2 * margin) * px);
+    const H = Math.round((size.h + 2 * margin) * px);
+    const step = (flight, g, sec, dt, cx, cy) => {
+        const P = CARD_PATH;
+        const env = P.envBase + (1 - P.envBase) * Math.pow(Math.abs(Math.sin(sec * P.wm)), P.envPow);
+        flight.observe(
+            P.ax * env * Math.sin(sec * P.wx),
+            P.ay * Math.sin(sec * P.wy),
+            dt
+        );
+        g.save();
+        g.translate(cx, cy);
+        flight.draw(g, { sprite: name, tint: o.tint, px });
+        g.restore();
+    };
+    const probe = document.createElement("canvas");
+    probe.width = W;
+    probe.height = H;
+    const pg = probe.getContext("2d");
+    const measure = new ShipFlight();
+    for (let i = 0; i < CARD_FRAMES; i++) {
+        step(measure, pg, i / 60, 1 / 60, W / 2, H / 2);
+    }
+    const box = canvasBounds(probe, Math.round(px)) || { x: 0, y: 0, w: W, h: H };
+    const ox = W / 2 - box.x;
+    const oy = H / 2 - box.y;
+    const flight = new ShipFlight();
+    let last = 0;
+    return {
+        width: box.w,
+        height: box.h,
+        draw(g, t) {
+            // The clock arrives in 60 fps frames; a gap (a hidden tab, a slow
+            // patch) is clamped rather than integrated, or the hull teleports.
+            const dt = Math.min(0.05, Math.max(0, (t - last) / 60));
+            last = t;
+            step(flight, g, t / 60, dt, ox, oy);
+        },
+    };
 }
