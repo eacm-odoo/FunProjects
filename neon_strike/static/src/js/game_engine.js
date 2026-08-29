@@ -24,6 +24,9 @@ import { ShipFlight } from "./ship_flight";
 import { BossAnimator } from "./boss_animator";
 import { COLOSSUS_ANIM_KINDS, ColossusAnimator, hullParts } from "./colossus_animator";
 import { DRONE_ANIM, drawDrone, drawDroneWreck, droneTier } from "./drone_animator";
+import {
+    FRY_ANIM, drawFry, drawFryWreck, fryDeathFrames, fryKit, fryStep, fryTier,
+} from "./fry_animator";
 import { AegisMotion } from "./aegis_motion";
 import { VulcanMotion } from "./vulcan_motion";
 import { Backdrop, backgroundForWave } from "./backgrounds";
@@ -234,6 +237,9 @@ const ENEMY_SPRITES = {
     // The boss family is indexed by `e.k`, see BOSSES.
     boss: BOSSES.map((b) => b.sprite),
 };
+// The small ships that share `fry_animator.js`, in the order their corpse
+// cue encodes them. Appending is safe; reordering is not.
+const FRY_KINDS = ["speedy", "tank", "sniper", "kami"];
 const ROCK_SPRITES = ["rock0", "rock1"];
 // Colour per power-up type. The `pup<T>` sprite is tinted with it, so the two
 // always go together: adding a capsule means a sprite + a colour + an effect in
@@ -918,6 +924,9 @@ export class NeonStrikeEngine {
             if (ev.dr) {
                 this._droneWreck(ev.x, ev.y, ev.dr);
             }
+            if (ev.fr) {
+                this._fryWreck(ev.x, ev.y, ev.fr);
+            }
         } else if (ev.k === "hit") {
             this.burst(ev.x, ev.y, ev.c || "#5ee1ff", 40, 6);
             this.sHit();
@@ -1419,16 +1428,28 @@ export class NeonStrikeEngine {
             return Object.assign(base, this._hp(1 + Math.floor(w / 9)), { t: Math.random() * 6.28, val: 100 });
         }
         if (type === "speedy") {
-            return Object.assign(base, this._hp(1 + Math.floor(w / 10)), { t: 0, val: 150 });
+            // Seeded like a drone's and a tank's: `t` is the only phase the fry
+            // kit has, so a squadron spawned on one frame would otherwise burn
+            // in lockstep. It costs nothing -- `t` already travels.
+            return Object.assign(base, this._hp(1 + Math.floor(w / 10)), { t: Math.random() * 300, val: 150 });
         }
         if (type === "tank") {
-            return Object.assign(base, this._hp(4 + Math.floor(w / 5)), { t: Math.random() * 200, val: 300 });
+            // `fire` is the recoil: the frames left of the kick and the muzzle
+            // flash. The animator cannot derive it (the hull is quiet again
+            // before the bullet is anywhere), so the engine hands it over.
+            return Object.assign(base, this._hp(4 + Math.floor(w / 5)), {
+                t: Math.random() * 200, val: 300, fire: 0,
+            });
         }
         if (type === "sniper") {
             // Stops mid-screen and punishes with telegraphed, accurate shots.
+            // `t` seeded for the same reason as the speedy's, and here it is
+            // the one that matters: a sniper's drift and its station-keeping
+            // thrusters are both pure functions of it, so two of them side by
+            // side used to puff on the same frame and cut together.
             return Object.assign(base, this._hp(3 + Math.floor(w / 7)), {
-                t: 0, val: 400,
-                stopY: 90 + Math.random() * 110, aim: 0,
+                t: Math.random() * 300, val: 400,
+                stopY: 90 + Math.random() * 110, aim: 0, fire: 0,
             });
         }
         if (type === "kami") {
@@ -1831,6 +1852,18 @@ export class NeonStrikeEngine {
             // silhouette the wreck opens with cover the step on an overkill.
             boom.dr = [e.v || 0, droneTier(Math.max(1, Math.ceil(e.hp))), Math.round(e.t)];
             this._droneWreck(e.x, e.y, boom.dr);
+        } else if (fryKit(e.type)) {
+            // Same idea for the small ships, on the same kill cue: the chassis,
+            // the wear it died wearing and the pose it died in. Everything else
+            // the break-up is drawn from is a pure function of those and the
+            // corpse's own age, so a guest that only ever receives the cue
+            // draws the same wreck as the host.
+            boom.fr = [
+                FRY_KINDS.indexOf(e.type), e.v || 0,
+                fryTier(Math.max(1, Math.ceil(e.hp)), e.mhp),
+                this._fryStep(e),
+            ];
+            this._fryWreck(e.x, e.y, boom.fr);
         }
         this._ev(boom);
         if (killer && killer.dash > 0 && killer.flags.dash_refund) {
@@ -4228,14 +4261,22 @@ export class NeonStrikeEngine {
                 // point the lean the wrong way the first time it is retuned.
                 e.x += Math.sin(e.t * DRONE_ANIM.drift.rate) * DRONE_ANIM.drift.ampPx * mv;
             } else if (e.type === "speedy") {
-                e.y += (3 + this.wave * 0.08) * mv;
+                // Both numbers live in `FRY_ANIM.speedy`: the animator points
+                // the hull along the velocity they produce (see `fryPose`), and
+                // a second copy would aim the lean the wrong way the first time
+                // either is retuned.
+                const S = FRY_ANIM.speedy;
+                e.y += (S.fall[0] + this.wave * S.fall[1]) * mv;
                 const tgt = this._target(e.x, e.y);
                 if (tgt) {
-                    e.x += (tgt.x - e.x) * 0.006 * mv;
+                    e.x += (tgt.x - e.x) * S.steer * mv;
                 }
             } else if (e.type === "tank") {
                 e.y += 0.65 * mv;
                 e.tel = 0;
+                if (e.fire > 0) {
+                    e.fire -= mv;
+                }
                 if (e.y > 0 && mv > 0) {
                     // The tank was the only aimed shot in the game with no
                     // warning at all: it just went off every 150 frames.
@@ -4247,6 +4288,7 @@ export class NeonStrikeEngine {
                             const dy = tgt.y - e.y;
                             const d = Math.sqrt(dx * dx + dy * dy) || 1;
                             this._eb(e.x, e.y, (dx / d) * 2.6, (dy / d) * 2.6, EB_AIMED);
+                            e.fire = FRY_ANIM.tank.recoil;
                             this.sTick();
                         }
                     }
@@ -4278,11 +4320,14 @@ export class NeonStrikeEngine {
                     const dx = tgt.x - e.x;
                     const dy = tgt.y - e.y;
                     const d = Math.sqrt(dx * dx + dy * dy) || 1;
-                    e.vx += (dx / d) * 0.09 * mv;
-                    e.vy += (dy / d) * 0.09 * mv;
+                    e.vx += (dx / d) * FRY_ANIM.kami.accel * mv;
+                    e.vy += (dy / d) * FRY_ANIM.kami.accel * mv;
                 }
                 const sp = Math.sqrt(e.vx * e.vx + e.vy * e.vy) || 1;
-                const max = 3.4 + this.wave * 0.06;
+                // Same numbers the plume and the core throb read: the animator
+                // rebuilds the speed from the clock, because a guest is handed
+                // `t` and never a velocity.
+                const max = FRY_ANIM.kami.cap[0] + this.wave * FRY_ANIM.kami.cap[1];
                 if (sp > max) {
                     e.vx = (e.vx / sp) * max;
                     e.vy = (e.vy / sp) * max;
@@ -4599,6 +4644,52 @@ export class NeonStrikeEngine {
             px: pxFor(name, this._enemyR("drone") * 2),
             tier: dr[1] || 1,
             t0: dr[2] || 0,
+            life: DRONE_ANIM.death.frames,
+        });
+    }
+
+    /** The yaw step a fry hull is posed in, for the corpse to open in it. */
+    _fryStep(e) {
+        const tgt = this._target(e.x, e.y);
+        return fryStep({
+            name: this._enemySprite(e), kit: fryKit(e.type),
+            t: e.t, wave: this.wave, dx: tgt ? tgt.x - e.x : 0,
+            tel: e.tel, aim: e.aim, rot: e.rot,
+        });
+    }
+
+    /**
+     * A small ship coming apart, from the four numbers its kill cue carries:
+     * which of them it was, its chassis, the wear it died wearing and the pose
+     * it died in. Everything else -- the flame-out, how far the halves have
+     * travelled, the debris -- is a pure function of those and the corpse's own
+     * age, so a guest that only ever receives the cue draws the same wreck.
+     *
+     * The cap drops the *oldest* corpse rather than refusing the newest: a
+     * death that goes missing because a bomb swept the field a second ago is
+     * the one death the player was actually looking at.
+     *
+     * @param {number} x
+     * @param {number} y
+     * @param {Array} fr `[kind, variant, tier, pose]`
+     */
+    _fryWreck(x, y, fr) {
+        const type = FRY_KINDS[fr[0]];
+        if (!type) {
+            return;
+        }
+        if (this.wrecks.length >= DRONE_ANIM.maxWrecks) {
+            this.wrecks.shift();
+        }
+        const names = ENEMY_SPRITES[type];
+        const name = names[(fr[1] || 0) % names.length];
+        this.wrecks.push({
+            name, kit: type, x, y, t: 0,
+            tint: this._enemyColor(type),
+            px: pxFor(name, this._enemyR(type) * 2),
+            tier: fr[2] || 0,
+            step: fr[3] || 0,
+            life: fryDeathFrames(type),
         });
     }
 
@@ -4606,7 +4697,7 @@ export class NeonStrikeEngine {
         for (let i = this.wrecks.length - 1; i >= 0; i--) {
             const w = this.wrecks[i];
             w.t += ts;
-            if (w.t >= DRONE_ANIM.death.frames) {
+            if (w.t >= w.life) {
                 this.wrecks.splice(i, 1);
             }
         }
@@ -4788,6 +4879,11 @@ export class NeonStrikeEngine {
                 rt: e.rot != null ? Math.round(e.rot * 100) / 100 : undefined,
                 am: e.aim != null ? Math.round(e.aim) : undefined,
                 sn: e.stun > 0 ? 1 : 0,
+                // The recoil: the frames left of a tank's kick. It cannot be
+                // derived -- the pattern timer it comes off does not travel and
+                // the hull is quiet again before the bullet is anywhere -- and
+                // it is only ever on the wire for the three frames it lasts.
+                fi: e.fire > 0 ? Math.ceil(e.fire) : undefined,
                 // Boss/colossus index: the guest rebuilds the rest from the
                 // catalogues. `ar` is the WARDEN armour.
                 ck: e.k,
@@ -4947,7 +5043,7 @@ export class NeonStrikeEngine {
                 type: e.t, x: e.x, y: e.y, r: this._enemyR(e.t),
                 hp: e.h, mhp: e.mh, c: this._enemyColor(e.t),
                 flash: e.f ? 4 : 0, t: e.tt, v: e.v || 0, rot: e.rt, aim: e.am,
-                stun: e.sn ? 1 : 0, armor: e.ar ? 1 : 0,
+                stun: e.sn ? 1 : 0, armor: e.ar ? 1 : 0, fire: e.fi || 0,
                 tel: (e.tl || 0) / 100, telK: e.tk || "", gap: e.gp,
             };
             if (e.t === "boss") {
@@ -5510,12 +5606,26 @@ export class NeonStrikeEngine {
                 name, tint: e.c, px: pxFor(name, e.r * 2),
                 x: e.x, y: e.y, t: e.t, hp: e.hp, flash,
             });
+        } else if (fryKit(e.type)) {
+            // The fry kit: a rigid hull turning as a body, and a burn that says
+            // what its engine is doing -- the speedy's stutter, the tank's
+            // heavy beat and the quiet it goes into to steady a shot, the
+            // sniper's alternating station-keeping puffs and the cut that
+            // telegraphs the shot, the kamikaze's throttle (see
+            // `fry_animator.js`). Everything is sampled from `e.t`, `e.hp` and
+            // the fields that already travel.
+            const tgt = this._target(e.x, e.y);
+            drawFry(g, {
+                name, kit: fryKit(e.type), tint: e.c, px: pxFor(name, e.r * 2),
+                x: e.x, y: e.y, t: e.t, hp: e.hp, mhp: e.mhp, wave: this.wave, flash,
+                dx: tgt ? tgt.x - e.x : 0, dy: tgt ? tgt.y - e.y : 1,
+                tel: e.tel, aim: e.aim, rot: e.rot, fire: e.fire,
+            });
         } else {
             drawSprite(g, name, e.x, e.y, {
                 tint: e.c,
                 px: pxFor(name, e.r * 2),
                 flash,
-                rot: e.type === "kami" ? e.rot || 0 : 0,
             });
         }
         if (e.armor && e.type !== "boss") {
@@ -5763,7 +5873,11 @@ export class NeonStrikeEngine {
         // Under the living hulls: a wreck is scenery, and a drone flying over
         // one must not be hidden by it.
         for (const w of this.wrecks) {
-            drawDroneWreck(g, w);
+            if (w.kit) {
+                drawFryWreck(g, w);
+            } else {
+                drawDroneWreck(g, w);
+            }
         }
         for (const e of this.enemies) {
             this.drawEnemy(e);

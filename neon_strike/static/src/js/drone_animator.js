@@ -101,7 +101,7 @@
  * both versions matched over 33,201 canvas ops.
  */
 
-import { RAMP_CHARS, RUNG, TINT_RUNGS, palette, spriteGrid } from "./sprites";
+import { RAMP_CHARS, RUNG, palette, rungFold, spriteGrid, trimCanvas } from "./sprites";
 
 const TOP = RAMP_CHARS.length - 1;
 /** The index the sprite bank paints the neon accent (the lamps) with. */
@@ -254,9 +254,9 @@ function geometryOf(name) {
         }
     }
     // Which rungs the art uses, so a promotion can only ever land on a colour
-    // that is already somewhere on this hull. Same fold as `hullGeometry` in
-    // `colossus_animator.js`: an unused rung goes to the nearest used one, and
-    // the three tint shades are always the hull's own colour.
+    // that is already somewhere on this hull. `rungFold` in `sprites.js` does
+    // the folding: an unused rung goes to the nearest used one, and the three
+    // tint shades are always the hull's own colour.
     const used = new Uint8Array(TOP + 1);
     const lamps = [];
     const eyes = [];
@@ -278,22 +278,7 @@ function geometryOf(name) {
             }
         }
     }
-    const rungs = new Int8Array(TOP + 1);
-    for (let i = 0; i <= TOP; i++) {
-        rungs[i] = i;
-        if (used[i] || TINT_RUNGS.indexOf(i) >= 0) {
-            continue;
-        }
-        let best = i;
-        let bestD = TOP + 1;
-        for (let j = 0; j <= TOP; j++) {
-            if (used[j] && Math.abs(j - i) < bestD) {
-                bestD = Math.abs(j - i);
-                best = j;
-            }
-        }
-        rungs[i] = best;
-    }
+    const rungs = rungFold(used);
     // Turn lamps: lowest first, then most outboard. The study lights "the outer
     // magenta pip of the side it is turning towards", and on both chassis that
     // is what this picks.
@@ -724,6 +709,38 @@ export function drawDrone(g, o) {
         );
     }
     g.imageSmoothingEnabled = true;
+}
+
+/**
+ * The card art for the catalogue, on the same terms as `fryThumb`: the chassis
+ * at the phase where its lean (or its turn) and its turn tell are both up, so
+ * the card shows the drone the glossary line describes rather than a still hull.
+ *
+ * @param {Object} o `{ name, tint, px }` from the catalogue entry
+ * @returns {HTMLCanvasElement}
+ */
+export function droneThumb(o) {
+    // The catalogue calls the sprite key `sprite`, the animator calls it `name`.
+    const name = o.sprite || o.name;
+    const geo = geometryOf(name);
+    const px = o.px;
+    const margin = 3;
+    const cv = document.createElement("canvas");
+    cv.width = Math.round((geo.cols + 2 * margin) * px);
+    cv.height = Math.round((geo.rows + 2 * margin) * px);
+    const g = cv.getContext("2d");
+    // The frame the tell is lit on: `dronePose` puts it in the last 22 frames
+    // before a reversal, blinking, so this is picked rather than guessed.
+    let t = 0;
+    for (let f = 0; f < 400; f++) {
+        const p = dronePose(f);
+        if (p.tellOn && Math.abs(p.tilt) === DRONE_ANIM.drift.levels) {
+            t = f;
+            break;
+        }
+    }
+    drawDrone(g, { name, tint: o.tint, px, x: cv.width / 2, y: cv.height / 2, t, hp: 3 });
+    return trimCanvas(cv, Math.round(px));
 }
 
 /**

@@ -7,6 +7,8 @@ import { useService } from "@web/core/utils/hooks";
 import { makeEnv, startServices } from "@web/env";
 import { getTemplate } from "@web/core/templates";
 import { backdropThumb } from "./backgrounds";
+import { droneThumb } from "./drone_animator";
+import { fryThumb } from "./fry_animator";
 import { NeonStrikeEngine } from "./game_engine";
 import { MenuBackdrop } from "./menu_backdrop";
 import { GLOSSARY } from "./glossary";
@@ -228,10 +230,18 @@ export class NeonStrikeGame extends Component {
                 ...group,
                 items: group.items.map((item) => ({
                     ...item,
-                    // A place is a painted still, everything else a sprite.
-                    src: item.bg
-                        ? backdropThumb(item.bg).toDataURL()
-                        : sprite(item.sprite, item.tint, item.px, false).toDataURL(),
+                    // A place is a painted still and an enemy with a `kit` is
+                    // painted by its own animator, so the card shows the hull
+                    // with its engine lit rather than a sprite that stopped
+                    // being what the game draws. Everything else is a sprite.
+                    src: (item.bg
+                        ? backdropThumb(item.bg)
+                        : item.kit === "drone"
+                            ? droneThumb(item)
+                            : item.kit
+                                ? fryThumb(item)
+                                : sprite(item.sprite, item.tint, item.px, false)
+                    ).toDataURL(),
                 })),
             }));
         }

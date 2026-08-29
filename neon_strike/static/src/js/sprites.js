@@ -50,6 +50,46 @@ export const RUNG = { 1: 0, 9: 1, 2: 2, 5: 3, 3: 4, 4: 5, 8: 5, 6: 6, 7: 7, 0: 8
  */
 export const TINT_RUNGS = [RUNG[5], RUNG[4], RUNG[6]];
 
+/**
+ * Fold the rungs an effect may land on onto the ones a hull is actually
+ * painted with: `used[rung]` in, one `rung -> rung` table out.
+ *
+ * A promotion may only ever brighten a cell into a tone that is already on
+ * screen somewhere, so a fixed palette entry the art never uses does not
+ * belong on that hull -- promoted through rung 4, a cell of a violet chest
+ * would put the bank's grey-blue on it. Those fold onto the nearest rung the
+ * art does use, darker side first. The three tint shades always belong: they
+ * are the hull's own colour, darker and lighter.
+ *
+ * It lives here rather than in an animator because it is a property of the
+ * *bank* -- `colossus_animator.js`, `drone_animator.js` and `fry_animator.js`
+ * all need exactly this table, and three copies of it would drift apart the
+ * first time the ramp is retouched.
+ *
+ * @param {Uint8Array} used flags per rung, index 0..RAMP_CHARS.length - 1
+ * @returns {Int8Array} the rung each rung resolves to
+ */
+export function rungFold(used) {
+    const top = RAMP_CHARS.length - 1;
+    const rungs = new Int8Array(top + 1);
+    for (let i = 0; i <= top; i++) {
+        rungs[i] = i;
+        if (used[i] || TINT_RUNGS.indexOf(i) >= 0) {
+            continue;
+        }
+        let best = i;
+        let bestD = top + 1;
+        for (let j = 0; j <= top; j++) {
+            if (used[j] && Math.abs(j - i) < bestD) {
+                bestD = Math.abs(j - i);
+                best = j;
+            }
+        }
+        rungs[i] = best;
+    }
+    return rungs;
+}
+
 /* ------------------------------------------------------------------ */
 /* Sprite data                                                         */
 /* ------------------------------------------------------------------ */
@@ -990,6 +1030,50 @@ export function drawSprite(g, name, x, y, o = {}) {
         g.drawImage(cv, Math.round(x - cv.width / 2), Math.round(y - cv.height / 2));
     }
     g.restore();
+}
+
+/**
+ * A copy of a canvas cropped to the pixels that are actually painted on it,
+ * plus a margin. Exists for the glossary stills: an animator's card art is
+ * drawn onto a canvas big enough for the longest plume the hull can throw, and
+ * what the card wants is the drawing, centred, whatever that turned out to be.
+ *
+ * @param {HTMLCanvasElement} cv
+ * @param {number} [pad=0] margin in device pixels
+ * @returns {HTMLCanvasElement} the original when nothing is painted on it
+ */
+export function trimCanvas(cv, pad = 0) {
+    const g = cv.getContext("2d");
+    const data = g.getImageData(0, 0, cv.width, cv.height).data;
+    let x0 = cv.width;
+    let y0 = cv.height;
+    let x1 = -1;
+    let y1 = -1;
+    for (let y = 0; y < cv.height; y++) {
+        for (let x = 0; x < cv.width; x++) {
+            if (data[(y * cv.width + x) * 4 + 3] === 0) {
+                continue;
+            }
+            if (x < x0) { x0 = x; }
+            if (x > x1) { x1 = x; }
+            if (y < y0) { y0 = y; }
+            if (y > y1) { y1 = y; }
+        }
+    }
+    if (x1 < 0) {
+        return cv;
+    }
+    x0 = Math.max(0, x0 - pad);
+    y0 = Math.max(0, y0 - pad);
+    x1 = Math.min(cv.width - 1, x1 + pad);
+    y1 = Math.min(cv.height - 1, y1 + pad);
+    const out = document.createElement("canvas");
+    out.width = x1 - x0 + 1;
+    out.height = y1 - y0 + 1;
+    const og = out.getContext("2d");
+    og.imageSmoothingEnabled = false;
+    og.drawImage(cv, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
+    return out;
 }
 
 /** Pixel size so a sprite spans `target` logical px in width. */

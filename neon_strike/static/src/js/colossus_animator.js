@@ -138,7 +138,7 @@
  * by colossus index and feeds them (see `_updateColossusAnims`).
  */
 
-import { RAMP_CHARS, RUNG, TINT_RUNGS, palette, sprite, spriteGrid } from "./sprites";
+import { RAMP_CHARS, RUNG, palette, rungFold, sprite, spriteGrid } from "./sprites";
 
 /**
  * The brightness ramp (`RAMP_CHARS`/`RUNG`, from the sprite bank) is the whole
@@ -1069,29 +1069,11 @@ function hullGeometry(name) {
     const barrels = byDist.slice(0, 2).sort((a, b) => nozzles[a].x - nozzles[b].x);
     byDist.slice(2).forEach((i) => { nozzles[i].outer = 1; });
 
-    // A promotion may only land on a colour the hull is actually painted with.
-    // The three tint shades always belong -- they are this hull's own colour,
-    // darker and lighter -- but a fixed palette entry the art never uses does
-    // not: promoted through rung 4, a cell of HYDRA's chest would put the
-    // sprite bank's grey-blue on a violet hull. Those fold onto the nearest
-    // rung the art does use, darker side first, so an effect can only ever
-    // brighten a cell into a tone that is already on screen somewhere.
-    const rungs = new Int8Array(TOP + 1);
-    for (let i = 0; i <= TOP; i++) {
-        rungs[i] = i;
-        if (used[i] || TINT_RUNGS.indexOf(i) >= 0) {
-            continue;
-        }
-        let best = i;
-        let bestD = TOP + 1;
-        for (let j = 0; j <= TOP; j++) {
-            if (used[j] && Math.abs(j - i) < bestD) {
-                bestD = Math.abs(j - i);
-                best = j;
-            }
-        }
-        rungs[i] = best;
-    }
+    // A promotion may only land on a colour the hull is actually painted with:
+    // promoted through rung 4, a cell of HYDRA's chest would put the sprite
+    // bank's grey-blue on a violet hull. `rungFold` folds the rungs this art
+    // never uses onto the nearest ones it does.
+    const rungs = rungFold(used);
 
     const slot = slotOf(grid, cols, rows, core);
     geo = {
