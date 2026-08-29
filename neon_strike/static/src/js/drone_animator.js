@@ -101,7 +101,7 @@
  * both versions matched over 33,201 canvas ops.
  */
 
-import { RAMP_CHARS, RUNG, palette, rungFold, spriteGrid, trimCanvas } from "./sprites";
+import { RAMP_CHARS, RUNG, canvasBounds, palette, rungFold, spriteGrid } from "./sprites";
 
 const TOP = RAMP_CHARS.length - 1;
 /** The index the sprite bank paints the neon accent (the lamps) with. */
@@ -711,36 +711,47 @@ export function drawDrone(g, o) {
     g.imageSmoothingEnabled = true;
 }
 
+/** Frames of a card's loop sampled to find the box its art needs. */
+const CARD_FRAMES = 420;
+
 /**
- * The card art for the catalogue, on the same terms as `fryThumb`: the chassis
- * at the phase where its lean (or its turn) and its turn tell are both up, so
- * the card shows the drone the glossary line describes rather than a still hull.
+ * The card art for the catalogue, on the same terms as `fryCard`: the chassis
+ * animating on its own shared timeline, on a canvas measured from the union of
+ * everything the loop paints, so the card shows the drone the glossary line
+ * describes -- the lean or the turn, and the lamps announcing a reversal --
+ * rather than a still hull.
  *
- * @param {Object} o `{ name, tint, px }` from the catalogue entry
- * @returns {HTMLCanvasElement}
+ * @param {Object} o `{ sprite, tint, px }` from the catalogue entry
+ * @returns {Object} `{ width, height, draw(g, t) }`, sizes in device pixels
  */
-export function droneThumb(o) {
+export function droneCard(o) {
     // The catalogue calls the sprite key `sprite`, the animator calls it `name`.
     const name = o.sprite || o.name;
     const geo = geometryOf(name);
     const px = o.px;
-    const margin = 3;
-    const cv = document.createElement("canvas");
-    cv.width = Math.round((geo.cols + 2 * margin) * px);
-    cv.height = Math.round((geo.rows + 2 * margin) * px);
-    const g = cv.getContext("2d");
-    // The frame the tell is lit on: `dronePose` puts it in the last 22 frames
-    // before a reversal, blinking, so this is picked rather than guessed.
-    let t = 0;
-    for (let f = 0; f < 400; f++) {
-        const p = dronePose(f);
-        if (p.tellOn && Math.abs(p.tilt) === DRONE_ANIM.drift.levels) {
-            t = f;
-            break;
-        }
+    const margin = 4;
+    const W = Math.round((geo.cols + 2 * margin) * px);
+    const H = Math.round((geo.rows + 2 * margin) * px);
+    const probe = document.createElement("canvas");
+    probe.width = W;
+    probe.height = H;
+    const pg = probe.getContext("2d");
+    // Hull points in the middle of the range, so the card shows a core with
+    // light in it and still has somewhere to go in both directions.
+    const hp = 3;
+    for (let t = 0; t < CARD_FRAMES; t++) {
+        drawDrone(pg, { name, tint: o.tint, px, x: W / 2, y: H / 2, t, hp });
     }
-    drawDrone(g, { name, tint: o.tint, px, x: cv.width / 2, y: cv.height / 2, t, hp: 3 });
-    return trimCanvas(cv, Math.round(px));
+    const box = canvasBounds(probe, Math.round(px)) || { x: 0, y: 0, w: W, h: H };
+    const ox = W / 2 - box.x;
+    const oy = H / 2 - box.y;
+    return {
+        width: box.w,
+        height: box.h,
+        draw(g, t) {
+            drawDrone(g, { name, tint: o.tint, px, x: ox, y: oy, t, hp });
+        },
+    };
 }
 
 /**

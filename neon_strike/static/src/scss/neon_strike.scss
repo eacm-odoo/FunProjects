@@ -241,7 +241,11 @@ $ns-magenta: #ff2fd0;
         background: #080a16;
         border-radius: 4px;
 
-        img {
+        // The enemy cards are live canvases their animator paints; everything
+        // else is a rasterized picture. Both are pixel art and both are framed
+        // the same way, so the rule is one selector, not two.
+        img,
+        canvas {
             max-width: 90%;
             max-height: 118px;
             image-rendering: pixelated;

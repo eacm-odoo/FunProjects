@@ -7,8 +7,8 @@ import { useService } from "@web/core/utils/hooks";
 import { makeEnv, startServices } from "@web/env";
 import { getTemplate } from "@web/core/templates";
 import { backdropThumb } from "./backgrounds";
-import { droneThumb } from "./drone_animator";
-import { fryThumb } from "./fry_animator";
+import { droneCard } from "./drone_animator";
+import { fryCard } from "./fry_animator";
 import { NeonStrikeEngine } from "./game_engine";
 import { MenuBackdrop } from "./menu_backdrop";
 import { GLOSSARY } from "./glossary";
@@ -64,6 +64,7 @@ export class NeonStrikeGame extends Component {
         this.bus = useService("bus_service");
         this.canvasRef = useRef("canvas");
         this.menuCanvasRef = useRef("menuCanvas");
+        this.glossaryRef = useRef("glossaryBody");
 
         this.state = useState({
             muted: false,
@@ -110,8 +111,11 @@ export class NeonStrikeGame extends Component {
 
         this.engine = null;
         this.backdrop = null;
-        // Glossary cards are rasterized once (see `glossaryGroups`).
+        // Glossary cards are rasterized once (see `glossaryGroups`); the enemy
+        // ones are live canvases instead, driven by `_startCards`.
         this._glossary = null;
+        this._cards = [];
+        this._cardsRaf = 0;
         this._broadcastHandle = null;
         this._inputHandle = null;
         this._pendingInput = null;
@@ -154,6 +158,19 @@ export class NeonStrikeGame extends Component {
                 return () => this._stopBackdrop();
             },
             () => [this.state.screen]
+        );
+
+        // The glossary's enemy cards animate while the panel is open, and only
+        // then: same rule as the menu backdrop, no rAF left running behind a
+        // match.
+        useEffect(
+            () => {
+                if (this.state.glossary) {
+                    this._startCards();
+                }
+                return () => this._stopCards();
+            },
+            () => [this.state.glossary]
         );
 
         onMounted(() => this.loadScores());
@@ -230,18 +247,16 @@ export class NeonStrikeGame extends Component {
                 ...group,
                 items: group.items.map((item) => ({
                     ...item,
-                    // A place is a painted still and an enemy with a `kit` is
-                    // painted by its own animator, so the card shows the hull
-                    // with its engine lit rather than a sprite that stopped
-                    // being what the game draws. Everything else is a sprite.
-                    src: (item.bg
-                        ? backdropThumb(item.bg)
-                        : item.kit === "drone"
-                            ? droneThumb(item)
-                            : item.kit
-                                ? fryThumb(item)
-                                : sprite(item.sprite, item.tint, item.px, false)
-                    ).toDataURL(),
+                    // An enemy with a `kit` gets a live canvas instead of a
+                    // picture: its card *runs*, driven by its own animator (see
+                    // `_startCards`), because a hull whose whole language is its
+                    // engine says nothing in a still. Everything else is
+                    // rasterized once -- a place by `backdropThumb`, the rest by
+                    // the sprite bank.
+                    src: item.kit
+                        ? null
+                        : (item.bg ? backdropThumb(item.bg) : sprite(item.sprite, item.tint, item.px, false))
+                            .toDataURL(),
                 })),
             }));
         }
@@ -538,6 +553,65 @@ export class NeonStrikeGame extends Component {
         }
     }
 
+    /**
+     * Start the glossary's enemy cards. Each `<canvas data-kit>` in the panel is
+     * handed to its own animator, which measures the canvas it needs and returns
+     * the one function that paints a frame of its loop; one rAF drives all of
+     * them, because eight cards are one animation, not eight.
+     *
+     * The clock is wall time normalised to 60 fps, so a 120 Hz screen does not
+     * run the burns twice as fast, and `prefers-reduced-motion` gets a single
+     * painted frame -- the same contract the menu backdrop honours.
+     */
+    _startCards() {
+        const root = this.glossaryRef.el;
+        if (!root) {
+            return;
+        }
+        this._cards = [];
+        for (const cv of root.querySelectorAll("canvas[data-kit]")) {
+            const d = cv.dataset;
+            const item = { sprite: d.sprite, kit: d.kit, tint: d.tint, px: Number(d.px) };
+            const card = d.kit === "drone" ? droneCard(item) : fryCard(item);
+            cv.width = card.width;
+            cv.height = card.height;
+            const g = cv.getContext("2d");
+            g.imageSmoothingEnabled = false;
+            this._cards.push({ card, g });
+        }
+        if (!this._cards.length) {
+            return;
+        }
+        this._paintCards(0);
+        const reduced =
+            typeof window.matchMedia === "function" &&
+            window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        if (reduced) {
+            return;
+        }
+        const t0 = performance.now();
+        const loop = () => {
+            this._cardsRaf = requestAnimationFrame(loop);
+            this._paintCards((performance.now() - t0) / 16.667);
+        };
+        this._cardsRaf = requestAnimationFrame(loop);
+    }
+
+    _paintCards(t) {
+        for (const c of this._cards) {
+            c.g.clearRect(0, 0, c.card.width, c.card.height);
+            c.card.draw(c.g, t);
+        }
+    }
+
+    _stopCards() {
+        if (this._cardsRaf) {
+            cancelAnimationFrame(this._cardsRaf);
+            this._cardsRaf = 0;
+        }
+        this._cards = [];
+    }
+
     async _broadcast() {
         if (!this.engine || !this.state.match || this._broadcasting) {
             return;
@@ -773,6 +847,7 @@ export class NeonStrikeGame extends Component {
     _cleanup() {
         this._stopEngine();
         this._stopBackdrop();
+        this._stopCards();
         if (MULTIPLAYER_ENABLED) {
             for (const [type, cb] of Object.entries(this._handlers || {})) {
                 this.bus.unsubscribe(type, cb);

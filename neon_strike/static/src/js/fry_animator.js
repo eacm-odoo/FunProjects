@@ -87,7 +87,7 @@
  * hit flash spends none at all (the silhouette replaces everything).
  */
 
-import { RAMP_CHARS, RUNG, palette, rungFold, spriteGrid, trimCanvas } from "./sprites";
+import { RAMP_CHARS, RUNG, canvasBounds, palette, rungFold, spriteGrid } from "./sprites";
 
 const TOP = RAMP_CHARS.length - 1;
 /** The index the sprite bank paints the neon accent with (lamps, thrusters). */
@@ -984,46 +984,81 @@ export function drawFry(g, o) {
 /* ------------------------------------------------------------------ */
 
 /**
- * The card art for the catalogue: the hull in the one pose that says the most
- * about it, on a canvas cut to what is actually drawn. It exists for the same
- * reason `backdropThumb` does -- the glossary promises that what you see on the
- * card is what shows up while playing, and a flat sprite stopped being that the
- * moment these hulls grew an engine.
- *
- * Each kit is shown in the state it is genuinely seen in: SPEEDY and TANK
- * mid-burn (SPEEDY leaning a step, because it always is), SNIPER part way
- * through the charge it spends its whole life in, and KAMIKAZE spooling up with
- * its core lit -- not at the cap, where the trail is longer than the hull and
- * the card would be mostly exhaust.
- *
- * @param {Object} o `{ name, kit, tint, px }` from the catalogue entry
- * @returns {HTMLCanvasElement}
+ * How a card's free-running clock maps onto the arguments `drawFry` takes. Each
+ * kit is shown doing the thing it is: SPEEDY leaning through its whole arc while
+ * its engine stutters, TANK running the engine's real 150-frame cycle so the
+ * card plays the telegraph and the shot, SNIPER charging on its real 70-frame
+ * clock while the station-keeping thrusters alternate underneath, and KAMIKAZE
+ * at the cap, throbbing, wandering a few degrees either side of straight.
  */
-export function fryThumb(o) {
+const CARD_POSE = {
+    speedy: (t) => ({ t, dx: Math.sin(t / 55) * 260, wave: 1 }),
+    tank: (t) => {
+        const c = t % 150;
+        return {
+            t,
+            tel: c > 105 ? (c - 105) / 45 : 0,
+            fire: c < FRY_ANIM.tank.recoil ? FRY_ANIM.tank.recoil - c : 0,
+            dx: Math.floor(t / 150) % 2 ? 120 : -120,
+            dy: 90,
+        };
+    },
+    sniper: (t) => ({ t, aim: t % FRY_ANIM.sniper.charge }),
+    kami: (t) => ({ t: t + 400, rot: Math.sin(t / 70) * 0.35, wave: 1 }),
+};
+
+/** Frames of a card's loop sampled to find the box its art needs. */
+const CARD_FRAMES = 420;
+
+/**
+ * The card art for the catalogue: the hull, animating, on a canvas cut to what
+ * the whole loop paints. It exists for the same reason `backdropThumb` does --
+ * the glossary promises that what you see on the card is what shows up while
+ * playing, and a flat sprite stopped being that the moment these hulls grew an
+ * engine.
+ *
+ * The size is *measured*, not chosen: every frame of the loop is stacked onto
+ * one probe canvas and the union of what that painted is the card. So the frame
+ * fits the art whatever the art turns out to do, and nothing jitters as the
+ * loop runs, without a margin being written down per hull.
+ *
+ * @param {Object} o `{ sprite, kit, tint, px }` from the catalogue entry
+ * @returns {Object} `{ width, height, draw(g, t) }`, sizes in device pixels
+ */
+export function fryCard(o) {
     // The catalogue calls the sprite key `sprite`, the animator calls it `name`.
     const name = o.sprite || o.name;
     const geo = geometryOf(name, o.kit);
     const px = o.px;
-    // Generous room for the longest plume any of them throws, then cropped to
-    // what was actually painted -- so the card is the drawing, centred, and no
-    // hull needs a margin written down for it.
-    const margin = 10;
-    const cv = document.createElement("canvas");
-    cv.width = Math.round((geo.cols + 2 * margin) * px);
-    cv.height = Math.round((geo.rows + 2 * margin) * px);
-    const g = cv.getContext("2d");
-    const pose = {
-        speedy: { t: 3, dx: 140, wave: 1 },
-        tank: { t: 3, dx: 0, dy: 1 },
-        sniper: { t: 5, aim: 42 },
-        kami: { t: 8, rot: 0, wave: 1 },
-    }[o.kit] || {};
-    drawFry(g, Object.assign({
-        name, kit: o.kit, tint: o.tint, px,
-        x: cv.width / 2, y: cv.height / 2,
+    const pose = CARD_POSE[o.kit] || CARD_POSE.speedy;
+    const margin = 12;
+    const W = Math.round((geo.cols + 2 * margin) * px);
+    const H = Math.round((geo.rows + 2 * margin) * px);
+    const base = {
+        name, kit: o.kit, tint: o.tint, px, x: W / 2, y: H / 2,
         t: 0, hp: 4, mhp: 4, wave: 1, dx: 0, dy: 1, tel: 0, aim: 0, rot: 0, fire: 0,
-    }, pose));
-    return trimCanvas(cv, Math.round(px));
+    };
+    const probe = document.createElement("canvas");
+    probe.width = W;
+    probe.height = H;
+    const pg = probe.getContext("2d");
+    const args = Object.assign({}, base);
+    for (let t = 0; t < CARD_FRAMES; t++) {
+        drawFry(pg, Object.assign(args, base, pose(t)));
+    }
+    const box = canvasBounds(probe, Math.round(px)) || { x: 0, y: 0, w: W, h: H };
+    const ox = W / 2 - box.x;
+    const oy = H / 2 - box.y;
+    return {
+        width: box.w,
+        height: box.h,
+        draw(g, t) {
+            Object.assign(args, base, pose(t));
+            args.x = ox;
+            args.y = oy;
+            drawFry(g, args);
+        },
+    };
 }
 
 /* ------------------------------------------------------------------ */

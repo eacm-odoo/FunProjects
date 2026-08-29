@@ -297,7 +297,7 @@
                     <i class="fa fa-times me-1" role="img" aria-label="Close"/>Close
                 </button>
             </div>
-            <div class="ns_glossary_body">
+            <div class="ns_glossary_body" t-ref="glossaryBody">
                 <div t-if="state.picker" class="ns_practice_note">
                     Practice mode: pick an enemy, a boss or a colossus and the run
                     spawns nothing else, wave after wave. Nothing is saved to the
@@ -318,9 +318,15 @@
                         <div class="ns_glossary_grid">
                             <div t-foreach="group.items" t-as="item" t-key="item.label" class="ns_glossary_card">
                                 <!-- Places are wide painted stills, not pixel art: their
-                                     frame fills the card and is not rendered pixelated. -->
+                                     frame fills the card and is not rendered pixelated.
+                                     An enemy with a `kit` gets a live canvas its own
+                                     animator paints, so the card runs. -->
                                 <div class="ns_glossary_art" t-att-class="{ ns_glossary_art_wide: item.bg }">
-                                    <img t-att-src="item.src" t-att-alt="item.label"/>
+                                    <canvas t-if="item.kit" class="ns_glossary_anim"
+                                            t-att-data-kit="item.kit" t-att-data-sprite="item.sprite"
+                                            t-att-data-tint="item.tint" t-att-data-px="item.px"
+                                            role="img" t-att-aria-label="item.label"/>
+                                    <img t-else="" t-att-src="item.src" t-att-alt="item.label"/>
                                 </div>
                                 <div class="ns_glossary_label" t-out="item.label"/>
                                 <div class="ns_glossary_sub" t-out="item.sub"/>

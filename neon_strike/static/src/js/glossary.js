@@ -10,10 +10,12 @@
  * `px` is the pixel size the card is rasterized at (~120-130 px wide for all of
  * them, whatever the sprite grid is).
  *
- * An enemy that carries a `kit` is painted by its animator (`fryThumb`,
- * `droneThumb`) rather than by the sprite rasterizer, so its card shows the
- * hull with its engine lit and its tell up -- the thing the `desc` line next to
- * it is actually describing. Everything else is still a flat sprite.
+ * An enemy that carries a `kit` gets a *live* card: `fryCard` / `droneCard` hand
+ * the OWL component a canvas size and one function that paints a frame, and it
+ * runs them off a single rAF while the panel is open. A hull whose whole
+ * language is its engine says nothing in a still, so the card does the thing the
+ * `desc` line next to it describes -- the burn, the lean, the charge, the
+ * telegraph and the shot. Everything else is still a flat sprite.
  *
  * The boss, colossal boss and place groups are generated from `bosses.js`,
  * `colossi.js` and `backgrounds.js` so their names and behaviour lines never

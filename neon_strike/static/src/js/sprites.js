@@ -1033,16 +1033,20 @@ export function drawSprite(g, name, x, y, o = {}) {
 }
 
 /**
- * A copy of a canvas cropped to the pixels that are actually painted on it,
- * plus a margin. Exists for the glossary stills: an animator's card art is
- * drawn onto a canvas big enough for the longest plume the hull can throw, and
- * what the card wants is the drawing, centred, whatever that turned out to be.
+ * The box the painted pixels of a canvas actually occupy, plus a margin, or
+ * `null` if nothing is painted on it.
+ *
+ * Exists for the glossary's animated cards: a card is drawn onto a canvas big
+ * enough for the longest plume its hull can throw, every frame of its loop is
+ * sampled onto one probe, and the union of what that painted is the size the
+ * card canvas gets -- so the art is framed by what it does rather than by a
+ * margin written down per hull, and it does not jitter as the animation runs.
  *
  * @param {HTMLCanvasElement} cv
  * @param {number} [pad=0] margin in device pixels
- * @returns {HTMLCanvasElement} the original when nothing is painted on it
+ * @returns {Object|null} `{ x, y, w, h }`
  */
-export function trimCanvas(cv, pad = 0) {
+export function canvasBounds(cv, pad = 0) {
     const g = cv.getContext("2d");
     const data = g.getImageData(0, 0, cv.width, cv.height).data;
     let x0 = cv.width;
@@ -1061,19 +1065,13 @@ export function trimCanvas(cv, pad = 0) {
         }
     }
     if (x1 < 0) {
-        return cv;
+        return null;
     }
     x0 = Math.max(0, x0 - pad);
     y0 = Math.max(0, y0 - pad);
     x1 = Math.min(cv.width - 1, x1 + pad);
     y1 = Math.min(cv.height - 1, y1 + pad);
-    const out = document.createElement("canvas");
-    out.width = x1 - x0 + 1;
-    out.height = y1 - y0 + 1;
-    const og = out.getContext("2d");
-    og.imageSmoothingEnabled = false;
-    og.drawImage(cv, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
-    return out;
+    return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
 }
 
 /** Pixel size so a sprite spans `target` logical px in width. */
