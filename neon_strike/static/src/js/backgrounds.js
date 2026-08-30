@@ -536,6 +536,196 @@
  * that are left should be reviewed as a group before the next breakout rather
  * than one at a time.
  *
+ * -------------------------------------------------------------------------
+ * PULSAR study -- the eleventh conversion (2026-08-30)
+ * -------------------------------------------------------------------------
+ * `pulsar` was the emptiest entry in the catalogue: two gradient wedges on a
+ * rotating transform, a 12 px sun, and black. It is now five depths, four of
+ * them baked -- 460 far stars, two nebula sheets, a torus of two rings, jets
+ * along the rotation axis, an asteroid belt of ~150 rocks and a silhouette
+ * along the bottom of the box -- with the two beam cones, the core, its halo
+ * and the wisps live. Pure render change; no `game_engine.js`.
+ *
+ * The finding is not in any of that. It is that **the study's own default
+ * makes every behaviour its sheet promises impossible**, and only sweeping the
+ * angle found it. A beam traces a cone of half-angle `alpha` about the
+ * rotation axis, so it sweeps past a line of sight only if the cone reaches
+ * it -- and the camera sits `90 - theta` = 56 degrees off that axis. The study
+ * ships 22 degrees on a slider that stops at 45, so no setting it offers
+ * sweeps anything. Measured over a rotation at 22: the projected beam wobbles
+ * inside a 58 degree wedge it never leaves, **48.9%** of the arena is never
+ * lit at all, a point that is lit is crossed **0.79** times a rotation, and
+ * the pulse term saturates into a plateau **163 frames** wide. At 72 the same
+ * three numbers are 100%, 1.31 and 31 frames. Seven claims in the sheet -- a
+ * crossing every 120 frames, a ~27 frame spike, `sqrt(1 - s^2)` doing real
+ * work, light leaving the arena for the core -- are false together at 22 and
+ * true together above 56. See `PULSAR_ALPHA`; the sweep is in
+ * `tools/neon_strike_bench/probe_pulsar.mjs`.
+ *
+ * Five things worth repeating:
+ *   1. **A study can be internally inconsistent, and the sheet is not the
+ *      arbiter of itself.** This one describes a lighthouse in prose, ships a
+ *      nodding rod in code, and then rewrites the glossary line to promise the
+ *      lighthouse. The prose and the glossary agree with each other and not
+ *      with the default, so the default is what moves -- and the way to tell
+ *      which side to take was the name of the place.
+ *   2. **A published headline can be right about the shape and wrong about the
+ *      value.** Its `s = sin(alpha) * cos(phi)` holds only for an axis lying in
+ *      the sky plane; with 34 degrees of inclination the real `m . z` carries a
+ *      constant term that saturates the 12th power. Its "27 frames" is the
+ *      right target and lands at 31 here, on an angle it never tried.
+ *   3. **The study's "one real engine ask" was already in the file.** It wants
+ *      an art-pixel context for `live` so the beams dither like the field.
+ *      COMET TRAIL's art-resolution surface with a dirty rectangle is exactly
+ *      that, and it needed no engine change at all -- the second time reading
+ *      an older port's departures answered a newer study's ask for free.
+ *   4. **Rasterise the shape, not its bounding box.** The dirty region the
+ *      study proposes -- the union of the beam boxes and the wisp annulus --
+ *      is 166,064 art cells. The cones are trapezoids and the wisp arcs are
+ *      strips of quads in torus coordinates, so painting each shape into an
+ *      accumulator and resolving once visits **23,837 cells a frame, mean**,
+ *      which is the comet's own budget for a place with far more moving in it.
+ *      Two rasterising calls a frame. That also retired the study's `r < 470`
+ *      screen gate, which existed to keep an `atan2` off the canvas and cut
+ *      the outer arcs on a visible circle.
+ *   5. **Fourth star ramp to come down.** #5f7f96 / #9dc6dd / #dff4ff measures
+ *      0.48 / 0.75 / 0.94 against the detector's 0.62, and `starList` puts
+ *      about half the stars on the top rung whatever the study does to its own
+ *      distribution -- the same lever that was not there for COMET TRAIL. On a
+ *      ramp where every rung is under the threshold the standing detector
+ *      reads **0 features at every veil from 0 to 30**.
+ *
+ * Measured on the composed 680x540 arena. `veil: 11` is the study's own
+ * recommendation and it survives: the study's no-surround count goes 1 -> 0
+ * between veil 8 and 11, linear p95 is 0.035 against the 0.136 the giant's
+ * veil was set on, and mean arena luminance is 6.8% against the study's 7.5%.
+ * Strobe over 480 frames -- two rotations, four crossings -- peaks at 0.037%
+ * of full white in one frame, at phi 184 degrees, mid-sweep and not on a pulse
+ * frame, which is the shape a strobe is not; the study measured 0.034% and the
+ * same story. 26 of 27 places came out byte-identical, `cometQuad` included
+ * after it was split into the shared `artQuad`/`artRow`.
+ * *
+ * -------------------------------------------------------------------------
+ * OCEAN WORLD study -- the twelfth conversion (2026-08-30)
+ * -------------------------------------------------------------------------
+ * The first converted place whose whole subject is a PLANE seen edge on, and
+ * that makes every number in it a function of one variable: how far down the
+ * water a row is. 30 crest rows at `horizon + WH * u^1.75`; the length of a
+ * dash, the gap to the next, its height, its rung cap and the speed it travels
+ * all read off the same `u`. Five rate bands a factor of 2.6 apart, far to
+ * near -- the three far ones bake and only scroll, the two near ones are live,
+ * because a crest line lengthening, breaking and reforming is the point.
+ * `field` is sky on one ramp and water on a second, which is where the hard
+ * teal horizon comes from: a palette change, not a drawn line.
+ *
+ * Five things worth repeating:
+ *   1. **The port is CHEAPER than the painter it replaces, by 2.4x.** The
+ *      study draws the reflection as four sheared blits, each far band as two,
+ *      and every dash, glitter, foam and spore as its own `fillRect`: about
+ *      420 canvas calls a frame, in a catalogue whose most expensive place is
+ *      97 and whose ocean was 87. Everything under the horizon goes into one
+ *      art-resolution surface instead -- COMET TRAIL's and PULSAR's idiom --
+ *      and the whole water becomes 2 calls. **Measured 36 a frame against 87.**
+ *      Third study in a row to price a per-element approach it did not have
+ *      to pay; look for the surface before paying it.
+ *   2. **Brightness control belongs in the cap, not in the veil.** `oceanCap`
+ *      takes the smaller of two: depth (near water is seen at a steeper angle
+ *      and gives back less sky) and where the pixel is in the ARENA, holding
+ *      the bottom 200 px two rungs under the rest because that is where the
+ *      player sits. It is worth more than any veil: the bottom band goes from
+ *      **0.208 mean and 0.0893 linear p95 to 0.116 and 0.0206 at veil 0** --
+ *      already four times better than the bar RINGED GIANT's veil was set on,
+ *      before a single point of scrim. That is what lets this place carry the
+ *      brightest sky in the catalogue and still be flown in.
+ *   3. **Clip a live surface to the band it clears.** Two bugs at once: the
+ *      first far band's crest row sits 4 px ABOVE the horizon, so it was
+ *      painting water-ramp notches into the sky -- a visible comb along the
+ *      skyline -- and anything written outside the cleared band would have
+ *      been a smear that never went away. `oceanPix` takes the band, and both
+ *      stop existing. Only rendering it and looking found the comb.
+ *   4. **Point-sampling a minified sparse layer throws it away.** The
+ *      reflection squashes the sky by 0.32, so three source rows fold into
+ *      one -- and this sky is 4% cloud, so a point sample returned a whisper
+ *      and the headline feature of the new glossary line was invisible. Take
+ *      the brightest row of the range: same three reads, and the reflection
+ *      appears. Also worth having: writing it as art pixels rather than
+ *      blitting through a negative scale costs no call at all, lands on the
+ *      lattice, and lets the swell be a continuous function of the source row
+ *      instead of the study's four hard slices.
+ *   5. **Fifth star ramp to come down**, and this time it was predicted rather
+ *      than discovered: #9fe8f2 / #cdf6fb / #eafeff measures 0.85 / 0.93 /
+ *      0.98 against the detector's 0.62. Assume it every time.
+ *
+ * Measured on the composed 680x540 arena at frame 1500. `veil: 8` is the
+ * study's own number and it survives, but as a small correction rather than as
+ * the fix: 0 features on the standing detector AND on the study's own at every
+ * veil from 0 to 30, and 8 buys 6% of the bottom band's mean over 0. What did
+ * the work is the cap.
+ * *
+ * -------------------------------------------------------------------------
+ * ION STORM study -- the thirteenth conversion (2026-08-30)
+ * -------------------------------------------------------------------------
+ * The first place whose sky cannot bake at all. Seven curtains slide, lean and
+ * fold across the box; inside each, rays on an 18 px pitch flare and die on
+ * their own 0.3-0.7 s clocks. `field` holds only what is behind them -- a dust
+ * band and 430 stars -- and every art pixel of the front is decided again
+ * every frame. A curtain takes 18% of a star it crosses and no more, and that
+ * translucency is what fills a frame that used to be five soft bars.
+ *
+ * Six things worth repeating:
+ *   1. **Third study running whose "one real engine ask" was already in the
+ *      file.** It asks for `hard(bd, g, pix)` to run per frame over an arena
+ *      window handed to the painter. COMET TRAIL's art-resolution surface is
+ *      that, PULSAR proved it a second time, and here it also makes the
+ *      breakup's `topRung` 6 -> 7 free: `field` takes the entry's cap and the
+ *      live pass owns its own. Read the older ports' departures before
+ *      implementing a newer study's ask.
+ *   2. **Find the invariant and the per-pixel cost collapses.** A curtain's
+ *      cross-section is a pure function of the distance from its spine, so a
+ *      row is one 1-D profile shifted to wherever the spine is on that row --
+ *      a multiply and a lookup per art pixel, and ~380 profile cells a frame
+ *      to build all seven. That is what makes the WHOLE BOX cost 1.70 ms
+ *      against the study's own 2.1-2.7 for a 275x228 window and 5.9 for the
+ *      box, so the engine keeps a contract with no camera in it. Which is not
+ *      hypothetical: this place gets a colossus, and the pull-back, on wave
+ *      450.
+ *   3. **An additive layer has to be held to the ramp.** The curtain adds to
+ *      the plate so a star can burn through it -- and a star under a top-rung
+ *      ray adds past 255 and clips to a near-white speck, which is a bullet.
+ *      Clamping the sum to the place's own brightest tone keeps the star
+ *      visible under everything below the top rung and keeps Direction A's own
+ *      guarantee: the frame cannot show a colour neither ramp has.
+ *   4. **First study in the programme whose star ramp did not have to come
+ *      down.** #202b2f / #354247 / #4a595e tops out at luminance 0.338 against
+ *      the detector's 0.62, and the sheet says so and shows the working. Four
+ *      ports in a row had to fix this; a study that measures its own point
+ *      lights can have its palette taken as it stands.
+ *   5. **Time the phases; do not reason about them.** The first working
+ *      version cost 4.16 ms and every guess about where was wrong. Hoisting
+ *      the loop's property loads and flattening the ramps bought 7%. The
+ *      patch grid, which looked like the problem, was 0.011 ms. What was left
+ *      was two loops that had to be restructured. The same instrument then
+ *      found PULSAR spending most of its frame on two `Math.pow` calls per
+ *      beam pixel: an interpolated 258-entry table took it from 3.08 ms to
+ *      1.45 and the composed frame came out **byte-identical**.
+ *   6. A per-cell colour is a weighted mean of the curtain tints over that
+ *      cell, so it is read off the field BEFORE the patch scales it. The
+ *      study divides after, which drags every curtain under a patch toward
+ *      green by the patch's own gain -- a uniform scale cannot change a mean.
+ *
+ * Measured on the composed 680x540 arena. Strobe over 600 frames at `veil: 6`:
+ * peak frame-to-frame change **0.666/255 mean (0.26%)** and **7.73/255 in the
+ * worst 68x60 cell (3.0%)**, against the study's own 0.873 and 21.96 -- and
+ * through a whole breakup, 0.675 and 7.91, which is the event reading as
+ * structure and not as a flash, exactly as the sheet claims. Arena mean 18.55
+ * against its 17.4, and against 22.21 for the painter this replaces at the
+ * flat scrim: the port is darker than what it replaces. The standing
+ * small-bright-feature detector reads **0 at every veil from 0 to 30**; the
+ * study's own lower bar reads 3 pale / 3 bright at veil 6 against its 1 / 9,
+ * and all three are baked stars with a faint curtain over them at luminance
+ * 0.39 -- a third of the player's own fire. Longest bright run 99 px, which is
+ * how a ray fails a 40 px test by construction.
+ *
  */
 
 // The static layer is soft gradient art, so half resolution is free quality.
@@ -973,6 +1163,399 @@ const LAVA_SHIM_K = 0.03;
 const LAVA_SHIM_RATE = 0.021;
 const LAVA_SHIM_BEAT = [1.7, 0.008, 0.007];
 
+/* PULSAR. One rotation, in frames. Not a tuning: the glossary line promises a
+ * beam past the arena every couple of seconds, the two beams are antipodal, so
+ * 240 frames is the number that makes the sentence true. The painter this
+ * replaces turned at 0.011 rad/frame, which is 4.8 s between crossings. */
+const PULSAR_PERIOD = 240;
+const PULSAR_OMEGA = 6.2832 / PULSAR_PERIOD;
+// The star, as a fraction of the arena: centred, and 12% of the arena's height
+// ABOVE its top edge. It is outside the play field, which is the whole reason
+// the pulse has to be legible through structure -- from inside the arena you
+// never see the core, only what it is doing.
+const PULSAR_STAR = [0.5, -0.12];
+// The rotation axis, as two angles: leaning right of vertical in the sky plane,
+// and inclined out of it toward the viewer. The inclination opens the torus
+// into an ellipse instead of a bar and fixes the diagonal the composition
+// hangs on; it is also half of the sweep condition below.
+const PULSAR_PSI = 28 * (Math.PI / 180);
+const PULSAR_THETA = 34 * (Math.PI / 180);
+/**
+ * How far the magnetic axis leans off the rotation axis. The one number in the
+ * place that had to be changed rather than ported, and it is the difference
+ * between a pulsar and a lamp on a stick.
+ *
+ * The beam direction traces a cone of half-angle alpha about the rotation
+ * axis, so a beam sweeps past a given line of sight only if that cone reaches
+ * it -- and the camera's line of sight sits `90 - PULSAR_THETA` = 56 degrees
+ * off the axis. The study shipped 22 degrees on a slider that stops at 45, so
+ * in its own composition NO setting sweeps: the projected beam wobbles by
+ * +-29 degrees about a fixed diagonal it never leaves, most of the arena is
+ * never crossed at all, and the pulse term saturates into a 65%-duty plateau.
+ * Seven separate claims in the sheet -- a crossing every 120 frames, the 27
+ * frame spike, `sqrt(1 - s^2)` doing real work, light leaving the arena for
+ * the core -- are all false at 22 and all true together above 56.
+ *
+ * 72 is measured rather than picked: see `probe_pulsar.mjs`, which sweeps it.
+ * It is the largest value that still gives the pulse its full amplitude --
+ * the term is normalised by `sin alpha` rather than by its own reach, so past
+ * 73 degrees the spike stops reaching 1 and by 90 it peaks at 0.11 -- and
+ * being the largest is what buys the sharpest spike (31 frames, against the
+ * sheet's own "about 27") and the most crossings. At 72 every pixel of the
+ * arena is swept, a point is crossed 1.31 times a rotation, and it spends 9.5
+ * frames of 240 under a beam: mostly nothing, then a brief arrival.
+ *
+ * A point is crossed 1.31 times rather than twice because the two crossings
+ * are not alike -- half a rotation apart, one beam is broadside and long and
+ * the other is turned toward the camera, foreshortened and short. That is the
+ * sheet's own mechanism working, not a shortfall: what the near beam stops
+ * spending on the arena is what lands on the core.
+ */
+const PULSAR_ALPHA = 72 * (Math.PI / 180);
+
+/** A 3-vector back at unit length. */
+function norm3(v) {
+    const m = Math.hypot(v[0], v[1], v[2]) || 1;
+    return [v[0] / m, v[1] / m, v[2] / m];
+}
+
+const PULSAR_AXIS = norm3([
+    Math.sin(PULSAR_PSI) * Math.cos(PULSAR_THETA),
+    -Math.cos(PULSAR_PSI) * Math.cos(PULSAR_THETA),
+    Math.sin(PULSAR_THETA),
+]);
+// An orthonormal basis of the plane the magnetic axis revolves in -- the plane
+// perpendicular to the rotation axis, which is also the plane the torus lies
+// in. `u` is z minus its axis component, so it points as nearly at the viewer
+// as anything in that plane can.
+const PULSAR_U = norm3([
+    -PULSAR_AXIS[2] * PULSAR_AXIS[0],
+    -PULSAR_AXIS[2] * PULSAR_AXIS[1],
+    1 - PULSAR_AXIS[2] * PULSAR_AXIS[2],
+]);
+const PULSAR_V = norm3([
+    PULSAR_AXIS[1] * PULSAR_U[2] - PULSAR_AXIS[2] * PULSAR_U[1],
+    PULSAR_AXIS[2] * PULSAR_U[0] - PULSAR_AXIS[0] * PULSAR_U[2],
+    PULSAR_AXIS[0] * PULSAR_U[1] - PULSAR_AXIS[1] * PULSAR_U[0],
+]);
+/**
+ * The inverse of the 2x2 matrix that projects that plane onto the screen.
+ * `IM * q` takes any point of the sky back to torus coordinates, which makes
+ * the torus radius through a pixel one multiply-add pair rather than a search
+ * -- and the sign of the second coordinate is which half of the ring is in
+ * front. It is the whole reason the rings are cheap.
+ */
+const PULSAR_IM = (function invert() {
+    const det = PULSAR_U[0] * PULSAR_V[1] - PULSAR_V[0] * PULSAR_U[1];
+    return [PULSAR_V[1] / det, -PULSAR_V[0] / det, -PULSAR_U[1] / det, PULSAR_U[0] / det];
+})();
+// The jets run along the rotation axis, so their screen direction is its
+// projection: the one element that crosses the arena corner to corner.
+const PULSAR_JETD = (function project() {
+    const m = Math.hypot(PULSAR_AXIS[0], PULSAR_AXIS[1]) || 1;
+    return [PULSAR_AXIS[0] / m, PULSAR_AXIS[1] / m];
+})();
+// Jets: how far along the axis either way, half-width at the base and how much
+// it flares per px of reach, the amplitude, and the knot noise that stops them
+// reading as two smooth cones.
+const PULSAR_JET = { len: 900, w0: 14, flare: 0.1, amp: 0.42, knot: [0.55, 0.75, 70], fall: 1.4 };
+// The two rings, as radius / sigma / amplitude in torus space. Both radii were
+// raised from a first pass at 165 and 300, where the whole torus sat above the
+// arena's top edge and the play field got none of it. At 300 and 520 the near
+// arc crosses the arena's upper half and the outer one grazes its middle,
+// which is the only version of this torus the player ever sees.
+const PULSAR_TORUS = [[300, 34, 0.42], [520, 62, 0.28]];
+// Front half brighter than the back half. Which is which is the sign of the
+// projected z of the torus angle -- the same trick the giant's rings use.
+const PULSAR_FACE = [1.25, 0.8];
+// Filaments along the rings: base, span, and the two noise scales.
+const PULSAR_FIL = [0.62, 0.55, 2.2, 190];
+// The two nebula sheets: the noise scale gas is drawn at, the cut that turns
+// noise into cloud, the gamma on what survives, the scale and cut of the sheet
+// mask, and the illumination by proximity to the star.
+const PULSAR_NEB = {
+    scale: 230, cut: [3, 1.52], gamma: 1.15, amp: 1.15,
+    mask: 520, maskCut: [3.1, 1.55], illum: [0.1, 1.15, 430],
+};
+// Eight faint radial spikes. `cos(4a)` gives eight lobes, the power sharpens
+// them to spokes, and the falloff keeps them near the star.
+const PULSAR_SPIKE = { lobes: 4, sharp: 26, amp: 0.18, fall: 260 };
+// The asteroid belt, in fractions of arena height and box pixels: the band it
+// fills, the grid it is jittered on, the chance of one rock in a cell rather
+// than two, the near/far scale, the two radii, and the rim brightness. Scaling
+// with depth is what makes the field recede.
+const PULSAR_BELT = {
+    y0: 0.38, y1: 1.04, grid: 74, single: 0.62, scale: [0.45, 1.15],
+    rx: [7, 20], ry: [5, 11], rim: [0.2, 0.34], seed: 90210,
+};
+// A rock's rim: how far out from its centre the lit crescent starts, and how
+// nearly the surface has to face the star to catch it. The rim lights only on
+// the side facing the star, so rocks left of centre are lit from the upper
+// right and rocks right of centre from the upper left -- that directional rim
+// is what stops 150 ellipses reading as 150 identical lozenges.
+const PULSAR_RIM = [0.58, 0.42];
+// Rock body and rim mottle: the two noise scales and the levels they ride.
+const PULSAR_ROCK_BODY = [0.02, 0.04, 21, 15];
+const PULSAR_ROCK_LIT = [0.55, 0.65, 13];
+// The near silhouette along the bottom of the box, below the arena floor: how
+// far down it starts, the sine and the noise that shape its skyline, and the
+// lit lip on its top edge.
+const PULSAR_SIL = { at: 1.02, sine: [26, 150, 2], noise: [54, 210, 8.5], lip: 4, lipV: 0.26, v: 0.014 };
+// The far stars. 460 in the study; `starList` spreads brightness over its own
+// band and the ramp is what keeps them off the top of the frame -- see the
+// entry.
+const PULSAR_STARS = 460;
+const PULSAR_STAR_SEED = 0x117d;
+// A star is dropped where the plate behind it already reads this bright, which
+// is the same rule COMET TRAIL uses: a point light inside a lit nebula is a
+// speck of noise rather than a star behind it.
+const PULSAR_STAR_LIT = 60;
+// The beam cone: half-width at the source and how much it widens per px of
+// reach, the reach itself before foreshortening, the amplitude, and the two
+// falloff powers. The cone WIDENS where the painter it replaces tapered a 120
+// px base to a point -- a spike is the shape that reads as a rotating bar.
+// The perpendicular power is 1.6 rather than 1: it widens the transition zone
+// enough that no single dither cell sits on a hard threshold while the beam
+// turns across the fixed Bayer matrix, which is the one artefact a sweeping
+// beam has on an ordered dither.
+const PULSAR_BEAM = { hw: 26, flare: 0.085, len: 1300, amp: 0.42, perp: 1.6, along: 1.3 };
+const PULSAR_BEAM_PERP = powTable(PULSAR_BEAM.perp);
+const PULSAR_BEAM_ALONG = powTable(PULSAR_BEAM.along);
+// How sharply the core answers a pole coming round to the line of sight. 12 is
+// the sharpest spike that still survives the 3 px lattice without aliasing to
+// a single frame, and it is what makes the pulse ~27 frames wide inside a
+// 120-frame gap: mostly nothing, then a brief arrival.
+const PULSAR_PULSE_POW = 12;
+// The core and its halo, in logical px: the core radius and the brightness it
+// runs between, the halo radius and what the pulse adds to it, and the radius
+// the whole thing is rasterised inside. Both live outside the arena; they are
+// what the box and a camera pulled back for a colossus see.
+const PULSAR_CORE = { r: 12, base: 0.35, peak: 0.65, amp: 1.1, halo: 55, haloAmp: 0.22, cut: 62 };
+// Wisps: where they launch in torus space, how fast they travel outward, how
+// long they live and the radius they expire at, the radial half-thickness of
+// one, how many seeded arcs it is made of and how wide those run, the
+// amplitude and its fade, and the frames it takes to rise. Three arcs rather
+// than a full ring is the point -- it reads as structure leaving rather than
+// as a shockwave, and it is where the pulse is legible inside the play field.
+const PULSAR_WISP = {
+    r0: 300, v: 0.55, life: 600, rMax: 640, band: 12, arcs: 3, w: [0.35, 0.35],
+    amp: 0.34, fade: 420, rise: 14, dr: 1.5, am: 0.7, seed: 1000, step: 37,
+};
+const PULSAR_WISP_DR = powTable(PULSAR_WISP.dr);
+const PULSAR_WISP_AM = powTable(PULSAR_WISP.am);
+// The grid the belt is bucketed on, in box pixels.
+const PULSAR_BKT = 64;
+
+/* OCEAN WORLD. Where the horizon sits, as a fraction of arena height, and how
+ * the water recedes: the exponent that turns depth into distance, so a row of
+ * crests at `u` lands at `horizon + WH * u^1.75`. Everything in the place --
+ * the rate ladder, the dash lengths, the rung caps -- is a function of `u`,
+ * which is what keeps the five depths agreeing with each other. */
+const OCEAN_HORIZON = 0.4;
+const OCEAN_PERSP = 1.75;
+// The sun's path on the water, as a fraction of arena width. Off centre, so
+// the glitter column is a composition element and not a symmetry axis.
+const OCEAN_BLOOM = 0.18;
+// The sky, top of the box to the horizon: base, span and the gamma that keeps
+// most of the lift near the horizon rather than spreading it up the box.
+const OCEAN_SKY = [0.055, 0.44, 0.9];
+// The bloom where the sun meets the water: amplitude, its two sigmas, and how
+// far above the horizon its centre sits.
+const OCEAN_SKY_BLOOM = [0.42, 100, 58, 4];
+// The water, horizon to the bottom of the box: how much brighter the far water
+// is than the near, the falloff, and the floor it never goes under. Water gets
+// DARKER toward the player, which is the whole reason this place can carry a
+// bright sky and still leave the bottom of the arena readable.
+const OCEAN_WATER = [0.3, 1.5, 0.035];
+// The glitter column on the water: amplitude, how far down the water it
+// reaches as a fraction of the depth, and its width.
+const OCEAN_SEA_BLOOM = [0.2, 0.14, 300];
+/**
+ * The rung cap, and it is two caps taking the smaller.
+ *
+ * The first is depth: within 70 logical px of the horizon the water may reach
+ * rung 6, and it loses a rung every band or so going down, because near water
+ * is seen at a steeper angle and reflects less sky. The second is where the
+ * pixel is in the ARENA, and that one is not physics -- the player sits at the
+ * bottom centre and everything that can kill them arrives there, so the bottom
+ * 200 px of the play field is held two rungs under the rest by construction
+ * rather than by a veil. It is the same idea as MOLTEN WORLD's land cap, keyed
+ * on position instead of on material.
+ */
+const OCEAN_CAP_DEPTH = [[70, 6], [140, 5], [220, 4]];
+const OCEAN_CAP_FLOOR = 3;
+const OCEAN_CAP_BAND = [[340, 3], [280, 4]];
+// Cloud banks, high layer then low: centre as a fraction of the box above the
+// horizon, thickness, amplitude, and the harmonic that shapes it along x. The
+// low layer is the one that gets repeated in the swell.
+const OCEAN_BANKS = [
+    [[0.22, 8, 0.9, 2], [0.4, 10, 0.8, 3]],
+    [[0.62, 11, 1, 2], [0.75, 9, 0.9, 3], [0.9, 7, 0.8, 5]],
+];
+// A bank's profile along x: the two sines' weights, the cut that turns the
+// wave into separate banks rather than a continuous sheet, and its span.
+const OCEAN_BANK_P = [0.5, 0.25, 0.7, 0.52];
+// Where each cloud layer is drawn, as fractions of the box top to the horizon,
+// what a cell needs before it counts as cloud at all, and how fast the layer
+// travels. The low layer runs nearly three times the high one: that is the
+// only parallax in the sky.
+const OCEAN_CLOUD_SPAN = [[0, 0.62], [0.4, 1]];
+const OCEAN_CLOUD_CUT = 0.16;
+const OCEAN_CLOUD_AMP = 0.2;
+const OCEAN_CLOUD_RATE = [0.035, 0.094];
+/**
+ * The reflection: the low cloud layer again, upside down under the horizon.
+ *
+ * `gain` and `cap` are what make it a reflection rather than a copy -- the
+ * water gives back about six tenths of the sky and cannot give back the top of
+ * the ramp at all. `squash` is the compression a near-grazing view puts on it,
+ * so the whole sky above the horizon fits into a hundred px under it, and the
+ * two sines are the swell that breaks the image up as it comes back.
+ */
+const OCEAN_REFLECT = { gain: 0.62, cap: 4, cut: 0.3, squash: 0.32, shear: [7, 0.006, 1.9, 3, 0.017, 0.7] };
+// The rate ladder, in px per frame, far to near: five bands a factor of ~2.6
+// apart, which is what reads as distance when nothing in the frame has an edge
+// to measure against. Bands are cut at these values of `u`.
+const OCEAN_RATES = [0.012, 0.031, 0.081, 0.211, 0.549];
+const OCEAN_BANDS = [0.18, 0.34, 0.55, 0.78];
+// The crest rows: how many down the water, the dash length and the gap between
+// dashes as functions of `u`, and where a crest stops being one art pixel high
+// and becomes two.
+const OCEAN_ROWS = 30;
+const OCEAN_DASH_L = [3, 40, 1.6];
+const OCEAN_DASH_G = [5, 30, 1.3];
+const OCEAN_DASH_H = [0.45, 3, 6];
+// The three far bands are baked and only scroll. Their jitter along the row,
+// the length they take of their own slot, the value of the body and of the
+// crest above it, and how often a dash gets one.
+const OCEAN_FAR = { jitter: 0.55, len: [0.55, 0.7], body: [0.28, 0.1], crest: 0.55, crestV: 0.52, seed: [911, 137] };
+// The two near bands are live, because what they do is the point: a crest line
+// lengthens, breaks and reforms. `set` is the swell the whole band breathes
+// with, `fr` the rate one dash breathes at, and `cut` the amplitude under
+// which a dash is not drawn at all -- which is what makes the line break.
+const OCEAN_NEAR = {
+    seed: 4477, jitter: 0.5, len: [0.7, 0.6], fr: [0.011, 0.03], crest: 0.45,
+    set: [0.55, 0.45, 0.0027, 0.22, 0.0086, 1.3], amp: [0.34, 0.66], cut: 0.21,
+    grow: [0.35, 0.95], v: [0.24, 0.1], crestAt: 0.55, crestV: 0.5,
+};
+// The glitter path: how many, the band of `u` they sit in, how far either side
+// of the column, the dash length, and the two rates -- one it flickers at and
+// one it jitters across the column at.
+const OCEAN_GLITTER = { n: 34, seed: 7717, u: [0.02, 0.5], w: [9, 58], len: [4, 22], fr: [0.05, 0.26], jr: [0.006, 0.012], on: 0.15, jitter: 0.45 };
+// Foam: born, lives 40-90 frames, dies. Not a particle that travels -- it
+// appears where a crest breaks and is gone, which is the one thing on this
+// water that is an event rather than a texture.
+const OCEAN_FOAM = { n: 18, seed: 3131, u: [0.45, 0.5], cycle: [120, 140], life: [40, 50], off: 400, w: [6, 9], on: 0.25, crestAt: 0.7 };
+// Spores lifting off the crests: the place's own character, kept from the
+// painter it replaces. How many, where they start, how big, how fast they
+// rise, how far before they are gone, and the sway.
+const OCEAN_SPORE = { n: 34, seed: 5150, u: [0.28, 0.66], big: 0.62, size: [6, 9], rate: [0.22, 0.33], span: [260, 420], sway: [0.004, 0.01], amp: [6, 10], fade: 0.12 };
+// Both cloud layers stop at rung 4: a cloud is lit sky, not a light source,
+// and the top of this ramp belongs to the horizon and the glitter.
+const OCEAN_CLOUD_CAP = 4;
+
+/* ION STORM. Seven curtains across the box, and the one seed everything in the
+ * place is drawn from: widths, ray tables, phases, patches. Nothing calls a
+ * generator at runtime, so frame 1500 is the same frame on every machine. */
+const ION_CURTAINS = 7;
+const ION_SEED = 0x105704;
+// A curtain, in logical px: how far its centre is jittered off its even share
+// of the box, and the width band it is picked from.
+const ION_CX_JITTER = 30;
+const ION_WIDTH = [96, 132];
+// How it moves. Slide is bodily, lean is a shear about 42% of the box height,
+// and fold is a horizontal displacement that runs down it -- the fold is what
+// makes a curtain read as a folded sheet rather than as a bar.
+const ION_SLIDE = [60, 30, 350, 430];
+const ION_LEAN = [0.06, 0.08, 620, 430, 0.42];
+const ION_FOLD = [18, 14, 320, 160, 0.0022, 0.0018];
+/**
+ * The vertical envelope, as a fraction of box height: where it starts, where
+ * it peaks, where it ends, and the two exponents. It rises fast and falls
+ * slow, which is what puts the bright part of every curtain in the top half of
+ * the arena and leaves the bottom -- where the player sits -- to the stars.
+ */
+const ION_ENV = [0.02, 0.4, 0.99, 1.35, 1.5];
+// Across the width the field falls as (1 - |u|/half)^2 off a floor, so every
+// curtain has a bright spine and soft flanks.
+const ION_ACROSS = [0.2, 0.8];
+/**
+ * The rays. Pitch in logical px, then the two thresholds inside a pitch that
+ * cut the core out of the gap, and what the gap is worth. A ray is 2-3 ART
+ * pixels of hard-edged vertical line and never a 1 px spark, which is the
+ * first of the three things that tell it from a bullet.
+ */
+const ION_PITCH = 18;
+const ION_CORE = [0.06, 0.52, 0.13];
+const ION_FIELD_GAIN = 1.3;
+/**
+ * A ray's own clock: the flicker period band in frames, the base gain and the
+ * swing on it, the second harmonic that keeps the swing off a pure sine, and
+ * the core weight band.
+ *
+ * The phase walk is the good idea here: `frac(0.618 * k + jitter + 0.5 * (k
+ * odd))` spreads phases evenly by the golden ratio AND anti-phases every
+ * neighbouring pair, so a curtain's own mean brightness stays flat while the
+ * individual rays swing the full range. That is what makes 180 flickering
+ * lines read as weather instead of as a strobe.
+ */
+const ION_RAY_PERIOD = [18, 26];
+const ION_RAY_GAIN = [0.3, 0.7];
+const ION_RAY_H = [0.75, 0.25, 2.7, 1.7];
+const ION_RAY_W = [0.55, 0.45];
+const ION_RAY_PHASE = [0.6180339, 0.14];
+/**
+ * The three pulsating patches: where they sit, their radii, the pulse period
+ * band, the drift, and the exponent that keeps each one dark for most of its
+ * cycle and peaked briefly. A patch multiplies the field under it, lifting
+ * rays about two rungs over roughly a fifth of the arena -- never all of it.
+ */
+const ION_PATCHES = 3;
+const ION_PATCH_X = [0.18, 0.32, 90];
+const ION_PATCH_Y = [0.34, 0.22];
+const ION_PATCH_R = [[160, 160], [200, 220]];
+const ION_PATCH_PER = [180, 900];
+const ION_PATCH_DRIFT = [900, 700, 40];
+const ION_PATCH_POW = 1.7;
+const ION_PATCH_GAIN = [0.85, 1.05];
+// The patch field is 160-320 px across and perfectly smooth, so it is
+// evaluated on a coarse grid and read back per cell. At 8 art cells that is
+// 24 logical px between samples against the narrowest patch's 160, and it
+// takes the grid from 12k evaluations a frame to 3k.
+const ION_PATCH_GRID = 8;
+/**
+ * The breakup, and it is a pure function of the frame counter: one epoch in
+ * four fires, so about one every 9600 frames. 210 frames long -- 90 in, 60
+ * held, 60 out -- and it touches two of the seven curtains, chosen by the
+ * epoch so it is never the same two twice running.
+ *
+ * `rate` is the multiplier on the ray flicker and it is the number that had to
+ * be measured rather than felt: the study rejected x3 on a worst-cell reading
+ * of 27/255 and shipped 1.5, moving the drama into the fold and the front.
+ */
+const ION_BREAK = { epoch: 2400, chance: 0.25, life: 210, ramp: [90, 150, 60], curtains: 2 };
+const ION_BREAK_FX = { fold: 1.6, field: 0.3, rate: 0.5, front: [6, 120, 0.26], seed: 97 };
+// The dust band behind everything: the two noise scales, the cut and gain that
+// turn noise into cloud, and where the band sits and how wide it is.
+const ION_DUST = { scale: [138, 90, 51, 36], mix: 0.6, cut: 0.58, gain: 1.55, at: 0.52, sigma: 0.3 };
+const ION_DUST_RUNGS = 3;
+const ION_STARS = 430;
+const ION_STAR_SEED = 0x2b91;
+/**
+ * How much of a star a curtain at full field hides. An aurora is thin: 0.18
+ * means the stars burn straight through every curtain, which is what the
+ * reference does and what fills a frame that was empty for free.
+ */
+const ION_OCCLUDE = 0.18;
+// The rung a field value lands on, before the cap. 7.6 rather than 7 so the
+// top of a bright core reaches the cap instead of stopping one under it.
+const ION_RUNG = 7.6;
+// Bright cores take a dither offset that depends on x only, so a ray stays one
+// unbroken vertical run rather than breaking into halftone pieces under 40 px
+// -- which is the whole reason a ray cannot be counted as a bullet.
+const ION_COHERENT = 0.45;
+const ION_MIN = 0.006;
+
 const FIELD_DARK = { v: 0 };
 // The arena the glossary thumbnails are composed in. Painters place things in
 // logical pixels, so a still has to be taken at the size they were written for
@@ -1256,9 +1839,101 @@ function twinkles(bd, g) {
     }
 }
 
+/**
+ * A power curve over 0..1, sampled into a table.
+ *
+ * `Math.pow` with a fractional exponent is tens of nanoseconds and the falloff
+ * curves of a beam or a wisp are evaluated once per art pixel -- 40,000 of
+ * them a frame on PULSAR, which is most of what that painter costs. Read back
+ * with `powLook`, which interpolates, the error is far under the dither's own
+ * threshold step and the picture is the same one.
+ */
+function powTable(e) {
+    const t = new Float32Array(258);
+    for (let i = 0; i <= 256; i++) {
+        t[i] = Math.pow(i / 256, e);
+    }
+    t[257] = t[256];
+    return t;
+}
+
+function powLook(t, x) {
+    const p = x * 256;
+    const i = p | 0;
+    return t[i] + (t[i + 1] - t[i]) * (p - i);
+}
+
 /** Rec. 709 luminance of an RGB triplet, on the same 0-255 scale. */
 function lum(c) {
     return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+
+/**
+ * One row of art pixels, with the surface's dirty rectangle kept up to date.
+ * Both the clipping and the bookkeeping live here, so a shape only has to say
+ * which span of which row it covers.
+ */
+function artRow(s, y, xA, xB, put) {
+    if (y < 0 || y >= s.ah) {
+        return;
+    }
+    const a = Math.max(0, xA);
+    const b = Math.min(s.aw - 1, xB);
+    if (b < a) {
+        return;
+    }
+    for (let x = a; x <= b; x++) {
+        put(x, y);
+    }
+    if (a < s.x0) { s.x0 = a; }
+    if (b > s.x1) { s.x1 = b; }
+    if (y < s.y0) { s.y0 = y; }
+    if (y > s.y1) { s.y1 = y; }
+    // A surface may also ask for the span per row. One rectangle around two
+    // thin diagonal cones is mostly empty -- PULSAR resolves 166k cells a
+    // frame to paint 24k of them without this, and 50k with it.
+    if (s.span) {
+        const k = y * 2;
+        if (s.span[k] < 0 || a < s.span[k]) { s.span[k] = a; }
+        if (b > s.span[k + 1]) { s.span[k + 1] = b; }
+    }
+}
+
+/**
+ * One convex quad, scanline-filled. Four corners, in order, in art pixels.
+ * Shared: it is the comet's tail segments and the pulsar's beam cones and
+ * wisp arcs, which are all quads once they are in the right coordinates.
+ */
+function artQuad(s, q, put) {
+    let ymin = q[1];
+    let ymax = q[1];
+    for (let i = 3; i < 8; i += 2) {
+        if (q[i] < ymin) { ymin = q[i]; }
+        if (q[i] > ymax) { ymax = q[i]; }
+    }
+    const yA = Math.max(0, Math.ceil(ymin - 0.5));
+    const yB = Math.min(s.ah - 1, Math.floor(ymax - 0.5));
+    for (let y = yA; y <= yB; y++) {
+        const yc = y + 0.5;
+        let lo = Infinity;
+        let hi = -Infinity;
+        for (let e = 0; e < 4; e++) {
+            const ax = q[e * 2];
+            const ay = q[e * 2 + 1];
+            const bx = q[((e + 1) & 3) * 2];
+            const by = q[((e + 1) & 3) * 2 + 1];
+            if ((ay <= yc) === (by <= yc)) {
+                continue;
+            }
+            const x = ax + ((yc - ay) / (by - ay)) * (bx - ax);
+            if (x < lo) { lo = x; }
+            if (x > hi) { hi = x; }
+        }
+        if (hi < lo) {
+            continue;
+        }
+        artRow(s, y, Math.ceil(lo - 0.5), Math.floor(hi - 0.5), put);
+    }
 }
 
 /**
@@ -1506,48 +2181,12 @@ function cometPixel(s, x, y, ramp, alpha) {
     s.data[i + 3] = 255;
 }
 
-/** One convex quad, scanline-filled. Four corners, in order, in art pixels. */
+/** The comet's own quad: one rung and one alpha across the whole shape. */
 function cometQuad(s, q, ramp, alpha) {
     if (alpha <= 0) {
         return;
     }
-    let ymin = q[1];
-    let ymax = q[1];
-    for (let i = 3; i < 8; i += 2) {
-        if (q[i] < ymin) { ymin = q[i]; }
-        if (q[i] > ymax) { ymax = q[i]; }
-    }
-    const yA = Math.max(0, Math.ceil(ymin - 0.5));
-    const yB = Math.min(s.ah - 1, Math.floor(ymax - 0.5));
-    for (let y = yA; y <= yB; y++) {
-        const yc = y + 0.5;
-        let lo = Infinity;
-        let hi = -Infinity;
-        for (let e = 0; e < 4; e++) {
-            const ax = q[e * 2];
-            const ay = q[e * 2 + 1];
-            const bx = q[((e + 1) & 3) * 2];
-            const by = q[((e + 1) & 3) * 2 + 1];
-            if ((ay <= yc) === (by <= yc)) {
-                continue;
-            }
-            const x = ax + ((yc - ay) / (by - ay)) * (bx - ax);
-            if (x < lo) { lo = x; }
-            if (x > hi) { hi = x; }
-        }
-        if (hi < lo) {
-            continue;
-        }
-        const xA = Math.max(0, Math.ceil(lo - 0.5));
-        const xB = Math.min(s.aw - 1, Math.floor(hi - 0.5));
-        for (let x = xA; x <= xB; x++) {
-            cometPixel(s, x, y, ramp, alpha);
-        }
-        if (xA < s.x0) { s.x0 = xA; }
-        if (xB > s.x1) { s.x1 = xB; }
-        if (y < s.y0) { s.y0 = y; }
-        if (y > s.y1) { s.y1 = y; }
-    }
+    artQuad(s, q, (x, y) => cometPixel(s, x, y, ramp, alpha));
 }
 
 /** A radial falloff, as concentric rungs. The coma and every knot. */
@@ -2417,6 +3056,1161 @@ function lavaCracks(bd) {
 /* Painters                                                                    */
 /* -------------------------------------------------------------------------- */
 
+/* -------------------------------------------------------------------------- */
+/* PULSAR                                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The rock of the belt covering a point, as a value, or -1 where there is
+ * none. Bucketed on a coarse grid: 150 ellipses tested per art pixel would be
+ * 28 million tests over the box, and the bucket takes it to about two.
+ */
+function pulsarRock(bd, x, y) {
+    const b = bd.rocks[Math.floor(y / PULSAR_BKT) * bd.rockW + Math.floor(x / PULSAR_BKT)];
+    if (!b) {
+        return -1;
+    }
+    for (const c of b) {
+        const dx = (x - c.x) / c.rx;
+        const dy = (y - c.y) / c.ry;
+        const d2 = dx * dx + dy * dy;
+        if (d2 >= 1) {
+            continue;
+        }
+        // The lit crescent: far enough out from the centre, and facing the
+        // star. Both tests, so the rim is a crescent and not a ring.
+        if (d2 > PULSAR_RIM[0] && dx * c.nx + dy * c.ny > PULSAR_RIM[1]) {
+            return c.rim * (PULSAR_ROCK_LIT[0]
+                + PULSAR_ROCK_LIT[1] * bd.mottle(x / PULSAR_ROCK_LIT[2], y / PULSAR_ROCK_LIT[2], 1));
+        }
+        return PULSAR_ROCK_BODY[0] + PULSAR_ROCK_BODY[1]
+            * bd.mottle(x / PULSAR_ROCK_BODY[2], y / PULSAR_ROCK_BODY[3], 1);
+    }
+    return -1;
+}
+
+/** Where the near silhouette's skyline runs, in logical y, at a box x. */
+function pulsarSilhouette(bd, bx) {
+    return bd.H * PULSAR_SIL.at
+        + PULSAR_SIL.sine[0] * Math.sin(bx / PULSAR_SIL.sine[1] + PULSAR_SIL.sine[2])
+        + PULSAR_SIL.noise[0] * bd.sil(bx / PULSAR_SIL.noise[1], PULSAR_SIL.noise[2], 2);
+}
+
+/**
+ * Everything above the near depth: two nebula sheets, the eight radial spikes,
+ * the two torus rings and the jets. All of it a pure function of position, and
+ * all of it what the place has never had -- the entry was a beam and a dot on
+ * black, and emptiness was the defect.
+ */
+function pulsarSky(bd, x, y) {
+    const qx = x - bd.sx;
+    const qy = y - bd.sy;
+    // Box coordinates for the noise, so the seeded layouts sit where the study
+    // tuned them rather than sliding with the arena's own origin.
+    const bx = x - bd.x0;
+    const by = y - bd.y0;
+    const dist = Math.hypot(qx, qy);
+    const N = PULSAR_NEB;
+    const mask = clamp(bd.mask(bx / N.mask, by / N.mask, 2) * N.maskCut[0] - N.maskCut[1], 0, 1);
+    const illum = N.illum[0] + N.illum[1] * Math.exp(-dist / N.illum[2]);
+    let v = Math.pow(clamp(bd.neb(bx / N.scale, by / N.scale, 4) * N.cut[0] - N.cut[1], 0, 1), N.gamma)
+        * mask * illum * N.amp;
+    if (dist > 6) {
+        const ang = Math.atan2(qy, qx);
+        v += Math.pow(Math.abs(Math.cos(ang * PULSAR_SPIKE.lobes)), PULSAR_SPIKE.sharp)
+            * PULSAR_SPIKE.amp * Math.exp(-dist / PULSAR_SPIKE.fall);
+    }
+    // The torus lies in the plane perpendicular to the rotation axis, so its
+    // projection is exact and cheap: the inverse matrix gives the radius
+    // through any pixel, and the same two numbers give the angle -- hence
+    // which half of the ring is in front.
+    const tx = PULSAR_IM[0] * qx + PULSAR_IM[1] * qy;
+    const ty = PULSAR_IM[2] * qx + PULSAR_IM[3] * qy;
+    const r = Math.hypot(tx, ty);
+    if (r > 1 && r < 700) {
+        const ct = tx / r;
+        const st = ty / r;
+        const face = PULSAR_U[2] * ct + PULSAR_V[2] * st > 0 ? PULSAR_FACE[0] : PULSAR_FACE[1];
+        const fil = PULSAR_FIL[0] + PULSAR_FIL[1] * bd.fil(ct * PULSAR_FIL[2] + 4,
+            st * PULSAR_FIL[2] + 9 + r / PULSAR_FIL[3], 3);
+        for (const ring of PULSAR_TORUS) {
+            const d = (r - ring[0]) / ring[1];
+            v += Math.exp(-d * d) * ring[2] * face * fil;
+        }
+    }
+    const l = qx * PULSAR_JETD[0] + qy * PULSAR_JETD[1];
+    const al = Math.abs(l);
+    if (al < PULSAR_JET.len) {
+        const pd = Math.abs(qx * PULSAR_JETD[1] - qy * PULSAR_JETD[0]);
+        const w = PULSAR_JET.w0 + PULSAR_JET.flare * al;
+        if (pd < w) {
+            const knot = PULSAR_JET.knot[0] + PULSAR_JET.knot[1]
+                * bd.knot(al / PULSAR_JET.knot[2], l > 0 ? 3 : 91, 2);
+            const across = 1 - pd / w;
+            v += across * across * Math.pow(1 - al / PULSAR_JET.len, PULSAR_JET.fall)
+                * PULSAR_JET.amp * knot;
+        }
+    }
+    return v;
+}
+
+/** The five depths at a point, near to far: silhouette, belt, then the sky. */
+function pulsarPlate(bd, x, y) {
+    const top = pulsarSilhouette(bd, x - bd.x0);
+    if (y > top) {
+        return y - top < PULSAR_SIL.lip ? PULSAR_SIL.lipV : PULSAR_SIL.v;
+    }
+    const rock = pulsarRock(bd, x - bd.x0, y - bd.y0);
+    return rock >= 0 ? rock : pulsarSky(bd, x, y);
+}
+
+/** True where the near depths are solid, so a star behind them cannot show. */
+function pulsarSolid(bd, x, y) {
+    return y > pulsarSilhouette(bd, x - bd.x0) || pulsarRock(bd, x - bd.x0, y - bd.y0) >= 0;
+}
+
+/**
+ * The two beams at a rotation phase. They are `+m` and `-m` of one magnetic
+ * axis, so on screen they are exactly antipodal -- a bar, whose direction
+ * makes a full turn once per rotation and whose reach is foreshortened by
+ * `sqrt(1 - s^2)`: the beam turned toward the camera is short and dim, and
+ * what it stops spending on the arena lands on the core instead. Total light
+ * leaving the frame stays near constant; only its distribution moves.
+ *
+ * @param {number} phi - rotation phase, radians
+ * @returns {Array<object>} screen direction, reach, amplitude and pulse
+ */
+function pulsarBeams(phi) {
+    const sa = Math.sin(PULSAR_ALPHA);
+    const ca = Math.cos(PULSAR_ALPHA);
+    const c = Math.cos(phi);
+    const s = Math.sin(phi);
+    const out = [];
+    for (const sg of [1, -1]) {
+        const mx = sg * (PULSAR_AXIS[0] * ca + (PULSAR_U[0] * c + PULSAR_V[0] * s) * sa);
+        const my = sg * (PULSAR_AXIS[1] * ca + (PULSAR_U[1] * c + PULSAR_V[1] * s) * sa);
+        const mz = sg * (PULSAR_AXIS[2] * ca + (PULSAR_U[2] * c + PULSAR_V[2] * s) * sa);
+        const pl = Math.hypot(mx, my) || 1e-6;
+        const inp = Math.sqrt(Math.max(0.02, 1 - mz * mz));
+        out.push({
+            dx: mx / pl, dy: my / pl,
+            len: PULSAR_BEAM.len * inp,
+            amp: PULSAR_BEAM.amp * (0.5 + 0.5 * inp),
+            // How nearly this pole points at the camera, normalised by the
+            // misalignment so the peak does not depend on it, and raised hard
+            // enough that it is an arrival rather than a swell.
+            pulse: Math.pow(clamp(mz / sa, 0, 1), PULSAR_PULSE_POW),
+        });
+    }
+    return out;
+}
+
+/**
+ * The wisps alive at a frame. One launches on every beam crossing and travels
+ * outward through the torus, so the pulse is legible inside the play field as
+ * a thing leaving rather than as everything brightening.
+ *
+ * They are seeded off the launch index, not stepped, which is what lets the
+ * place keep no state and a still at frame 1500 be exact.
+ *
+ * @param {number} t - the frame counter
+ * @returns {Array<object>} radius, amplitude and the seeded arcs of each
+ */
+function pulsarWisps(t) {
+    const half = PULSAR_PERIOD / 2;
+    const first = Math.floor(t / half);
+    const out = [];
+    for (let k = 0; k < 5; k++) {
+        const idx = first - k;
+        const age = t - idx * half;
+        if (idx < 0 || age > PULSAR_WISP.life) {
+            continue;
+        }
+        const r = PULSAR_WISP.r0 + PULSAR_WISP.v * age;
+        if (r > PULSAR_WISP.rMax) {
+            continue;
+        }
+        const rng = mulberry32(PULSAR_WISP.seed + idx * PULSAR_WISP.step);
+        const arcs = [];
+        for (let j = 0; j < PULSAR_WISP.arcs; j++) {
+            arcs.push({ a: rng() * 6.2832, w: PULSAR_WISP.w[0] + rng() * PULSAR_WISP.w[1] });
+        }
+        out.push({
+            r, arcs,
+            amp: PULSAR_WISP.amp * Math.exp(-age / PULSAR_WISP.fade)
+                * smoothstep(age, 0, PULSAR_WISP.rise),
+        });
+    }
+    return out;
+}
+
+/**
+ * Add a live contribution to one art pixel of the surface.
+ *
+ * `tag` identifies the element, so a cell an element's own rasterisation
+ * reaches twice -- the quads of one wisp arc share their edges -- takes the
+ * value once, while two different elements over the same cell still sum. The
+ * high bits of the same number are the frame, which is what makes "was this
+ * cell painted at all this frame" a single comparison in the resolve pass and
+ * saves carrying a list of touched cells.
+ */
+function pulsarAdd(P, i, v, tag) {
+    const st = P.stamp[i];
+    if (st === tag) {
+        return;
+    }
+    P.acc[i] = st < P.base ? v : P.acc[i] + v;
+    P.stamp[i] = tag;
+}
+
+/**
+ * The asteroid belt: about 150 discrete rocks on a jittered grid across the
+ * near depth, scaling from small at the top of the band to large at the bottom
+ * so the field recedes. Bucketed on a coarse grid, because 150 ellipse tests
+ * per art pixel is 28 million over the box and the bucket takes it to two.
+ */
+function pulsarBelt(bd) {
+    const rng = mulberry32(PULSAR_BELT.seed);
+    const grid = PULSAR_BELT.grid;
+    const y0 = bd.H * PULSAR_BELT.y0 - bd.y0;
+    const y1 = bd.H * PULSAR_BELT.y1 - bd.y0;
+    const starX = bd.sx - bd.x0;
+    const starY = bd.sy - bd.y0;
+    bd.rockW = Math.ceil(bd.w / PULSAR_BKT) + 1;
+    bd.rocks = [];
+    for (let gx = 0; gx * grid < bd.w; gx++) {
+        for (let gy = 0; y0 + gy * grid < y1; gy++) {
+            const n = rng() < PULSAR_BELT.single ? 1 : 2;
+            for (let q = 0; q < n; q++) {
+                const x = (gx + rng()) * grid;
+                const y = y0 + (gy + rng()) * grid;
+                if (y > y1) {
+                    continue;
+                }
+                const depth = clamp((y - y0) / (y1 - y0), 0, 1);
+                const s = PULSAR_BELT.scale[0] + depth * PULSAR_BELT.scale[1];
+                const nx = starX - x;
+                const ny = starY - y;
+                const nl = Math.hypot(nx, ny) || 1;
+                const c = {
+                    x, y,
+                    rx: (PULSAR_BELT.rx[0] + rng() * PULSAR_BELT.rx[1]) * s,
+                    ry: (PULSAR_BELT.ry[0] + rng() * PULSAR_BELT.ry[1]) * s,
+                    rim: PULSAR_BELT.rim[0] + depth * PULSAR_BELT.rim[1],
+                    nx: nx / nl, ny: ny / nl,
+                };
+                const i0 = Math.floor((c.x - c.rx) / PULSAR_BKT);
+                const i1 = Math.floor((c.x + c.rx) / PULSAR_BKT);
+                const j0 = Math.floor((c.y - c.ry) / PULSAR_BKT);
+                const j1 = Math.floor((c.y + c.ry) / PULSAR_BKT);
+                for (let j = j0; j <= j1; j++) {
+                    for (let i = i0; i <= i1; i++) {
+                        if (i < 0 || j < 0 || i >= bd.rockW) {
+                            continue;
+                        }
+                        const k = j * bd.rockW + i;
+                        (bd.rocks[k] || (bd.rocks[k] = [])).push(c);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Which baked cells carry a star, read back off the finished layer once.
+ *
+ * The live layer paints opaque art pixels over the plate, and a beam that
+ * erased every star it crossed would read as the beam wiping the sky. A star
+ * survives until the composite under it is brighter than the star itself,
+ * which is the study's own rule. Reading the layer beats replaying the bake's
+ * star loop: it is one pass, once, and it cannot drift from what was actually
+ * painted -- and since the star ramp is its own palette, a colour match is
+ * exact rather than a guess.
+ */
+function pulsarStarMap(bd) {
+    const P = bd.pul;
+    const map = new Int8Array(P.aw * P.ah).fill(-1);
+    const src = bd.layer.getContext("2d").getImageData(0, 0, P.aw, P.ah).data;
+    P.sramp = rampRGB(starRamp(bd));
+    for (let i = 0; i < map.length; i++) {
+        for (let k = 0; k < P.sramp.length; k++) {
+            const c = P.sramp[k];
+            if (src[i * 4] === c[0] && src[i * 4 + 1] === c[1] && src[i * 4 + 2] === c[2]) {
+                map[i] = k;
+                break;
+            }
+        }
+    }
+    P.star = map;
+}
+
+/** One beam cone, as the trapezoid it exactly is: four half-planes, no waste. */
+function pulsarBeam(bd, b, tag) {
+    const P = bd.pul;
+    const hw0 = PULSAR_BEAM.hw;
+    const hwF = hw0 + PULSAR_BEAM.flare * b.len;
+    const nx = -b.dy;
+    const ny = b.dx;
+    const tipX = bd.sx + b.dx * b.len;
+    const tipY = bd.sy + b.dy * b.len;
+    const ax = (v) => (v - bd.x0) / ART_PIX;
+    const ay = (v) => (v - bd.y0) / ART_PIX;
+    artQuad(P, [
+        ax(bd.sx - nx * hw0), ay(bd.sy - ny * hw0),
+        ax(tipX - nx * hwF), ay(tipY - ny * hwF),
+        ax(tipX + nx * hwF), ay(tipY + ny * hwF),
+        ax(bd.sx + nx * hw0), ay(bd.sy + ny * hw0),
+    ], (px, py) => {
+        const qx = bd.x0 + (px + 0.5) * ART_PIX - bd.sx;
+        const qy = bd.y0 + (py + 0.5) * ART_PIX - bd.sy;
+        const along = qx * b.dx + qy * b.dy;
+        if (along <= 0 || along > b.len) {
+            return;
+        }
+        const perp = Math.abs(qx * b.dy - qy * b.dx);
+        const hw = hw0 + PULSAR_BEAM.flare * along;
+        if (perp > hw) {
+            return;
+        }
+        pulsarAdd(P, py * P.aw + px, powLook(PULSAR_BEAM_PERP, 1 - perp / hw)
+            * powLook(PULSAR_BEAM_ALONG, 1 - along / b.len) * b.amp, tag);
+    });
+}
+
+/** The core and its halo. Both sit above the arena; the box is who sees them. */
+function pulsarCore(bd, pulse) {
+    const P = bd.pul;
+    const C = PULSAR_CORE;
+    const tag = P.base + 2;
+    const cx = (bd.sx - bd.x0) / ART_PIX;
+    const cy = (bd.sy - bd.y0) / ART_PIX;
+    const r = C.cut / ART_PIX;
+    const core = (C.base + C.peak * pulse) * C.amp;
+    const halo = C.haloAmp * pulse;
+    const yA = Math.max(0, Math.ceil(cy - r - 0.5));
+    const yB = Math.min(P.ah - 1, Math.floor(cy + r - 0.5));
+    for (let py = yA; py <= yB; py++) {
+        const dy = py + 0.5 - cy;
+        const w = Math.sqrt(Math.max(0, r * r - dy * dy));
+        artRow(P, py, Math.ceil(cx - w - 0.5), Math.floor(cx + w - 0.5), (px, y) => {
+            const ex = (px + 0.5 - cx) * ART_PIX;
+            const ey = dy * ART_PIX;
+            const d2 = ex * ex + ey * ey;
+            pulsarAdd(P, y * P.aw + px,
+                core * Math.exp(-d2 / (C.r * C.r)) + halo * Math.exp(-d2 / (C.halo * C.halo)), tag);
+        });
+    }
+}
+
+/**
+ * One wisp: three seeded arcs of a ring travelling outward through the torus.
+ *
+ * Each arc is laid down as a strip of quads in torus coordinates rather than
+ * scanned out of a bounding box -- an arc's box is four times its own area,
+ * and the value at a cell costs an `atan2`. The quads share their edges, so
+ * the element tag is what stops a cell on a seam being counted twice.
+ */
+function pulsarWisp(bd, w, tag) {
+    const P = bd.pul;
+    const band = PULSAR_WISP.band;
+    const r0 = w.r - band;
+    const r1 = w.r + band;
+    const ox = (bd.sx - bd.x0) / ART_PIX;
+    const oy = (bd.sy - bd.y0) / ART_PIX;
+    const put = (px, py) => {
+        const i = py * P.aw + px;
+        if (P.stamp[i] === tag) {
+            return;
+        }
+        const qx = bd.x0 + (px + 0.5) * ART_PIX - bd.sx;
+        const qy = bd.y0 + (py + 0.5) * ART_PIX - bd.sy;
+        const tx = PULSAR_IM[0] * qx + PULSAR_IM[1] * qy;
+        const ty = PULSAR_IM[2] * qx + PULSAR_IM[3] * qy;
+        const dr = Math.abs(Math.sqrt(tx * tx + ty * ty) - w.r);
+        if (dr > band) {
+            return;
+        }
+        const th = Math.atan2(ty, tx);
+        let am = 0;
+        for (const arc of w.arcs) {
+            const d = Math.abs(((th - arc.a + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+            const k = 1 - clamp(d / arc.w, 0, 1);
+            if (k > am) {
+                am = k;
+            }
+        }
+        if (am <= 0) {
+            return;
+        }
+        pulsarAdd(P, i, powLook(PULSAR_WISP_DR, 1 - dr / band)
+            * powLook(PULSAR_WISP_AM, am) * w.amp, tag);
+    };
+    for (const arc of w.arcs) {
+        const n = Math.max(2, Math.ceil((2 * arc.w * r1) / (ART_PIX * 2)));
+        let th = arc.a - arc.w;
+        let c = Math.cos(th);
+        let s = Math.sin(th);
+        let e0x = ox + ((PULSAR_U[0] * c + PULSAR_V[0] * s) * r0) / ART_PIX;
+        let e0y = oy + ((PULSAR_U[1] * c + PULSAR_V[1] * s) * r0) / ART_PIX;
+        let e1x = ox + ((PULSAR_U[0] * c + PULSAR_V[0] * s) * r1) / ART_PIX;
+        let e1y = oy + ((PULSAR_U[1] * c + PULSAR_V[1] * s) * r1) / ART_PIX;
+        for (let i = 1; i <= n; i++) {
+            th = arc.a - arc.w + (2 * arc.w * i) / n;
+            c = Math.cos(th);
+            s = Math.sin(th);
+            const f0x = ox + ((PULSAR_U[0] * c + PULSAR_V[0] * s) * r0) / ART_PIX;
+            const f0y = oy + ((PULSAR_U[1] * c + PULSAR_V[1] * s) * r0) / ART_PIX;
+            const f1x = ox + ((PULSAR_U[0] * c + PULSAR_V[0] * s) * r1) / ART_PIX;
+            const f1y = oy + ((PULSAR_U[1] * c + PULSAR_V[1] * s) * r1) / ART_PIX;
+            artQuad(P, [e0x, e0y, f0x, f0y, f1x, f1y, e1x, e1y], put);
+            e0x = f0x;
+            e0y = f0y;
+            e1x = f1x;
+            e1y = f1y;
+        }
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/* OCEAN WORLD                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/** The rung a live element lands on, dithered exactly the way the bake is. */
+function oceanRung(bd, v, ax, ay, cap) {
+    const bay = (BAYER[(ay & 3) * 4 + (ax & 3)] / 16 - 0.46) * DITHER;
+    return clamp(Math.round(v * (bd.rgb.length - 1) + bay), 0, cap);
+}
+
+/**
+ * The rung cap at a logical y, and it is two caps taking the smaller.
+ *
+ * Depth is physics: near water is seen at a steeper angle and gives back less
+ * sky. The arena band is not -- it holds the bottom 200 px of the play field
+ * two rungs under the rest, where the player sits and where everything that
+ * can kill them arrives. Doing it in the cap rather than in the veil is what
+ * lets this place carry a bright sky at all.
+ */
+function oceanCap(bd, y) {
+    if (y < bd.hz) {
+        return 6;
+    }
+    const dy = y - bd.hz;
+    let depth = OCEAN_CAP_FLOOR;
+    for (const step of OCEAN_CAP_DEPTH) {
+        if (dy < step[0]) {
+            depth = step[1];
+            break;
+        }
+    }
+    let band = 6;
+    for (const step of OCEAN_CAP_BAND) {
+        if (y > step[0]) {
+            band = step[1];
+            break;
+        }
+    }
+    return Math.min(depth, band);
+}
+
+/** Sky above the horizon on the first ramp, water below it on the second. */
+function oceanPlate(bd, x, y) {
+    const bloom = x - bd.bloom;
+    if (y < bd.hz) {
+        const t = clamp((y - bd.y0) / (bd.hz - bd.y0), 0, 1);
+        const dx = bloom / OCEAN_SKY_BLOOM[1];
+        const dy = (y - (bd.hz - OCEAN_SKY_BLOOM[3])) / OCEAN_SKY_BLOOM[2];
+        return {
+            v: OCEAN_SKY[0] + OCEAN_SKY[1] * Math.pow(t, OCEAN_SKY[2])
+                + OCEAN_SKY_BLOOM[0] * Math.exp(-(dx * dx + dy * dy)),
+            sea: false,
+        };
+    }
+    const dy = y - bd.hz;
+    const dx = bloom / OCEAN_SEA_BLOOM[2];
+    const u = Math.pow(clamp(dy / bd.wh, 0, 1), 1 / OCEAN_PERSP);
+    return {
+        v: OCEAN_WATER[0] * Math.pow(1 - u, OCEAN_WATER[1]) + OCEAN_WATER[2]
+            + OCEAN_SEA_BLOOM[0] * Math.exp(-dy / (OCEAN_SEA_BLOOM[1] * bd.wh)) * Math.exp(-dx * dx),
+        sea: true,
+    };
+}
+
+/** How much cloud one layer puts over a point: two or three banks summed. */
+function oceanCloud(bd, x, y, layer) {
+    const k = 6.2832 / bd.w;
+    const bx = x - bd.x0;
+    const span = bd.hz - bd.y0;
+    let cov = 0;
+    for (const b of OCEAN_BANKS[layer]) {
+        const p = OCEAN_BANK_P[0] + OCEAN_BANK_P[0] * Math.sin(k * b[3] * bx + b[3] * 1.7)
+            + OCEAN_BANK_P[1] * Math.sin(k * (b[3] * 2 + 1) * bx + b[3] * 0.9);
+        const d = (y - (bd.y0 + b[0] * span)) / b[1];
+        cov += b[2] * (Math.max(0, p - OCEAN_BANK_P[2]) / OCEAN_BANK_P[3]) * Math.exp(-d * d);
+    }
+    return Math.min(1, cov);
+}
+
+/**
+ * The crest rows down the water. Everything about a row -- where it lands, how
+ * long its dashes are, how far apart, how tall, and how fast it travels -- is
+ * a function of `u`, which is what keeps the five depths agreeing.
+ */
+function oceanRows(bd) {
+    const out = [];
+    for (let i = 0; i < OCEAN_ROWS; i++) {
+        const u = (i + 0.5) / OCEAN_ROWS;
+        let band = OCEAN_BANDS.length;
+        for (let b = 0; b < OCEAN_BANDS.length; b++) {
+            if (u < OCEAN_BANDS[b]) {
+                band = b;
+                break;
+            }
+        }
+        out.push({
+            u, band,
+            y: bd.hz + bd.wh * Math.pow(u, OCEAN_PERSP),
+            l: OCEAN_DASH_L[0] + OCEAN_DASH_L[1] * Math.pow(u, OCEAN_DASH_L[2]),
+            g: OCEAN_DASH_G[0] + OCEAN_DASH_G[1] * Math.pow(u, OCEAN_DASH_G[2]),
+            h: u < OCEAN_DASH_H[0] ? OCEAN_DASH_H[1] : OCEAN_DASH_H[2],
+            rate: OCEAN_RATES[band],
+        });
+    }
+    return out;
+}
+
+/**
+ * A wrapping strip of art cells, as rungs. `0` is transparent and any other
+ * value is the rung plus one, so a strip is a byte per art pixel rather than
+ * four -- and the reflection can read the sky's rungs back without a canvas
+ * readback, which is what lets it be written as art pixels instead of blitted
+ * through a negative scale.
+ */
+function oceanStrip(aw, ah, top, rate) {
+    return { rung: new Uint8Array(aw * ah), aw, ah, top, rate };
+}
+
+/** One cloud layer, baked. `refl` bakes the dimmer copy the swell gives back. */
+function oceanCloudStrip(bd, layer, refl) {
+    const span = bd.hz - bd.y0;
+    const top = bd.y0 + OCEAN_CLOUD_SPAN[layer][0] * span;
+    const bot = bd.y0 + OCEAN_CLOUD_SPAN[layer][1] * span;
+    const s = oceanStrip(Math.max(1, Math.ceil(bd.w / ART_PIX)),
+        Math.max(1, Math.ceil((bot - top) / ART_PIX)), top, OCEAN_CLOUD_RATE[layer]);
+    const cut = refl ? OCEAN_REFLECT.cut : OCEAN_CLOUD_CUT;
+    const gain = refl ? OCEAN_REFLECT.gain : 1;
+    for (let ay = 0; ay < s.ah; ay++) {
+        const y = top + (ay + 0.5) * ART_PIX;
+        const base = OCEAN_SKY[0] + OCEAN_SKY[1]
+            * Math.pow(clamp((y - bd.y0) / span, 0, 1), OCEAN_SKY[2]);
+        for (let ax = 0; ax < s.aw; ax++) {
+            const cov = oceanCloud(bd, bd.x0 + (ax + 0.5) * ART_PIX, y, layer);
+            if (cov < cut) {
+                continue;
+            }
+            s.rung[ay * s.aw + ax] =
+                oceanRung(bd, (base + OCEAN_CLOUD_AMP * cov) * gain, ax, ay, OCEAN_CLOUD_CAP) + 1;
+        }
+    }
+    return s;
+}
+
+/** A strip as a canvas, for the two layers that are blitted rather than read. */
+function oceanStripCanvas(s, ramp) {
+    const cv = document.createElement("canvas");
+    cv.width = s.aw;
+    cv.height = s.ah;
+    const g = cv.getContext("2d");
+    const img = g.createImageData(s.aw, s.ah);
+    for (let i = 0; i < s.rung.length; i++) {
+        if (!s.rung[i]) {
+            continue;
+        }
+        const c = ramp[s.rung[i] - 1];
+        img.data[i * 4] = c[0];
+        img.data[i * 4 + 1] = c[1];
+        img.data[i * 4 + 2] = c[2];
+        img.data[i * 4 + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+    return cv;
+}
+
+/**
+ * One of the three far bands, baked: rows of crest dashes that only ever
+ * scroll. Far water has no business breathing -- at that distance a crest is
+ * a mark, and what says how far away it is is how slowly the mark travels.
+ */
+function oceanFarStrip(bd, band, rows) {
+    const rs = rows.filter((r) => r.band === band);
+    if (!rs.length) {
+        return null;
+    }
+    const top = rs[0].y - 8;
+    const s = oceanStrip(Math.max(1, Math.ceil(bd.w / ART_PIX)),
+        Math.max(1, Math.ceil((rs[rs.length - 1].y + 10 - top) / ART_PIX)), top, OCEAN_RATES[band]);
+    for (let ri = 0; ri < rs.length; ri++) {
+        const r = rs[ri];
+        const p = r.l + r.g;
+        const rng = mulberry32(OCEAN_FAR.seed[0] * (band + 1) + OCEAN_FAR.seed[1] * ri);
+        const ay = Math.floor((r.y - top) / ART_PIX);
+        const cap = oceanCap(bd, r.y);
+        const n = Math.ceil(bd.w / p) + 1;
+        for (let ci = 0; ci < n; ci++) {
+            const x0 = (ci * p + rng() * p * OCEAN_FAR.jitter) % bd.w;
+            const len = Math.max(ART_PIX, r.l * (OCEAN_FAR.len[0] + OCEAN_FAR.len[1] * rng()));
+            const body = OCEAN_FAR.body[0] + OCEAN_FAR.body[1] * rng();
+            const crest = rng() < OCEAN_FAR.crest;
+            const ax0 = Math.floor(x0 / ART_PIX);
+            const axn = Math.max(1, Math.round(len / ART_PIX));
+            for (let k = 0; k < axn; k++) {
+                const ax = (ax0 + k) % s.aw;
+                s.rung[ay * s.aw + ax] = oceanRung(bd, body, ax, ay, cap) + 1;
+                if (crest && k > 0 && k < axn - 1 && ay > 0) {
+                    s.rung[(ay - 1) * s.aw + ax] =
+                        oceanRung(bd, OCEAN_FAR.crestV, ax, ay - 1, cap) + 1;
+                }
+            }
+        }
+    }
+    return s;
+}
+
+/** The near crest lines, the glitter path, the foam and the spores. */
+function oceanLists(bd, rows) {
+    const near = mulberry32(OCEAN_NEAR.seed);
+    bd.oc.dashes = [];
+    const rs = rows.filter((r) => r.band >= OCEAN_BANDS.length - 1);
+    for (let ri = 0; ri < rs.length; ri++) {
+        const r = rs[ri];
+        const p = r.l + r.g;
+        const n = Math.ceil(bd.w / p) + 1;
+        for (let c = 0; c < n; c++) {
+            bd.oc.dashes.push({
+                y: r.y, h: r.h, rate: r.rate,
+                x0: (c * p + near() * p * OCEAN_NEAR.jitter) % bd.w,
+                len: r.l * (OCEAN_NEAR.len[0] + OCEAN_NEAR.len[1] * near()),
+                ph: near(),
+                fr: OCEAN_NEAR.fr[0] + near() * OCEAN_NEAR.fr[1],
+                crest: near() < OCEAN_NEAR.crest,
+            });
+        }
+    }
+    const gr = mulberry32(OCEAN_GLITTER.seed);
+    bd.oc.glitter = [];
+    for (let i = 0; i < OCEAN_GLITTER.n; i++) {
+        const u = OCEAN_GLITTER.u[0] + OCEAN_GLITTER.u[1] * ((i + gr()) / OCEAN_GLITTER.n);
+        const w = OCEAN_GLITTER.w[0] + OCEAN_GLITTER.w[1] * u;
+        bd.oc.glitter.push({
+            u, w,
+            y: bd.hz + bd.wh * Math.pow(u, OCEAN_PERSP),
+            x: bd.bloom + (gr() - 0.5) * 2 * w,
+            len: OCEAN_GLITTER.len[0] + OCEAN_GLITTER.len[1] * u,
+            fr: OCEAN_GLITTER.fr[0] + gr() * OCEAN_GLITTER.fr[1],
+            ph: gr() * 6.2832,
+            jr: OCEAN_GLITTER.jr[0] + gr() * OCEAN_GLITTER.jr[1],
+        });
+    }
+    const fr = mulberry32(OCEAN_FOAM.seed);
+    bd.oc.foam = [];
+    for (let i = 0; i < OCEAN_FOAM.n; i++) {
+        const u = OCEAN_FOAM.u[0] + OCEAN_FOAM.u[1] * fr();
+        let band = OCEAN_BANDS.length;
+        for (let b = 0; b < OCEAN_BANDS.length; b++) {
+            if (u < OCEAN_BANDS[b]) {
+                band = b;
+                break;
+            }
+        }
+        bd.oc.foam.push({
+            y: bd.hz + bd.wh * Math.pow(u, OCEAN_PERSP),
+            x: fr() * bd.w, rate: OCEAN_RATES[band],
+            cycle: OCEAN_FOAM.cycle[0] + Math.round(fr() * OCEAN_FOAM.cycle[1]),
+            life: OCEAN_FOAM.life[0] + Math.round(fr() * OCEAN_FOAM.life[1]),
+            off: Math.round(fr() * OCEAN_FOAM.off),
+            w: OCEAN_FOAM.w[0] + OCEAN_FOAM.w[1] * fr(),
+        });
+    }
+    const sr = mulberry32(OCEAN_SPORE.seed);
+    bd.oc.spores = [];
+    for (let i = 0; i < OCEAN_SPORE.n; i++) {
+        const u = OCEAN_SPORE.u[0] + OCEAN_SPORE.u[1] * sr();
+        bd.oc.spores.push({
+            x: sr() * bd.w,
+            y0: bd.hz + bd.wh * Math.pow(u, OCEAN_PERSP),
+            size: u > OCEAN_SPORE.big ? OCEAN_SPORE.size[1] : OCEAN_SPORE.size[0],
+            rate: OCEAN_SPORE.rate[0] + sr() * OCEAN_SPORE.rate[1],
+            span: OCEAN_SPORE.span[0] + sr() * OCEAN_SPORE.span[1],
+            ph: sr() * 1000,
+            sway: OCEAN_SPORE.sway[0] + sr() * OCEAN_SPORE.sway[1],
+            amp: OCEAN_SPORE.amp[0] + sr() * OCEAN_SPORE.amp[1],
+        });
+    }
+}
+
+/**
+ * One art cell of the live surface, clipped to the band.
+ *
+ * The band is what gets cleared and uploaded, so a write outside it would be
+ * a smear that never goes away -- and its top edge is the horizon, which is
+ * also what keeps the first far band's crest row out of the sky. Drawn
+ * without it, that row put a comb of water-ramp notches along the skyline.
+ */
+function oceanPix(S, x, y, c) {
+    if (x < 0 || x >= S.aw || y < S.y0 || y > S.y1) {
+        return;
+    }
+    const o = (y * S.aw + x) * 4;
+    S.data[o] = c[0];
+    S.data[o + 1] = c[1];
+    S.data[o + 2] = c[2];
+    S.data[o + 3] = 255;
+}
+
+/**
+ * A live element, snapped to the art lattice and taking one rung for the whole
+ * rect. Dithering it per cell would turn a crest line into a halftone; the
+ * rung comes off its own origin, which is what gives two dashes at the same
+ * value different weights and stops a row reading as a ruler.
+ */
+function oceanRect(S, bd, x, y, w, h, v, ramp) {
+    const ax = Math.round((x - bd.x0) / ART_PIX);
+    const ay = Math.round((y - bd.y0) / ART_PIX);
+    oceanBlock(S, ax, ay, w, h, ramp[oceanRung(bd, v, ax, ay, oceanCap(bd, y))]);
+}
+
+function oceanBlock(S, ax, ay, w, h, c) {
+    const cw = Math.max(1, Math.round(w / ART_PIX));
+    const ch = Math.max(1, Math.round(h / ART_PIX));
+    for (let j = 0; j < ch; j++) {
+        for (let i = 0; i < cw; i++) {
+            oceanPix(S, ax + i, ay + j, c);
+        }
+    }
+}
+
+/**
+ * The three colours a point light on this water is allowed to be, and they are
+ * not the star ramp everywhere: under the arena band cap a glitter dash or a
+ * spore drops onto the water's own ramp instead, so nothing bright survives
+ * into the bottom of the play field. It is `starRamp` gated by `oceanCap`.
+ */
+function oceanStarRGB(bd, y, level) {
+    const cap = oceanCap(bd, y);
+    if (cap <= 3) {
+        return bd.rgbAlt[3];
+    }
+    return cap <= 4 ? bd.rgbAlt[5] : bd.oc.sramp[level];
+}
+
+/** The same three colours as CSS, for the one live element drawn on screen. */
+function oceanStarCss(bd, y, level) {
+    const cap = oceanCap(bd, y);
+    if (cap <= 3) {
+        return bd.p.landRamp[3];
+    }
+    return cap <= 4 ? bd.p.landRamp[5] : starRamp(bd)[level];
+}
+
+/**
+ * The sky, again, upside down under the horizon.
+ *
+ * The study blits the low cloud strip through a negative vertical scale in
+ * four sheared slices. Written as art pixels instead it costs no rasterising
+ * call at all, lands exactly on the lattice a -0.32 scale would have missed,
+ * and the four hard slices become a continuous swell running down the
+ * reflection -- the shear is a function of how far down the source row is
+ * rather than of which quarter it fell in.
+ */
+function oceanReflect(bd, t) {
+    const S = bd.oc.surf;
+    const R = bd.oc.reflect;
+    const sh = OCEAN_REFLECT.shear;
+    const strip = R.ah * ART_PIX;
+    const off = (t * R.rate) % (R.aw * ART_PIX);
+    const back = (y) => bd.hz - (y - bd.hz) / OCEAN_REFLECT.squash - R.top;
+    for (let ay = S.y0; ay <= S.y1; ay++) {
+        const sp = back(bd.y0 + (ay + 0.5) * ART_PIX);
+        if (sp < 0) {
+            continue;
+        }
+        // Three source rows fold into one destination row at this squash, so
+        // a point sample throws two thirds of the sky away -- and this sky is
+        // 4% cloud, so what came back was a whisper. Take the brightest row of
+        // the range instead: it is the same three reads either way.
+        const rA = clamp(Math.floor(back(bd.y0 + (ay + 1) * ART_PIX) / ART_PIX), 0, R.ah - 1);
+        const rB = clamp(Math.floor(back(bd.y0 + ay * ART_PIX) / ART_PIX), 0, R.ah - 1);
+        const kk = (4 * sp) / strip;
+        const shear = Math.sin(t * sh[1] + kk * sh[2]) * sh[0] + Math.sin(t * sh[4] + kk * sh[5]) * sh[3];
+        const shift = (off - shear) / ART_PIX;
+        for (let ax = 0; ax < S.aw; ax++) {
+            let sa = Math.floor(ax + shift) % R.aw;
+            if (sa < 0) {
+                sa += R.aw;
+            }
+            let r = 0;
+            for (let sr = rA; sr <= rB; sr++) {
+                const v = R.rung[sr * R.aw + sa];
+                if (v > r) {
+                    r = v;
+                }
+            }
+            if (r) {
+                oceanPix(S, ax, ay, bd.rgb[r - 1]);
+            }
+        }
+    }
+}
+
+/** The three far bands, each scrolled by its own rung of the rate ladder. */
+function oceanFar(bd, t) {
+    const S = bd.oc.surf;
+    for (const F of bd.oc.far) {
+        const shift = Math.floor(((t * F.rate) % (F.aw * ART_PIX)) / ART_PIX);
+        const ay0 = Math.round((F.top - bd.y0) / ART_PIX);
+        for (let fy = 0; fy < F.ah; fy++) {
+            const ay = ay0 + fy;
+            if (ay < 0 || ay >= S.ah) {
+                continue;
+            }
+            const row = fy * F.aw;
+            for (let ax = 0; ax < S.aw; ax++) {
+                const r = F.rung[row + ((ax + shift) % F.aw)];
+                if (r) {
+                    oceanPix(S, ax, ay, bd.rgbAlt[r - 1]);
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The two near bands, which are the only thing on this water that is alive.
+ *
+ * A dash lengthens and shortens on its own rate inside a swell the whole band
+ * shares, and below `cut` it is not drawn at all -- that is what makes a crest
+ * line break and reform rather than crawl. Unlike the study a dash that runs
+ * off the right edge is drawn again at the left rather than being moved, so
+ * the seam does not lose one.
+ */
+function oceanNear(bd, t) {
+    const S = bd.oc.surf;
+    const N = OCEAN_NEAR;
+    const set = clamp(N.set[0] + N.set[1] * Math.sin(t * N.set[2])
+        + N.set[3] * Math.sin(t * N.set[4] + N.set[5]), 0, 1);
+    for (const d of bd.oc.dashes) {
+        const amp = (0.5 + 0.5 * Math.sin(t * d.fr + d.ph * 6.2832)) * (N.amp[0] + N.amp[1] * set);
+        if (amp < N.cut) {
+            continue;
+        }
+        let x = (d.x0 + t * d.rate) % bd.w;
+        if (x < 0) {
+            x += bd.w;
+        }
+        const len = Math.max(ART_PIX, d.len * (N.grow[0] + N.grow[1] * amp));
+        const v = N.v[0] + N.v[1] * amp;
+        const crest = d.crest && amp > N.crestAt;
+        for (let k = 0; k < 2; k++) {
+            if (k && x + len <= bd.w) {
+                break;
+            }
+            const px = bd.x0 + x - k * bd.w;
+            oceanRect(S, bd, px, d.y, len, d.h, v, bd.rgbAlt);
+            if (crest) {
+                oceanRect(S, bd, px + ART_PIX, d.y - ART_PIX, len - ART_PIX * 2, ART_PIX,
+                    N.crestV, bd.rgbAlt);
+            }
+        }
+    }
+}
+
+/** The sun's path, broken on the surface: a column of flickering dashes. */
+function oceanGlitter(bd, t) {
+    const S = bd.oc.surf;
+    for (const gl of bd.oc.glitter) {
+        if (Math.sin(t * gl.fr + gl.ph) < OCEAN_GLITTER.on) {
+            continue;
+        }
+        const x = gl.x + Math.sin(t * gl.jr + gl.ph) * gl.w * OCEAN_GLITTER.jitter;
+        oceanBlock(S, Math.round((x - bd.x0) / ART_PIX), Math.round((gl.y - bd.y0) / ART_PIX),
+            gl.len, ART_PIX, oceanStarRGB(bd, gl.y, gl.u < 0.2 ? 1 : 0));
+    }
+}
+
+/** Foam: born where a crest breaks, alive for 40-90 frames, then gone. */
+function oceanFoam(bd, t) {
+    const S = bd.oc.surf;
+    for (const fm of bd.oc.foam) {
+        const age = (t + fm.off) % fm.cycle;
+        if (age > fm.life) {
+            continue;
+        }
+        const e = Math.sin((Math.PI * age) / fm.life);
+        if (e < OCEAN_FOAM.on) {
+            continue;
+        }
+        let x = (fm.x + t * fm.rate) % bd.w;
+        if (x < 0) {
+            x += bd.w;
+        }
+        const ax = Math.round(x / ART_PIX);
+        const ay = Math.round((fm.y - bd.y0) / ART_PIX);
+        oceanBlock(S, ax, ay, fm.w * (0.5 + 0.5 * e), ART_PIX, oceanStarRGB(bd, fm.y, 0));
+        if (e > OCEAN_FOAM.crestAt) {
+            oceanBlock(S, ax + 1, ay - 1, fm.w * 0.5, ART_PIX,
+                oceanStarRGB(bd, fm.y - ART_PIX, 1));
+        }
+    }
+}
+
+/**
+ * Spores lifting off the crests. The one live element left on the screen
+ * context rather than in the surface: they are the only thing that leaves the
+ * water and crosses the sky, and keeping them an explicit short list is worth
+ * a rasterising call each -- they are also the only thing here small enough
+ * and bright enough to have to be checked against the bullets.
+ */
+function oceanSpores(bd, g, t) {
+    for (const sp of bd.oc.spores) {
+        const age = (t * sp.rate + sp.ph) % sp.span;
+        if (1 - age / sp.span < OCEAN_SPORE.fade) {
+            continue;
+        }
+        const y = sp.y0 - age;
+        g.fillStyle = oceanStarCss(bd, y, 0);
+        g.fillRect(snapTo(bd.x0, bd.x0 + sp.x + Math.sin(t * sp.sway + sp.ph) * sp.amp),
+            snapTo(bd.y0, y), sp.size, sp.size);
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/* ION STORM                                                                   */
+/* -------------------------------------------------------------------------- */
+
+/** The seven curtains and their ray tables, drawn once from the one seed. */
+function ionCurtains(bd) {
+    const rng = mulberry32(ION_SEED);
+    const out = [];
+    for (let i = 0; i < ION_CURTAINS; i++) {
+        const half = (ION_WIDTH[0] + rng() * ION_WIDTH[1]) / 2;
+        const c = {
+            cx: bd.x0 + (bd.w * (i + 0.5)) / ION_CURTAINS + (rng() - 0.5) * ION_CX_JITTER,
+            half,
+            // Four green curtains and three cyan, and a curtain's colour is
+            // the two ramps mixed at the same rung -- one lattice, two ramps.
+            tint: i % 2 === 0 ? 0.1 + rng() * 0.22 : 0.74 + rng() * 0.2,
+            slideAmp: ION_SLIDE[0] + rng() * ION_SLIDE[1],
+            slidePer: ION_SLIDE[2] + rng() * ION_SLIDE[3],
+            slidePh: rng(),
+            leanAmp: ION_LEAN[0] + rng() * ION_LEAN[1],
+            leanPer: ION_LEAN[2] + rng() * ION_LEAN[3],
+            leanPh: rng(),
+            foldAmp: ION_FOLD[0] + rng() * ION_FOLD[1],
+            foldWave: 6.2832 / (ION_FOLD[2] + rng() * ION_FOLD[3]),
+            foldRate: ION_FOLD[4] + rng() * ION_FOLD[5],
+        };
+        c.cells = Math.ceil((2 * half) / ART_PIX) + 1;
+        const n = Math.ceil((2 * half) / ION_PITCH) + 2;
+        c.rate = new Float32Array(n);
+        c.ph = new Float32Array(n);
+        c.w = new Float32Array(n);
+        c.gain = new Float32Array(n);
+        // The 1-D profile across the curtain, rebuilt once a frame: everything
+        // that depends on the distance from the spine rather than on where the
+        // spine currently is. It is what takes the per-pixel cost from a dozen
+        // operations to a multiply and a lookup.
+        c.prof = new Float32Array(c.cells);
+        for (let k = 0; k < n; k++) {
+            c.rate[k] = 1 / (ION_RAY_PERIOD[0] + rng() * ION_RAY_PERIOD[1]);
+            c.ph[k] = (k * ION_RAY_PHASE[0] + rng() * ION_RAY_PHASE[1] + (k % 2) * 0.5) % 1;
+            c.w[k] = ION_RAY_W[0] + rng() * ION_RAY_W[1];
+        }
+        out.push(c);
+    }
+    bd.ion.patch = [];
+    for (let i = 0; i < ION_PATCHES; i++) {
+        bd.ion.patch.push({
+            x: bd.x0 + bd.w * (ION_PATCH_X[0] + ION_PATCH_X[1] * i) + (rng() - 0.5) * ION_PATCH_X[2],
+            y: bd.y0 + bd.h * (ION_PATCH_Y[0] + (rng() - 0.5) * ION_PATCH_Y[1]),
+            rx: (ION_PATCH_R[0][0] + rng() * ION_PATCH_R[0][1]) / 2,
+            ry: (ION_PATCH_R[1][0] + rng() * ION_PATCH_R[1][1]) / 2,
+            per: ION_PATCH_PER[0] + rng() * ION_PATCH_PER[1],
+            ph: rng(),
+            driftPer: ION_PATCH_DRIFT[0] + rng() * ION_PATCH_DRIFT[1],
+        });
+    }
+    return out;
+}
+
+/**
+ * The breakup at a frame: which epoch, how far into it, and how strong.
+ *
+ * A pure function of the frame counter, which is what lets the place keep no
+ * state at all and a still at frame 1500 be exact -- and it is why the
+ * thumbnail does not need the event to be worth looking at.
+ */
+function ionBreakup(t) {
+    const epoch = Math.floor(t / ION_BREAK.epoch);
+    const ph = t - epoch * ION_BREAK.epoch;
+    if (hash2(epoch * 7 + 3, 0, ION_SEED) >= ION_BREAK.chance || ph >= ION_BREAK.life) {
+        return { a: 0, ph: 0, epoch };
+    }
+    const r = ION_BREAK.ramp;
+    return { a: ph < r[0] ? ph / r[0] : ph < r[1] ? 1 : (ION_BREAK.life - ph) / r[2], epoch, ph };
+}
+
+/**
+ * Everything that depends on the frame and not on the pixel: seven curtain
+ * transforms, seven ray-gain tables, the 1-D profile each of them is sampled
+ * through, and the patch grid. About 180 scalar gains and 380 profile cells a
+ * frame, and then the per-pixel work is one multiply.
+ */
+function ionStep(bd, t) {
+    const P = bd.ion;
+    P.bu = ionBreakup(t);
+    for (let i = 0; i < P.cur.length; i++) {
+        const c = P.cur[i];
+        c.slide = c.slideAmp * Math.sin(6.2832 * (t / c.slidePer + c.slidePh));
+        c.lean = c.leanAmp * Math.sin(6.2832 * (t / c.leanPer + c.leanPh));
+        // Two of the seven, and which two moves with the epoch.
+        c.bu = (P.bu.epoch + i) % ION_CURTAINS < ION_BREAK.curtains ? P.bu.a : 0;
+        c.fAmp = c.foldAmp * (1 + ION_BREAK_FX.fold * c.bu);
+        c.fPhase = t * c.foldRate;
+        const rr = 1 + ION_BREAK_FX.rate * c.bu;
+        for (let k = 0; k < c.gain.length; k++) {
+            const g = 0.5 + 0.5 * Math.sin(6.2832 * (t * c.rate[k] * rr + c.ph[k]));
+            const h = ION_RAY_H[0] + ION_RAY_H[1]
+                * Math.sin(6.2832 * (t * c.rate[k] * ION_RAY_H[2] * rr + c.ph[k] * ION_RAY_H[3]));
+            c.gain[k] = (ION_RAY_GAIN[0] + ION_RAY_GAIN[1] * g * h) * c.w[k];
+        }
+        const boost = ION_FIELD_GAIN * (1 + ION_BREAK_FX.field * c.bu);
+        for (let j = 0; j < c.cells; j++) {
+            const u = j * ART_PIX - c.half;
+            const e = 1 - Math.abs(u) / c.half;
+            if (e <= 0) {
+                c.prof[j] = 0;
+                continue;
+            }
+            const up = (u + c.half) / ION_PITCH;
+            const fr = up - Math.floor(up);
+            c.prof[j] = (ION_ACROSS[0] + ION_ACROSS[1] * e * e) * c.gain[Math.floor(up)]
+                * (fr > ION_CORE[0] && fr < ION_CORE[1] ? 1 : ION_CORE[2]) * boost;
+        }
+    }
+    const G = P.grid;
+    for (let i = 0; i < P.patch.length; i++) {
+        const p = P.patch[i];
+        p.cx = p.x + ION_PATCH_DRIFT[2] * Math.sin(6.2832 * (t / p.driftPer + p.ph));
+        p.g = Math.pow(0.5 + 0.5 * Math.sin(6.2832 * (t / p.per + p.ph)), ION_PATCH_POW);
+    }
+    const step = ART_PIX * ION_PATCH_GRID;
+    G.v.fill(0);
+    for (let i = 0; i < P.patch.length; i++) {
+        const p = P.patch[i];
+        if (p.g <= 0) {
+            continue;
+        }
+        // Only the grid cells the ellipse can reach: a patch is a fifth of the
+        // arena, and most of a frame it is dark anyway.
+        const x0 = Math.max(0, Math.floor((p.cx - p.rx - bd.x0) / step));
+        const x1 = Math.min(G.w - 1, Math.ceil((p.cx + p.rx - bd.x0) / step));
+        const y0 = Math.max(0, Math.floor((p.y - p.ry - bd.y0) / step));
+        const y1 = Math.min(G.h - 1, Math.ceil((p.y + p.ry - bd.y0) / step));
+        for (let gy = y0; gy <= y1; gy++) {
+            const dy = (bd.y0 + gy * step - p.y) / p.ry;
+            const dy2 = dy * dy;
+            for (let gx = x0; gx <= x1; gx++) {
+                const dx = (bd.x0 + gx * step - p.cx) / p.rx;
+                const d = dx * dx + dy2;
+                if (d < 1) {
+                    G.v[gy * G.w + gx] += p.g * (1 - d) * ION_PATCH_GAIN[0];
+                }
+            }
+        }
+    }
+    P.front = P.bu.a > 0
+        ? bd.x0 + ((P.bu.epoch * ION_BREAK_FX.seed * ART_PIX) % bd.w) + P.bu.ph * ION_BREAK_FX.front[0]
+        : 0;
+}
+
+/**
+ * Lay the seven curtains down, a row at a time.
+ *
+ * The whole reason this is affordable is that a curtain's cross-section is a
+ * pure function of the distance from its spine, so a row is the 1-D profile
+ * shifted to wherever the spine is on that row -- one multiply and one lookup
+ * per art pixel, against the dozen operations a "test every pixel against
+ * every curtain" pass would spend, most of them outside every curtain.
+ * The spine's offset is rounded to a whole art pixel, which is what the
+ * lattice would have done to it anyway.
+ */
+function ionCurtainPass(bd) {
+    const P = bd.ion;
+    const pivot = bd.y0 + bd.h * ION_LEAN[4];
+    const fr = ION_BREAK_FX.front;
+    const acc = P.acc;
+    const tacc = P.tacc;
+    const stamp = P.stamp;
+    const base = P.base;
+    P.span.fill(-1);
+    for (let ay = 0; ay < P.ah; ay++) {
+        const y = bd.y0 + (ay + 0.5) * ART_PIX;
+        const ny = (y - bd.y0) / bd.h;
+        if (ny <= ION_ENV[0] || ny >= ION_ENV[2]) {
+            continue;
+        }
+        const env = ny < ION_ENV[1]
+            ? Math.pow((ny - ION_ENV[0]) / (ION_ENV[1] - ION_ENV[0]), ION_ENV[3])
+            : Math.pow((ION_ENV[2] - ny) / (ION_ENV[2] - ION_ENV[1]), ION_ENV[4]);
+        const row = ay * P.aw;
+        for (let i = 0; i < P.cur.length; i++) {
+            const c = P.cur[i];
+            const off = c.cx + c.slide + c.lean * (y - pivot)
+                + c.fAmp * Math.sin((y - bd.y0) * c.foldWave + c.fPhase);
+            const a0 = Math.round((off - c.half - bd.x0) / ART_PIX);
+            const tag = P.base + i;
+            const jA = Math.max(0, -a0);
+            const jB = Math.min(c.cells, P.aw - a0);
+            if (jB <= jA) {
+                continue;
+            }
+            if (P.span[ay * 2] < 0 || a0 + jA < P.span[ay * 2]) {
+                P.span[ay * 2] = a0 + jA;
+            }
+            if (a0 + jB - 1 > P.span[ay * 2 + 1]) {
+                P.span[ay * 2 + 1] = a0 + jB - 1;
+            }
+            const tint = c.tint;
+            const prof = c.prof;
+            const bu = c.bu;
+            for (let j = jA; j < jB; j++) {
+                const p = prof[j];
+                if (p <= 0) {
+                    continue;
+                }
+                let v = env * p;
+                if (bu > 0) {
+                    const dx = Math.abs(bd.x0 + (a0 + j) * ART_PIX - P.front);
+                    if (dx < fr[1]) {
+                        const w = 1 - dx / fr[1];
+                        v += bu * fr[2] * w * w * env;
+                    }
+                }
+                const i = row + a0 + j;
+                if (stamp[i] < base) {
+                    acc[i] = v;
+                    tacc[i] = v * tint;
+                    stamp[i] = tag;
+                } else {
+                    acc[i] += v;
+                    tacc[i] += v * tint;
+                    stamp[i] = tag;
+                }
+            }
+        }
+    }
+}
+
 const PAINTERS = {
     // Nothing at all: the engine star field is the whole sky. Still the
     // fallback for an entry whose `kind` does not resolve.
@@ -3037,31 +4831,542 @@ const PAINTERS = {
         },
     },
 
-    // Neutron star: the beams sweep past every couple of seconds.
-    pulsar: {
+    /**
+     * PULSAR. The eleventh Direction A conversion, and the first one where the
+     * study's own composition contradicted the sentence the place is named
+     * after -- so the port had to decide which of the two to keep.
+     *
+     * The defect was emptiness: a beam, a dot and black. The fix is five
+     * depths, four of them baked -- far stars, two nebula sheets, the torus
+     * and jets, an asteroid belt, and a silhouette along the bottom of the box
+     * -- so `field` is the layer this place has never had and is the whole of
+     * the answer to the emptiness. `live` is four things: the two beam cones,
+     * the core, its halo and the wisps, none of which can bake because each
+     * depends on the rotation phase.
+     *
+     * One clock. Rotation is 240 frames, the beams are antipodal, so any line
+     * the arena holds is crossed every 120 -- two seconds, which is what the
+     * glossary line has always promised and what the painter this replaces
+     * missed by a factor of 2.4. The same phase drives the beam direction, the
+     * foreshortening, the core and the wisp launches; there is no second rate
+     * anywhere in the place.
+     *
+     * Departures from the study, and why:
+     *   1. **The misalignment is 72 degrees, not 22.** See `PULSAR_ALPHA`: at
+     *      the study's own default nothing it promises can happen, because the
+     *      beam cone never reaches the line of sight and the projected beam
+     *      never leaves a 58 degree wedge. This is the one number that had to
+     *      move, and moving it makes seven of the sheet's claims true at once.
+     *   2. The study asks for an art-pixel context in `live` and calls it "the
+     *      one real engine ask in the port". It is not an ask: COMET TRAIL
+     *      already keeps an art-resolution surface and re-uploads only the
+     *      rectangle the last frame dirtied, so `live` here writes art pixels
+     *      through the same dither as `field` with no engine change at all.
+     *   3. The dirty rectangle is not the union of the beam boxes. Each
+     *      element rasterises only its own shape -- the cones are trapezoids,
+     *      the wisps are strips of quads in torus coordinates -- into an
+     *      accumulator, and the resolve pass walks the rectangle once. The
+     *      union-of-boxes version the study describes visits about 155k cells
+     *      a frame where this visits the ~40k it actually paints.
+     *   4. Its `r < 470` screen gate on the wisps is dropped. It exists to
+     *      keep an `atan2` off most of the canvas, which per-arc rasterisation
+     *      already does, and it cuts the outer arcs on a hard circle.
+     *   5. `topRung` is 6 and the split cap the study wants is free: `field`
+     *      stores the plate clamped to the cap, and `live` composes against
+     *      the full ramp, so rung 7 belongs to the beam cores and the wisp
+     *      heads and nothing else.
+     *   6. The star ramp comes down, as it has for EVENT HORIZON, COMET TRAIL
+     *      and RINGED GIANT -- see the entry.
+     *   7. The drift stays the engine's, not the study's 1400-frame sine.
+     *      Five places breathing out of step with the other 22 is a worse
+     *      defect than a slow breath, which the first conversion settled.
+     */
+    pixelPulsar: {
         init(bd) {
-            bd.cx = bd.W * 0.5;
-            bd.cy = -bd.H * 0.12;
+            bd.sx = bd.W * PULSAR_STAR[0];
+            bd.sy = bd.H * PULSAR_STAR[1];
+            bd.neb = mkNoise(0x7a11);
+            bd.mask = mkNoise(0x0b2f);
+            bd.fil = mkNoise(0x23c4);
+            bd.knot = mkNoise(0x1f60);
+            bd.sil = mkNoise(0x33a7);
+            bd.mottle = mkNoise(0x5ac2);
+            bd.stars = starList(bd, PULSAR_STAR_SEED, PULSAR_STARS, 0.24);
+            pulsarBelt(bd);
+            const aw = Math.max(1, Math.ceil(bd.w / ART_PIX));
+            const ah = Math.max(1, Math.ceil(bd.h / ART_PIX));
+            const cv = document.createElement("canvas");
+            cv.width = aw;
+            cv.height = ah;
+            const g = cv.getContext("2d");
+            const img = g.createImageData(aw, ah);
+            const last = bd.rgb.length - 1;
+            bd.pul = {
+                cv, g, img, data: img.data, aw, ah, last,
+                cap: Math.min(bd.p.topRung === undefined ? last : bd.p.topRung, last),
+                // The plate the live layer adds to. 16 bits is 300 times finer
+                // than the dither's own threshold step and half the memory of
+                // a float, which matters at one entry per art pixel of the box.
+                f: new Uint16Array(aw * ah),
+                acc: new Float32Array(aw * ah),
+                stamp: new Int32Array(aw * ah),
+                // What each row painted this frame and last, so the resolve
+                // walks the cones and not the box around them.
+                span: new Int32Array(ah * 2),
+                pspan: new Int32Array(ah * 2),
+                star: null, frame: 0, base: 0,
+                // What this frame painted, and what the last one did: between
+                // them, everything that has to be redrawn or cleared.
+                x0: 0, y0: 0, x1: -1, y1: -1,
+                px0: 0, py0: 0, px1: -1, py1: -1,
+            };
+        },
+        /**
+         * A star goes where the near depths are solid, and also where the
+         * plate behind it is already lit -- the second is COMET TRAIL's rule,
+         * and here it costs nothing, because the bake has already sampled
+         * every cell by the time the stars go down.
+         */
+        occlude(bd, x, y) {
+            if (pulsarSolid(bd, x, y)) {
+                return 1;
+            }
+            const P = bd.pul;
+            const px = clamp(Math.round((x - bd.x0) / ART_PIX - 0.5), 0, P.aw - 1);
+            const py = clamp(Math.round((y - bd.y0) / ART_PIX - 0.5), 0, P.ah - 1);
+            const v = P.f[py * P.aw + px] / 65535;
+            return lum(bd.rgb[clamp(Math.round(v * P.last), 0, P.cap)]) >= PULSAR_STAR_LIT ? 1 : 0;
+        },
+        field(bd, x, y) {
+            const P = bd.pul;
+            const v = pulsarPlate(bd, x, y);
+            // The bake samples cell centres, so the cell is recoverable from
+            // the coordinate and the plate can be cached on the way past
+            // rather than computed a second time for the live layer.
+            const px = Math.round((x - bd.x0) / ART_PIX - 0.5);
+            const py = Math.round((y - bd.y0) / ART_PIX - 0.5);
+            if (px >= 0 && py >= 0 && px < P.aw && py < P.ah) {
+                P.f[py * P.aw + px] = Math.round(Math.min(v, P.cap / P.last) * 65535);
+            }
+            return v > 0 ? { v: Math.min(v, 1) } : FIELD_DARK;
         },
         live(bd, g) {
-            g.save();
-            g.globalCompositeOperation = "lighter";
-            g.translate(bd.cx, bd.cy);
-            g.rotate(bd.t * 0.011);
-            for (const s of [1, -1]) {
-                const grd = g.createLinearGradient(0, 0, 0, s * 1300);
-                grd.addColorStop(0, rgba(bd.p.c1, 0.42));
-                grd.addColorStop(1, rgba(bd.p.c1, 0));
-                g.fillStyle = grd;
-                g.beginPath();
-                g.moveTo(0, 0);
-                g.lineTo(-120, s * 1300);
-                g.lineTo(120, s * 1300);
-                g.closePath();
-                g.fill();
+            const P = bd.pul;
+            if (!P.star) {
+                pulsarStarMap(bd);
             }
-            g.restore();
-            sun(g, bd.cx, bd.cy, 12, bd.p.c1, 0.9 + Math.sin(bd.t * 0.3) * 0.1);
+            const B = pulsarBeams((bd.t % PULSAR_PERIOD) * PULSAR_OMEGA);
+            const W = pulsarWisps(bd.t);
+            // The stamp carries the frame in its high bits; roll it before it
+            // can walk off the end of what an Int32Array holds.
+            if (P.frame > 0x6ffffff) {
+                P.stamp.fill(0);
+                P.frame = 0;
+            }
+            P.frame++;
+            P.base = P.frame * 8;
+            P.x0 = P.aw;
+            P.y0 = P.ah;
+            P.x1 = -1;
+            P.y1 = -1;
+            const prevSpan = P.span;
+            P.span = P.pspan;
+            P.pspan = prevSpan;
+            P.span.fill(-1);
+            pulsarBeam(bd, B[0], P.base);
+            pulsarBeam(bd, B[1], P.base + 1);
+            pulsarCore(bd, Math.max(B[0].pulse, B[1].pulse));
+            for (let i = 0; i < W.length; i++) {
+                pulsarWisp(bd, W[i], P.base + 3 + i);
+            }
+            // Everything this frame painted, plus everything the last one did
+            // and this one does not: what it stopped painting still has to
+            // stop showing.
+            let ux0 = P.x0;
+            let uy0 = P.y0;
+            let ux1 = P.x1;
+            let uy1 = P.y1;
+            if (P.px1 >= P.px0) {
+                ux0 = ux1 < ux0 ? P.px0 : Math.min(ux0, P.px0);
+                uy0 = uy1 < uy0 ? P.py0 : Math.min(uy0, P.py0);
+                ux1 = Math.max(ux1, P.px1);
+                uy1 = Math.max(uy1, P.py1);
+            }
+            const d = P.data;
+            for (let py = uy0; py <= uy1; py++) {
+                // This row's cones, plus whatever the last frame left on it:
+                // what stopped being painted still has to stop showing.
+                let rx0 = P.span[py * 2];
+                let rx1 = P.span[py * 2 + 1];
+                const px0 = P.pspan[py * 2];
+                if (px0 >= 0) {
+                    if (rx0 < 0 || px0 < rx0) { rx0 = px0; }
+                    const px1 = P.pspan[py * 2 + 1];
+                    if (px1 > rx1) { rx1 = px1; }
+                }
+                if (rx0 < 0) {
+                    continue;
+                }
+                const row = (py & 3) * 4;
+                for (let px = rx0; px <= rx1; px++) {
+                    const i = py * P.aw + px;
+                    const o = i * 4;
+                    if (P.stamp[i] < P.base) {
+                        d[o] = 0;
+                        d[o + 1] = 0;
+                        d[o + 2] = 0;
+                        d[o + 3] = 0;
+                        continue;
+                    }
+                    // Plate plus live, through one dither: the beam brightens
+                    // what it crosses rather than replacing it, so it cannot
+                    // show a tone the sky under it does not have.
+                    const v = Math.min(1, P.f[i] / 65535 + P.acc[i]);
+                    const bay = (BAYER[row + (px & 3)] / 16 - 0.46) * DITHER;
+                    const rung = clamp(Math.round(v * P.last + bay), 0, P.last);
+                    const s = P.star[i];
+                    const col = s >= 0 && rung <= 2 + s ? P.sramp[s] : bd.rgb[rung];
+                    d[o] = col[0];
+                    d[o + 1] = col[1];
+                    d[o + 2] = col[2];
+                    d[o + 3] = 255;
+                }
+            }
+            if (ux1 >= ux0) {
+                P.g.putImageData(P.img, 0, 0, ux0, uy0, ux1 - ux0 + 1, uy1 - uy0 + 1);
+            }
+            P.px0 = P.x0;
+            P.py0 = P.y0;
+            P.px1 = P.x1;
+            P.py1 = P.y1;
+            g.imageSmoothingEnabled = false;
+            g.drawImage(P.cv, bd.x0, bd.y0, bd.w, bd.h);
+        },
+    },
+
+    /**
+     * OCEAN WORLD. The twelfth Direction A conversion, and the first place
+     * whose whole subject is a PLANE seen edge on -- which makes every number
+     * in it a function of one variable, how far down the water a row is.
+     *
+     * `field` is the sky above the horizon on one ramp and the water below it
+     * on a second, plus the sun's bloom where they meet. Everything else is a
+     * depth ladder: 30 crest rows placed at `horizon + WH * u^1.75`, with the
+     * length of a dash, the gap to the next, its height and the speed it
+     * travels all read off the same `u`. Five rate bands a factor of 2.6
+     * apart, far to near; the three far ones bake and only scroll, the two
+     * near ones are live because what they do is the point -- a crest line
+     * lengthens, breaks and reforms.
+     *
+     * Two things carry the place. The first is the reflection: the low cloud
+     * layer again, mirrored under the horizon and squashed to a third, with a
+     * swell running down it. The second is `oceanCap`, which is where the
+     * brightness control lives -- near water gives back less sky than far
+     * water, AND the bottom 200 px of the arena is held two rungs under the
+     * rest because that is where the player sits. Doing it in the cap rather
+     * than in a veil is what lets this place carry a bright sky at all.
+     *
+     * Departures from the study, and why:
+     *   1. **One surface instead of 400 rasterising calls.** The study draws
+     *      the reflection as four sheared blits, every far band as two, and
+     *      every near dash, glitter, foam and spore as its own `fillRect`:
+     *      about 420 a frame, against a catalogue whose most expensive place
+     *      is 97 and whose ocean is 87. Everything below the horizon is
+     *      written into one art-resolution surface instead -- COMET TRAIL's
+     *      and PULSAR's idiom -- so the whole water is 2 calls and the port
+     *      comes out CHEAPER than the painter it replaces.
+     *   2. The reflection is written, not blitted through a negative scale.
+     *      That is what makes it land on the lattice, and it lets the shear be
+     *      a continuous function of the source row instead of the study's four
+     *      hard slices: the swell runs down the reflection rather than
+     *      stepping through it in quarters.
+     *   3. The sky is dithered. The study quantises it with the dither
+     *      amplitude set to zero, which is eight hard bands down the box --
+     *      and banding is the defect `DITHER` exists to fix, named in the
+     *      first conversion. The hard edge the sheet asks for is the HORIZON,
+     *      and that is a ramp change, not a gradient artefact.
+     *   4. Its veil is a vertical gradient, weighted to the bottom. Here the
+     *      cap already does that structurally and per rung, so the place takes
+     *      a flat number like every other one -- see the entry for what it
+     *      cost to check.
+     *   5. Fifth star ramp to come down. #9fe8f2 / #cdf6fb / #eafeff measures
+     *      luminance 0.85 / 0.93 / 0.98 against the 0.62 the detector cuts at,
+     *      and a 9 px spore of it against the dark top of the box is a bullet
+     *      by every test the programme has.
+     *   6. Drift stays the engine's, as it has for eleven places.
+     */
+    pixelOcean: {
+        init(bd) {
+            bd.hz = bd.H * OCEAN_HORIZON;
+            bd.wh = bd.y0 + bd.h - bd.hz;
+            bd.bloom = bd.W * OCEAN_BLOOM;
+            bd.oc = { sramp: rampRGB(starRamp(bd)) };
+            const rows = oceanRows(bd);
+            bd.oc.cloud = [];
+            for (let layer = 0; layer < OCEAN_BANKS.length; layer++) {
+                const s = oceanCloudStrip(bd, layer, false);
+                bd.oc.cloud.push({ s, cv: oceanStripCanvas(s, bd.rgb) });
+            }
+            bd.oc.reflect = oceanCloudStrip(bd, 1, true);
+            bd.oc.far = [];
+            for (let band = 0; band < OCEAN_BANDS.length - 1; band++) {
+                const s = oceanFarStrip(bd, band, rows);
+                if (s) {
+                    bd.oc.far.push(s);
+                }
+            }
+            oceanLists(bd, rows);
+            const aw = Math.max(1, Math.ceil(bd.w / ART_PIX));
+            const ah = Math.max(1, Math.ceil(bd.h / ART_PIX));
+            const cv = document.createElement("canvas");
+            cv.width = aw;
+            cv.height = ah;
+            const g = cv.getContext("2d");
+            const img = g.createImageData(aw, ah);
+            // Everything live in this place is under the horizon except the
+            // spores, so the surface is a band and not the box: it is cleared
+            // and uploaded whole every frame, and that band is a third of it.
+            bd.oc.surf = {
+                cv, g, img, data: img.data, aw, ah,
+                y0: clamp(Math.ceil((bd.hz - bd.y0) / ART_PIX), 0, ah - 1),
+                y1: ah - 1,
+            };
+        },
+        field(bd, x, y) {
+            const p = oceanPlate(bd, x, y);
+            return { v: Math.min(1, p.v), cap: oceanCap(bd, y), rgb: p.sea ? bd.rgbAlt : bd.rgb };
+        },
+        live(bd, g) {
+            const t = bd.t;
+            const S = bd.oc.surf;
+            g.imageSmoothingEnabled = false;
+            // The sky: two cloud layers, each wrapped, the low one running
+            // nearly three times the high one. The only parallax up there.
+            for (const c of bd.oc.cloud) {
+                const sw = c.s.aw * ART_PIX;
+                const off = -((t * c.s.rate) % sw);
+                for (let k = 0; k < 2; k++) {
+                    g.drawImage(c.cv, bd.x0 + off + k * sw, c.s.top, sw, c.s.ah * ART_PIX);
+                }
+            }
+            S.data.fill(0, S.y0 * S.aw * 4, (S.y1 + 1) * S.aw * 4);
+            oceanReflect(bd, t);
+            oceanFar(bd, t);
+            oceanNear(bd, t);
+            oceanGlitter(bd, t);
+            oceanFoam(bd, t);
+            S.g.putImageData(S.img, 0, 0, 0, S.y0, S.aw, S.y1 - S.y0 + 1);
+            g.drawImage(S.cv, bd.x0, bd.y0, bd.w, bd.h);
+            oceanSpores(bd, g, t);
+        },
+    },
+
+    /**
+     * ION STORM. The thirteenth Direction A conversion, and the first place
+     * whose sky cannot bake at all: a curtain moves, so `field` holds only
+     * what is behind it and every art pixel of the front is decided again
+     * every frame.
+     *
+     * Seven curtains across the box. Each one slides bodily, leans on a shear
+     * about 42% of the box height, and folds -- a horizontal displacement
+     * running down it, which is what makes it read as a folded sheet rather
+     * than as a bar. Across its width the field falls off to soft flanks; down
+     * it, an envelope rises fast and falls slow, so the bright part is in the
+     * top half of the arena and the bottom is left to the stars. Inside that,
+     * rays on an 18 px pitch, each flaring and dying on its own 0.3-0.7 s
+     * clock. Behind everything, a dust band and 430 stars, and the curtain
+     * only takes 18% of a star it crosses -- an aurora is thin, and that
+     * translucency is what fills a frame that used to be five soft bars.
+     *
+     * Roughly once every 9600 frames the storm breaks up for 210: two of the
+     * seven curtains fold at 2.6x, brighten, flicker half again as fast, and a
+     * front runs along the sky at 6 px a frame. It is the one time the cap
+     * lifts to rung 7 and the place reaches its own tint. All of it is a pure
+     * function of the frame counter, so the place keeps no state and a still
+     * at frame 1500 is exact.
+     *
+     * Departures from the study, and why:
+     *   1. **It walks the box, not a window.** The study asks for the arena
+     *      rectangle to be passed to the painter, and costs the full box at
+     *      5.9 ms against 2.1-2.7 for the window. Neither number has to be
+     *      paid: a curtain's cross-section is a pure function of the distance
+     *      from its spine, so a row is one 1-D profile shifted to wherever the
+     *      spine is -- a multiply and a lookup per art pixel, and ~380 profile
+     *      cells a frame to build all seven. That makes the whole box cheaper
+     *      than its window, and the engine keeps a contract with no camera in
+     *      it. Which matters: the camera does pull back here, on wave 450.
+     *   2. **`live` writes art pixels through the dither**, over an
+     *      art-resolution surface -- COMET TRAIL's and PULSAR's idiom -- so
+     *      the study's "per-frame quantised pass" needs no engine change. The
+     *      cap lifting 6 -> 7 for a breakup is then free as well: `field`
+     *      takes the entry's `topRung` and the live pass owns its own.
+     *   3. Two ramps mixed per element is `ramp` and `landRamp`, and the dust
+     *      needs a third -- `dustRamp`, three rungs, returned by `field` with
+     *      its own `cap`. The contract already allowed a sample to name its
+     *      ramp, so this is a field on the entry and nothing else.
+     *   4. The tint is divided by the field BEFORE the patch multiplies it,
+     *      not after. The study divides after, which drags every curtain under
+     *      a patch toward green by the patch's own gain; the tint is supposed
+     *      to be a weighted mean of the tints over a cell, and a uniform scale
+     *      cannot change one.
+     *   5. Drift stays the engine's, as it has for twelve places.
+     */
+    pixelIon: {
+        init(bd) {
+            const aw = Math.max(1, Math.ceil(bd.w / ART_PIX));
+            const ah = Math.max(1, Math.ceil(bd.h / ART_PIX));
+            const cv = document.createElement("canvas");
+            cv.width = aw;
+            cv.height = ah;
+            const g = cv.getContext("2d");
+            const img = g.createImageData(aw, ah);
+            const last = bd.rgb.length - 1;
+            bd.ion = {
+                cv, g, img, data: img.data, aw, ah, last,
+                cap: Math.min(bd.p.topRung === undefined ? last : bd.p.topRung, last),
+                dust: rampRGB(bd.p.dustRamp),
+                n1: mkNoise(0x1c47),
+                n2: mkNoise(0x53b0),
+                acc: new Float32Array(aw * ah),
+                tacc: new Float32Array(aw * ah),
+                stamp: new Int32Array(aw * ah),
+                // The x range each row's curtains actually reached, so the
+                // resolve pass walks the curtains rather than the box.
+                span: new Int32Array(ah * 2),
+                // Both ramps flattened: the resolve reads them 350k times a
+                // frame and an array of arrays is two loads where one will do.
+                flatA: Float32Array.from(bd.rgb.flat()),
+                flatB: Float32Array.from(bd.rgbAlt.flat()),
+                grid: {
+                    w: Math.ceil(aw / ION_PATCH_GRID) + 1,
+                    h: Math.ceil(ah / ION_PATCH_GRID) + 1,
+                },
+                baked: null, frame: 0, base: 0, front: 0, bu: { a: 0, ph: 0, epoch: 0 },
+            };
+            bd.ion.grid.v = new Float32Array(bd.ion.grid.w * bd.ion.grid.h);
+            bd.ion.cur = ionCurtains(bd);
+            bd.stars = starList(bd, ION_STAR_SEED, ION_STARS, 0.24);
+        },
+        /**
+         * Only what is behind the curtains: a dust band on three dim rungs of
+         * its own ramp. The stars go on top of it in the shared bake, and
+         * nothing dims them there -- a curtain hides 18% of one, and a curtain
+         * is live, so that is the live layer's job and not `occlude`'s.
+         */
+        field(bd, x, y) {
+            const D = ION_DUST;
+            const bx = x - bd.x0;
+            const by = y - bd.y0;
+            const d = (y - (bd.y0 + bd.h * D.at)) / (bd.h * D.sigma);
+            const n = bd.ion.n1(bx / D.scale[0], by / D.scale[1], 1) * D.mix
+                + bd.ion.n2(bx / D.scale[2], by / D.scale[3], 1) * (1 - D.mix);
+            const v = (n - D.cut) * D.gain * Math.exp(-d * d);
+            return {
+                v: (Math.max(0, v) * ION_DUST_RUNGS) / bd.ion.last,
+                rgb: bd.ion.dust,
+                cap: ION_DUST_RUNGS - 1,
+            };
+        },
+        live(bd, g) {
+            const P = bd.ion;
+            if (!P.baked) {
+                // The plate the curtains are composited over. One readback,
+                // once: the curtain attenuates what is behind it rather than
+                // covering it, so the live layer has to know what that is.
+                P.baked = bd.layer.getContext("2d").getImageData(0, 0, P.aw, P.ah).data;
+            }
+            if (P.frame > 0x6ffffff) {
+                P.stamp.fill(0);
+                P.frame = 0;
+            }
+            P.frame++;
+            P.base = P.frame * 8;
+            ionStep(bd, bd.t);
+            ionCurtainPass(bd);
+            // Hoisted out of the loop, all of it: this is 165k iterations a
+            // frame and a property load per read costs more than the maths.
+            const d = P.data;
+            const b = P.baked;
+            const acc = P.acc;
+            const tacc = P.tacc;
+            const stamp = P.stamp;
+            const span = P.span;
+            const base = P.base;
+            const aw = P.aw;
+            const gv = P.grid.v;
+            const ra = P.flatA;
+            const rb = P.flatB;
+            const G = P.grid;
+            // Rung 7 is this place's own tint, and it belongs to the breakup.
+            const top = P.bu.a > 0 ? P.last : P.cap;
+            // A curtain ADDS to the plate it stands in front of, which is what
+            // lets a star burn through it -- and a star plus a top-rung ray
+            // adds past 255 and clips to near-white, a small pale speck on a
+            // dark field, which is a bullet. The sum is held to the place's
+            // own brightest tone instead: the star still shows through
+            // everything under the top rung, and the frame cannot show a
+            // colour neither ramp has.
+            const capA = bd.rgb[P.last];
+            const capB = bd.rgbAlt[P.last];
+            d.fill(0);
+            for (let ay = 0; ay < P.ah; ay++) {
+                const xA = span[ay * 2];
+                if (xA < 0) {
+                    continue;
+                }
+                const xB = span[ay * 2 + 1];
+                const gy = ((ay / ION_PATCH_GRID) | 0) * G.w;
+                const row = ay * aw;
+                for (let ax = xA; ax <= xB; ax++) {
+                    const i = row + ax;
+                    if (stamp[i] < base) {
+                        continue;
+                    }
+                    const f0 = acc[i];
+                    const pg = gv[gy + ((ax / ION_PATCH_GRID) | 0)];
+                    let f = pg > 0 ? f0 * (1 + ION_PATCH_GAIN[1] * pg) : f0;
+                    if (f <= ION_MIN) {
+                        continue;
+                    }
+                    if (f > 1) {
+                        f = 1;
+                    }
+                    // A bright core takes a dither offset that depends on x
+                    // only, so a ray stays one unbroken vertical run instead
+                    // of breaking into halftone pieces under 40 px -- which is
+                    // what a bullet is.
+                    const bi = f > ION_COHERENT
+                        ? BAYER[(ax & 3) * 4 + ((ax >> 2) & 3)]
+                        : BAYER[(ay & 3) * 4 + (ax & 3)];
+                    let rung = (f * ION_RUNG + bi / 16 - 0.5) | 0;
+                    if (rung > top) {
+                        rung = top;
+                    }
+                    if (rung <= 0) {
+                        continue;
+                    }
+                    // The tint is the mean of the tints over this cell, so it
+                    // is read off the field BEFORE the patch scales it: a
+                    // uniform gain cannot change a weighted mean.
+                    const tn = tacc[i] / f0;
+                    const k = rung * 3;
+                    const att = 1 - ION_OCCLUDE * f;
+                    const o = i * 4;
+                    const r0 = b[o] * att + ra[k] + (rb[k] - ra[k]) * tn;
+                    const g0 = b[o + 1] * att + ra[k + 1] + (rb[k + 1] - ra[k + 1]) * tn;
+                    const b0 = b[o + 2] * att + ra[k + 2] + (rb[k + 2] - ra[k + 2]) * tn;
+                    const cr = capA[0] + (capB[0] - capA[0]) * tn;
+                    const cg = capA[1] + (capB[1] - capA[1]) * tn;
+                    const cb = capA[2] + (capB[2] - capA[2]) * tn;
+                    d[o] = r0 < cr ? r0 : cr;
+                    d[o + 1] = g0 < cg ? g0 : cg;
+                    d[o + 2] = b0 < cb ? b0 : cb;
+                    d[o + 3] = 255;
+                }
+            }
+            P.g.putImageData(P.img, 0, 0);
+            g.imageSmoothingEnabled = false;
+            g.drawImage(P.cv, bd.x0, bd.y0, bd.w, bd.h);
         },
     },
 
@@ -4295,9 +6600,27 @@ export const BACKGROUNDS = [
         desc: "Cold basalt under a red sky, with one flow still running out of the valley. The crust is nearly black and the ranges behind it fade instead of sharpening, because the air over molten ground is too hot to hold still.",
     },
     {
-        id: "pulsar", name: "PULSAR", tint: "#8fd8ff", kind: "pulsar",
-        p: { c1: "#8fd8ff" },
-        desc: "A neutron star turning fast overhead, sweeping two beams of light past the arena every couple of seconds.",
+        id: "pulsar", name: "PULSAR", tint: "#8fd8ff", kind: "pixelPulsar",
+        // The ramp is the study's, and this is the one place in the catalogue
+        // that can afford its top rung: a block of #a7e4ff measures mean red
+        // at 0.65 of mean blue, nothing like an enemy core, so the beams and
+        // the wisp heads are allowed to be the brightest thing in the frame.
+        // `topRung` 6 holds the BAKED layer one rung under that, which is what
+        // leaves the top one to the things that move.
+        //
+        // The star ramp is not the study's #5f7f96 / #9dc6dd / #dff4ff. Its
+        // top two rungs measure luminance 0.75 and 0.94 against the 0.62 the
+        // small-bright-feature detector cuts at, and `starList` puts about
+        // half of 460 stars on the top rung whatever a study does to its own
+        // distribution -- so the fix is the ramp, as it was for EVENT HORIZON,
+        // COMET TRAIL and RINGED GIANT. Every rung here is under the threshold
+        // and still clear of the plate it lies on.
+        p: {
+            veil: 11, topRung: 6,
+            ramp: ["#05070c", "#0b1522", "#12283c", "#1a415c", "#2b6484", "#4a8fae", "#74bcd8", "#a7e4ff"],
+            starRamp: ["#43555f", "#5f7885", "#839aa8"],
+        },
+        desc: "A neutron star turning overhead every four seconds, its tilted poles sweeping a beam of light past the arena every two.",
     },
     {
         id: "graveyard", name: "SHIP GRAVEYARD", tint: "#9aa6c4", kind: "graveyard",
@@ -4305,14 +6628,47 @@ export const BACKGROUNDS = [
         desc: "Hulls left where they died, tumbled at every angle and going nowhere. A few panels on them still have power and blink.",
     },
     {
-        id: "ocean_world", name: "OCEAN WORLD", tint: "#5ee1ff", kind: "surface",
-        p: { sky: ["#04202c", "#0a5a72", "#3fb6c9"], band: "#9ff2ff", speed: 0.6, motes: "spore", moteColor: "#bffaff" },
-        desc: "Over open water: teal sky, long cloud banks and spores drifting up through them.",
+        id: "ocean_world", name: "OCEAN WORLD", tint: "#5ee1ff", kind: "pixelOcean",
+        // Two ramps, and which one a pixel takes is which side of the horizon
+        // it is on. `ramp` is the sky, `landRamp` the water -- a step cooler
+        // and a step darker at every rung, which is the hard teal horizon the
+        // glossary line promises, done in the palette rather than with a line.
+        //
+        // The star ramp is not the study's #9fe8f2 / #cdf6fb / #eafeff. Those
+        // measure luminance 0.85 / 0.93 / 0.98 against the 0.62 the
+        // small-bright-feature detector cuts at, and a 9 px spore of the top
+        // one against the dark top of the box is a bullet by every test the
+        // programme has. Fifth star ramp to come down, after EVENT HORIZON,
+        // COMET TRAIL, RINGED GIANT and PULSAR; assume the next one too.
+        p: {
+            veil: 8, topRung: 6,
+            ramp: ["#031a24", "#06303f", "#0a4a5e", "#10657c", "#1c8398", "#35a3b4", "#6fcbd6", "#bff0f7"],
+            landRamp: ["#02141d", "#04222e", "#062f3d", "#093f4f", "#0d5162", "#146678", "#2b8b9b", "#74d0da"],
+            starRamp: ["#3a5f6a", "#4e7a85", "#628f9a"],
+        },
+        desc: "Over open water: a hard teal horizon, the sky repeated in the swell, and spores lifting off the crests.",
     },
     {
-        id: "aurora", name: "ION STORM", tint: "#7bffb0", kind: "aurora",
-        p: { c1: "#7bffb0", c2: "#5ee1ff" },
-        desc: "Charged particles hitting a magnetosphere. Curtains of green and cyan light lean and swing across the whole sky.",
+        id: "aurora", name: "ION STORM", tint: "#7bffb0", kind: "pixelIon",
+        // Two ramps sampled at the SAME rung and mixed by a per-curtain tint,
+        // which is what puts four green curtains and three cyan ones on one
+        // lattice: `ramp` is the entry's own green, `landRamp` its cyan. The
+        // third is the dust behind them, three rungs deep and all of it under
+        // the darkest thing in either sky ramp.
+        //
+        // The star ramp is the study's, unchanged, and it is the first one in
+        // the programme that did not have to come down: its top rung measures
+        // luminance 0.338 against the 0.62 the small-bright-feature detector
+        // cuts at. A study that measures its own point lights is a study whose
+        // palette can be taken as it stands.
+        p: {
+            veil: 6, topRung: 6,
+            ramp: ["#050a0c", "#0a1a18", "#0f3028", "#14503a", "#1b7050", "#2b9c6a", "#4fd28e", "#7bffb0"],
+            landRamp: ["#050a0c", "#0a181e", "#0d2c38", "#114353", "#185f74", "#248a9c", "#40b6cb", "#5ee1ff"],
+            starRamp: ["#202b2f", "#354247", "#4a595e"],
+            dustRamp: ["#070c0e", "#0a1114", "#0d171a"],
+        },
+        desc: "Charged particles hitting a magnetosphere. Curtains of green and cyan lean and swing across the whole sky, their rays flaring and dying twice a second, and the stars burn straight through them.",
     },
     {
         id: "moon", name: "LOW MOON ORBIT", tint: "#d6d2c8", kind: "moon",
