@@ -23,6 +23,8 @@
  *   - `occlude(bd, x, y)`  how much of a baked star this place hides, 0..1.
  *     A place with nothing solid in it may use it for the other reason a
  *     star gets dropped: the plate behind it is already lit.
+ *   - `blit(bd, g)`  the baked layer on screen, if one `drawImage` of it is
+ *     not enough. Only MOLTEN WORLD, whose plane slides against itself.
  * Painters draw in **logical arena coordinates** (the 680x540 space), over the
  * box the camera can reach when it pulls back for a colossus.
  *
@@ -443,6 +445,97 @@
  * be clipping nothing, which is the mirror of INNER SYSTEM, where it clips 78.
  * The regression is the same as the last three: 26 of 27 places byte-identical
  * over the composed frame and the 272 px thumbnail.
+ * -------------------------------------------------------------------------
+ * MOLTEN WORLD, quantised branch (2026-08-30)
+ * -------------------------------------------------------------------------
+ * The 10th Direction A conversion, and the place the shared veil was invented
+ * for: it painted in the same warm reds as enemy fire and scattered 70 rising
+ * 1-3 px embers the exact size of a bullet core. The study's finding is that
+ * the veil was never doing the work -- its warm-feature count is *flat* from
+ * veil 0 to veil 30, because a 30% black wash dims a bullet-sized ember and
+ * the bullet next to it by the same fraction. What fixes the place is the
+ * composition: the embers are deleted rather than resized, the crust goes
+ * near-black, and the only hot thing left is one connected flow 430 px long,
+ * which can never fall inside a 40 px window.
+ *
+ * The one thing here is superheated air. This is the only place where distance
+ * dissolves instead of sharpening, and it is drawn by sliding whole art pixels
+ * sideways: `blit` emits the baked plane as runs of art rows with independent
+ * x offsets instead of the single `drawImage` every other place uses. That is
+ * the one departure from the shared draw path in the whole catalogue, and it
+ * is what makes the three ranges each sit a rung lighter than the one in front
+ * -- the exact inversion of ICE WORLD nine waves earlier, which puts all three
+ * on the same rung to prove that cold air carries no haze.
+ *
+ * Departures from the study, and why:
+ *   1. The row blit is a RUN blit. The offset is quantised to whole art pixels
+ *      (`Math.round`, which is also what makes it read as heat rather than as
+ *      a compression artefact), so it is piecewise constant down the plane:
+ *      the 388 rows of the box collapse into ~30 blits, pixel-identical to one
+ *      blit a row. The study costed 128-136 blits a frame and argued it was
+ *      worth it; it does not have to be paid.
+ *   2. The flow is three concentric bands read off the distance to a per-row
+ *      centre, not a stroked polyline read back out of a canvas channel. Same
+ *      three rungs and the same undithered core; no second offscreen buffer.
+ *      Its halo is a falloff rather than two stacked hard-edged strokes -- on
+ *      an 8-rung ramp a stroke edge is a visible contour, and a falloff is
+ *      what gives the dither something to scatter.
+ *   3. No plane drift of its own. The study drifts +-9 px on a 1400-frame
+ *      period; drift stays on the engine's `t * 0.0016`, same call and same
+ *      reason as places 1-9.
+ *   4. Geometry is anchored on the arena (the horizon as a fraction of its
+ *      height) rather than on the box, so it composes where the study composed
+ *      it: 0.46 of the study's box is 0.42 of this arena.
+ *   5. No baked stars, no `occlude`, and `starRamp` is not needed. A point
+ *      light here would be a bright warm feature a few pixels across on a dark
+ *      surround, which is the definition of the thing being counted. The place
+ *      answers it the opposite way to ICE WORLD, which took its stars onto a
+ *      cool ramp: this one has no point lights at all and puts its one hot
+ *      ramp on a feature that is never small.
+ *
+ * Two core changes it needed, both of which the other nine places bake through
+ * unchanged: `field` may return a `flat` rung (this rung, undithered -- a
+ * dithered flow core is a dotted line, and two dozen 3 px dots of #ffd06a are
+ * two dozen bullets) and its own `cap`, since the sky stops at rung 6 and the
+ * land at 5. The land cap is the one that had to be re-measured: the study
+ * counts 32 warm features at cap 6, from the crack network dithering across
+ * the 5/6 boundary and scattering isolated art pixels of #d85a12 through
+ * near-black crust. On this arena the same sweep is 1 at cap 6 and 0 at cap 5
+ * -- the direction of its result holds and the size of it does not, which is
+ * the usual outcome of taking a study's canvas number literally. A painter may
+ * also take over the layer blit.
+ *
+ * Measured on the composed 680x540 arena at frame 1500. The study's own
+ * result does not survive the re-run, and what replaces it is better: the
+ * warm-feature detector the last three ports were settled with reads **0 for
+ * the old painter too**, at every veil. It is blind here, and the reason is
+ * the reason the place was broken -- a feature only counts on a surround under
+ * 0.30, and the old sky averaged 0.363. The defect was never a speck on a dark
+ * field; it was that there was no dark field.
+ *
+ * So the instrument is the bottom quarter of the frame, where the flow front
+ * is and where bullets pile up, against an enemy core at about 0.80:
+ *
+ *   was, veil 30   median 0.175   p99 0.628   whole frame mean 0.260
+ *   is,  veil 6    median 0.046   p99 0.781   whole frame mean 0.088
+ *
+ * A bullet now sits on a field four times darker, and the p99 that went up is
+ * the flow -- one connected component 278 px long, which is a structure and
+ * not a speck. That is also what settles `veil: 6` as a measurement rather
+ * than as taste: going on to 30 buys 0.008 of median darkness and costs the
+ * flow 0.243 of its peak, which is most of the one thing the place has. Live
+ * cost 56 rasterising calls a frame, 29 of them run blits, against 87 for the
+ * painter it replaces and the 128-136 row blits the study costed itself at.
+ * See `tools/neon_strike_bench/probe_molten.mjs`.
+ *
+ * What it leaves the shared painter: five worlds on `surface`, down from six,
+ * and the ember block goes with it: `motes` had two directions and the other
+ * five worlds all use the same one, so the sign is deleted rather than
+ * defaulted. First time in the programme the shared painter has got smaller.
+ * A two-place shared painter is not a shared painter, though, and the five
+ * that are left should be reviewed as a group before the next breakout rather
+ * than one at a time.
+ *
  */
 
 // The static layer is soft gradient art, so half resolution is free quality.
@@ -451,11 +544,15 @@ const LAYER_SCALE = 0.5;
 // baked box is this much taller on each side so the edge never shows.
 const DRIFT = 14;
 // Veil between the backdrop and the play field, for the places still painted
-// the old way. Nine of the 27 (lava, supernova, binary, graveyard...) paint in
-// the same warm reds and the same 1-3 px motes the enemy bullets use, and in
-// `lighter` they add up until a bullet is indistinguishable from scenery. One
-// flat number fixes those nine and flattens the other eighteen, which is why a
-// Direction A place carries its own `p.veil` instead -- see `bgScrim`.
+// the old way. Sixteen of the 27 are still on it, and about half of those
+// (supernova, binary, graveyard...) paint in the same warm reds and the same
+// 1-3 px motes the enemy bullets use, adding up in `lighter` until a bullet is
+// indistinguishable from scenery. One flat number fixes those and flattens the
+// rest, which is why a Direction A place carries its own `p.veil` instead --
+// see `bgScrim`. The place this was invented for is no longer one of them, and
+// what it measured on the way out is worth keeping: MOLTEN WORLD's warm-feature
+// count was identical at veil 0 and at veil 30, so the number was never what
+// was doing the work there.
 export const BG_SCRIM = "rgba(5,6,14,0.30)";
 // Where an atmosphere's sky colours sit down the box, by default. A place may
 // pass its own `skyStops` when three stops cannot hold it -- the gas giant runs
@@ -783,6 +880,98 @@ const GIANT_STARS = 150;
 // as INNER SYSTEM: it is what makes a star visible through the C ring and
 // invisible through B, which is the sentence the study asks `occlude` for.
 const GIANT_STAR_LIT = 46;
+
+// MOLTEN WORLD, in logical pixels unless the name says art pixels. The
+// horizon is a fraction of the arena: composition rather than physics, since
+// it is what opens a valley mouth for the flow to run out of and what keeps a
+// 200 px colossus hull against sky.
+const LAVA_HORIZON = 0.42;
+// The valley mouth: its half-width as a fraction of the box, then where the
+// front edge of the plain sits at the mouth, how much further it falls away
+// outside it, and how much noise breaks the line.
+const LAVA_VALLEY_W = 0.15;
+const LAVA_PLAIN = [18, 190, 24];
+// The three ranges between the plain and the sky, near to far: where the base
+// of the range sits relative to the horizon, how tall its peaks are, how much
+// of the valley mouth it feels, the frequency and phase of its silhouette, the
+// rung it sits on out of `LAVA_LAST`, how much noise mottles it, and the lit
+// lip along its own crest. Each range is a rung lighter than the one in front,
+// and that IS the place: the exact inversion of ICE WORLD, which puts all
+// three on the same rung to prove that cold air carries no haze.
+const LAVA_RANGES = [
+    { base: 34, amp: 210, valley: 0.78, f: 0.006, ph: 0, rung: 1, nz: 0.9, lip: 7, lipK: 1.4 },
+    { base: 4, amp: 150, valley: 0.34, f: 0.0044, ph: 21.5, rung: 3, nz: 0.8, lip: 7, lipK: 1.3 },
+    { base: -12, amp: 86, valley: 0, f: 0.003, ph: 43, rung: 5.4, nz: 0.6, lip: 6, lipK: 0.7 },
+];
+// The rung a value of 1 lands on. All three of this place's ramps are the
+// usual eight deep, so it is the bake's own `last` and the ranges can be
+// written as the rungs they are.
+const LAVA_LAST = 7;
+// The land is capped two rungs under its ramp: 6 and 7 exist so the crack
+// network has somewhere to reach for, and are never spent. At cap 6 the
+// network dithers across the 5/6 boundary and scatters isolated 3 px #d85a12
+// through near-black crust, which is the one thing in the study that measured
+// badly.
+const LAVA_LAND_CAP = 5;
+// The two smoke plumes: x as a fraction of the box, half-width, and height.
+// They are the only thing between the far range and the top of the box.
+const LAVA_PLUMES = [[0.3, 40, 400], [0.71, 32, 320]];
+const LAVA_PLUME_TOP = 26;
+const LAVA_PLUME_CUT = 0.42;
+const LAVA_PLUME_RUNG = 1.6;
+// The crack network, in art pixels: how many, the seed they meander off, and
+// the three passes stamped along each one -- half-width at the horizon, how
+// much wider at the floor of the box, and what it adds to the crust value.
+// The break between crust and crack is deliberate and large: rungs 0-3 are
+// basalt and 4-5 are incandescence, with nothing in between.
+const LAVA_CRACKS = 15;
+const LAVA_CRACK_SEED = 20260829;
+const LAVA_CRACK_PASS = [[1, 1.75, 0.3], [0.6, 0.9, 0.34], [0.45, 0.5, 0.4]];
+// The flow, in art pixels and read off the distance to a per-row centre: the
+// undithered core, the band around it, its fringe, and the two falloffs that
+// pool light on the crust either side. It is the only feature in the place
+// above luminance 100, and it is one connected component spanning the arena,
+// so it can never fall inside a 40 px window -- which is the whole reason the
+// embers could go.
+const LAVA_FLOW_CORE = [1.95, 5.7];
+const LAVA_FLOW_BAND = [3.45, 12.6];
+const LAVA_FLOW_FRINGE = [4.45, 13.6];
+const LAVA_FLOW_HALO = [[10.5, 54, 0.44], [5.7, 24, 0.55]];
+// Where the flow comes out from under the plain, and the two sines that
+// meander it down the valley.
+const LAVA_FLOW_TOP = 8;
+const LAVA_FLOW_AMP = [9, 36];
+// The flow front, where the ground glow breathes: how far down the box under
+// the horizon, its half-height, and the alpha it breathes between. One fill,
+// and the only additive thing left in the place.
+const LAVA_GLOW = { at: 0.35, half: 130, a: 0.05, amp: 0.03, rate: 0.008 };
+// Ash. The one particle left, and it cannot be mistaken for fire on any of
+// four axes at once: it is darker than its surround rather than brighter, it
+// falls with gravity rather than rising against it, it is 2-3 art pixels where
+// an enemy core is 1-4 logical, and it is an occluder -- you see it only where
+// it crosses light. ICE WORLD's rule holds either way: a particle has to read
+// as mass, and this one reads as mass by blocking instead of by glowing.
+const LAVA_ASH = 26;
+const LAVA_ASH_SEED = 4471;
+const LAVA_ASH_FALL = [0.3, 0.58];
+const LAVA_ASH_SWAY = 7;
+const LAVA_ASH_RATE = 0.011;
+const LAVA_ASH_WRAP = 40;
+// The lightest ash that still sits under luminance 40 against the brightest
+// rung of the horizon, so it is never the bright thing in its own
+// neighbourhood.
+const LAVA_ASH_COLOR = "rgba(50,36,28,0.92)";
+// The shimmer, which is the whole place in five numbers: where the heat zone
+// starts above the horizon and over how many px it reaches full strength; its
+// amplitude in ART pixels, because one is invisible at thumbnail size and
+// three reads as a wobble rather than as heat; the wave down the plane and how
+// fast it travels; and the second-order beat that keeps the wave off a loop.
+const LAVA_SHIM_TOP = 74;
+const LAVA_SHIM_SPAN = 210;
+const LAVA_SHIM_AMP = 2;
+const LAVA_SHIM_K = 0.03;
+const LAVA_SHIM_RATE = 0.021;
+const LAVA_SHIM_BEAT = [1.7, 0.008, 0.007];
 
 const FIELD_DARK = { v: 0 };
 // The arena the glossary thumbnails are composed in. Painters place things in
@@ -2026,6 +2215,204 @@ function beltLive(bd, g) {
     g.restore();
 }
 
+/**
+ * MOLTEN WORLD's ridged noise, 0..1. Three octaves of `1 - |2n - 1|`: the fold
+ * is what turns a hill into a skyline, and the power sharpens the peaks
+ * without moving the valleys. The three octaves read three different lines of
+ * the same field, and `ph` offsets a whole range onto its own stretch of it.
+ */
+function lavaRidgeN(n, x, f, ph) {
+    const rd = (v) => 1 - Math.abs(2 * v - 1);
+    const v = rd(n(x * f + ph, 12.3, 1)) * 0.62
+        + rd(n(x * f * 2.6 + ph, 29.7, 1)) * 0.27
+        + rd(n(x * f * 6.3 + ph, 51.1, 1)) * 0.11;
+    return Math.pow(clamp(v, 0, 1), 1.35);
+}
+
+/** How far into the valley mouth a column of the box is, 0..1. */
+function lavaValley(bd, x) {
+    const u = (x - (bd.x0 + bd.w * 0.5)) / (bd.w * LAVA_VALLEY_W);
+    return Math.exp(-u * u);
+}
+
+/** How far down the plain a logical y is: 0 at the horizon, 1 at the floor. */
+function lavaDep(bd, y) {
+    return clamp((y - bd.hy) / (bd.y0 + bd.h - bd.hy), 0, 1);
+}
+
+/**
+ * The two smoke plumes, as a density 0..1. They lean as they rise and widen
+ * with height, and a pixel of sky over `LAVA_PLUME_CUT` becomes smoke.
+ */
+function lavaPlume(bd, x, y) {
+    const by = bd.hy - LAVA_PLUME_TOP;
+    if (y > by) {
+        return 0;
+    }
+    let p = 0;
+    for (const q of LAVA_PLUMES) {
+        const t = (by - y) / q[2];
+        if (t > 1) {
+            continue;
+        }
+        const sway = Math.sin(t * 3) * q[1] * 0.9
+            + (bd.cloud(x * 0.009, y * 0.005, 1) - 0.5) * 46;
+        const dd = (x - (bd.x0 + bd.w * q[0]) - sway) / (q[1] * (0.45 + 1.9 * t));
+        const n = bd.cloud(x * 0.013 + 31, y * 0.011 + 17, 1);
+        const v = (1 - t * t) * Math.exp(-dd * dd) * (0.55 + 0.85 * n);
+        if (v > p) {
+            p = v;
+        }
+    }
+    return p;
+}
+
+/**
+ * How far an art row of the plane slides sideways this frame, in logical
+ * pixels and always a whole art pixel. This is the place: superheated air is
+ * the one thing in the catalogue that makes distance dissolve instead of
+ * sharpen, and it is drawn by sliding whole art pixels rather than by blurring
+ * anything. `Math.round` is load-bearing twice over -- sliding a plane by 4.7
+ * px reads as a compression artefact rather than as heat, and quantised offsets
+ * are what let `blit` send a run of rows in one call.
+ */
+function lavaShim(bd, ay) {
+    const y = bd.y0 + (ay + 0.5) * ART_PIX;
+    const g = clamp((y - (bd.hy - LAVA_SHIM_TOP)) / LAVA_SHIM_SPAN, 0, 1);
+    if (g <= 0) {
+        return 0;
+    }
+    const b = LAVA_SHIM_BEAT;
+    return ART_PIX * Math.round(LAVA_SHIM_AMP * g * Math.sin(
+        y * LAVA_SHIM_K + bd.t * LAVA_SHIM_RATE + b[0] * Math.sin(y * b[1] - bd.t * b[2])
+    ));
+}
+
+/**
+ * The silhouettes, decided once per art column rather than drawn: the front
+ * edge of the plain, and the crest of each of the three ranges behind it.
+ */
+function lavaColumns(bd) {
+    bd.plain = new Float32Array(bd.aw);
+    bd.crest = LAVA_RANGES.map(() => new Float32Array(bd.aw));
+    for (let i = 0; i < bd.aw; i++) {
+        const x = bd.x0 + (i + 0.5) * ART_PIX;
+        const v = lavaValley(bd, x);
+        bd.plain[i] = bd.hy + LAVA_PLAIN[0] + (1 - v) * LAVA_PLAIN[1]
+            + (bd.relief(x * 0.004, 5.5, 1) - 0.5) * LAVA_PLAIN[2];
+        for (let k = 0; k < LAVA_RANGES.length; k++) {
+            const d = LAVA_RANGES[k];
+            bd.crest[k][i] = bd.hy + d.base
+                - d.amp * (1 - v * d.valley) * lavaRidgeN(bd.relief, x, d.f, d.ph);
+        }
+    }
+}
+
+/**
+ * The flow, as one x per art row. It is a graph over y -- it only ever runs
+ * downhill -- so a centre line and a distance is the whole of it, and there is
+ * no second offscreen buffer to keep.
+ */
+function lavaFlow(bd) {
+    bd.flowTop = (bd.hy - bd.y0) / ART_PIX + LAVA_FLOW_TOP;
+    bd.flowX = new Float32Array(bd.ah);
+    const span = Math.max(1, bd.ah - bd.flowTop);
+    for (let ay = 0; ay < bd.ah; ay++) {
+        const t = clamp((ay - bd.flowTop) / span, 0, 1);
+        const amp = LAVA_FLOW_AMP[0] + LAVA_FLOW_AMP[1] * t;
+        bd.flowX[ay] = bd.aw * 0.5 + amp * Math.sin(t * 2.3 + 0.6)
+            + amp * 0.3 * Math.sin(t * 6.1 + 2.2);
+    }
+}
+
+/**
+ * The crack network, stamped into a byte per art pixel. Fifteen walks whose
+ * heading is noise-perturbed and clamped nearly flat, so the network lies
+ * along the plain instead of climbing out of it, with every other one forking
+ * once: a network reads as a network, a set of strokes reads as scratches.
+ */
+function lavaCracks(bd) {
+    const aw = bd.aw;
+    const ah = bd.ah;
+    const buf = new Uint8Array(aw * ah);
+    const rng = mulberry32(LAVA_CRACK_SEED);
+    const top = (bd.hy - bd.y0) / ART_PIX;
+    const grow = (x, y, a, len, step) => {
+        const pts = [[x, y]];
+        for (let s = 0; s < len; s++) {
+            a += (bd.crust(x * 0.05, y * 0.05, 1) - 0.5) * 0.44;
+            a = Math.atan2(clamp(Math.sin(a), -0.44, 0.44), Math.cos(a));
+            x += Math.cos(a) * step;
+            y += Math.sin(a) * step * 0.32;
+            if (y < top - 1 || y > ah + 6 || x < -60 || x > aw + 60) {
+                break;
+            }
+            pts.push([x, y]);
+        }
+        return pts;
+    };
+    const paths = [];
+    for (let i = 0; i < LAVA_CRACKS; i++) {
+        const p = grow(
+            rng() * aw,
+            top + 16 + Math.pow(rng(), 1.15) * (ah - top - 16),
+            (rng() - 0.5) * 0.6 + (rng() < 0.5 ? 0 : Math.PI),
+            46 + Math.floor(rng() * 70), 2.4
+        );
+        if (p.length > 22) {
+            paths.push(p);
+        }
+    }
+    for (const p of paths.slice()) {
+        if (rng() > 0.55) {
+            continue;
+        }
+        const i = 3 + Math.floor(rng() * (p.length - 5));
+        const q = grow(
+            p[i][0], p[i][1],
+            (rng() - 0.5) * 1.6 + (rng() < 0.5 ? 0 : Math.PI),
+            22 + Math.floor(rng() * 24), 2
+        );
+        if (q.length > 18) {
+            paths.push(q);
+        }
+    }
+    let reach = 1;
+    for (const q of LAVA_CRACK_PASS) {
+        reach = Math.max(reach, q[0] + q[1] + 1);
+    }
+    for (const p of paths) {
+        for (let i = 1; i < p.length; i++) {
+            const ax = p[i - 1][0];
+            const ay = p[i - 1][1];
+            const dx = p[i][0] - ax;
+            const dy = p[i][1] - ay;
+            const len2 = dx * dx + dy * dy || 1;
+            const dep = clamp((p[i][1] - top) / (ah - top), 0, 1);
+            const x0 = Math.max(0, Math.floor(Math.min(ax, p[i][0]) - reach));
+            const x1 = Math.min(aw - 1, Math.ceil(Math.max(ax, p[i][0]) + reach));
+            const y0 = Math.max(0, Math.floor(Math.min(ay, p[i][1]) - reach));
+            const y1 = Math.min(ah - 1, Math.ceil(Math.max(ay, p[i][1]) + reach));
+            for (let y = y0; y <= y1; y++) {
+                for (let x = x0; x <= x1; x++) {
+                    const t = clamp(((x - ax) * dx + (y - ay) * dy) / len2, 0, 1);
+                    const d = Math.hypot(x - ax - dx * t, y - ay - dy * t);
+                    let v = 0;
+                    for (const q of LAVA_CRACK_PASS) {
+                        v += q[2] * clamp(q[0] + q[1] * dep + 0.5 - d, 0, 1);
+                    }
+                    if (v <= 0) {
+                        continue;
+                    }
+                    const o = y * aw + x;
+                    buf[o] = Math.min(255, buf[o] + Math.round(v * 255));
+                }
+            }
+        }
+    }
+    bd.crack = buf;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Painters                                                                    */
 /* -------------------------------------------------------------------------- */
@@ -2827,9 +3214,9 @@ const PAINTERS = {
     /**
      * Flying inside a planet's atmosphere. Two forms on one code path:
      *
-     * `bandForm: "bank"` -- the default, and what the six other worlds are: a
+     * `bandForm: "bank"` -- the default, and what the four other worlds are: a
      * baked sky with 16 soft ellipses scrolling over it in `lighter`, plus
-     * `motes` (embers, spores, sand) simulated on top.
+     * `motes` (spores, sand) falling over that.
      *
      * `bandForm: "belt"` -- GAS GIANT DESCENT: the sky plus a stack of tiles
      * that wrap and translate at their own rates, so the decks shear against
@@ -2894,7 +3281,7 @@ const PAINTERS = {
         update(bd, ts) {
             bd.scroll = (bd.scroll || 0) + (bd.p.speed || 0.7) * ts;
             for (const m of bd.motes) {
-                m.y += m.v * (bd.p.motes === "ember" ? -1 : 1) * ts;
+                m.y += m.v * ts;
                 if (m.y > bd.y0 + bd.h) { m.y = bd.y0; }
                 if (m.y < bd.y0) { m.y = bd.y0 + bd.h; }
             }
@@ -3452,6 +3839,169 @@ const PAINTERS = {
             g.drawImage(bd.clump.cv, bd.x0, bd.y0, bd.w, bd.h);
         },
     },
+
+    /**
+     * MOLTEN WORLD. A cold basalt plain lit from underneath, where the only
+     * light is structure and the air above it will not hold still. The crust
+     * is near-black so the shimmer has hard edges to displace, the light is
+     * confined to one flow and a dull crack network so the displacement reads
+     * on structure rather than on fog, and the sky is lit from below so the
+     * brightest air is the air closest to the ground -- which is the air that
+     * shimmers hardest.
+     */
+    pixelMolten: {
+        init(bd) {
+            bd.aw = Math.max(1, Math.ceil(bd.w / ART_PIX));
+            bd.ah = Math.max(1, Math.ceil(bd.h / ART_PIX));
+            bd.hy = bd.H * LAVA_HORIZON;
+            bd.rgbRidge = rampRGB(bd.p.ridgeRamp);
+            bd.rgbFlow = rampRGB(bd.p.flowRamp);
+            bd.cloud = mkNoise(0x4a17);
+            bd.crust = mkNoise(0x21c9);
+            bd.relief = mkNoise(0x7d05);
+            lavaColumns(bd);
+            lavaFlow(bd);
+            lavaCracks(bd);
+            const rng = mulberry32(LAVA_ASH_SEED);
+            bd.ash = [];
+            for (let i = 0; i < LAVA_ASH; i++) {
+                bd.ash.push({
+                    x: bd.x0 + rng() * bd.w,
+                    y: rng() * (bd.h + LAVA_ASH_WRAP),
+                    v: LAVA_ASH_FALL[0] + rng() * (LAVA_ASH_FALL[1] - LAVA_ASH_FALL[0]),
+                    ph: rng() * 6.2832,
+                    // Two or three art pixels. An enemy core is 1-4 logical.
+                    s: (rng() < 0.5 ? 2 : 3) * ART_PIX,
+                });
+            }
+        },
+        // One entry point and four materials: the plain (crust, crack network
+        // and flow), the three ranges, the smoke, and the sky.
+        field(bd, x, y) {
+            const ax = clamp(Math.floor((x - bd.x0) / ART_PIX), 0, bd.aw - 1);
+            const pt = bd.plain[ax];
+            if (y >= pt) {
+                const ay = clamp(Math.floor((y - bd.y0) / ART_PIX), 0, bd.ah - 1);
+                const dep = lavaDep(bd, y);
+                const d = ay >= bd.flowTop
+                    ? Math.abs(ax + 0.5 - bd.flowX[ay])
+                    : Infinity;
+                if (d < LAVA_FLOW_FRINGE[0] + LAVA_FLOW_FRINGE[1] * dep) {
+                    // The flow takes a flat rung with the dither skipped
+                    // entirely. A dithered core turns the one hot thing in the
+                    // place into a dotted line, and two dozen 3 px dots of
+                    // #ffd06a are two dozen bullets.
+                    return {
+                        v: 1,
+                        rgb: bd.rgbFlow,
+                        flat: d < LAVA_FLOW_CORE[0] + LAVA_FLOW_CORE[1] * dep
+                            ? 2
+                            : d < LAVA_FLOW_BAND[0] + LAVA_FLOW_BAND[1] * dep ? 1 : 0,
+                    };
+                }
+                let halo = 0;
+                for (const q of LAVA_FLOW_HALO) {
+                    halo += q[2] * clamp(1 - d / (q[0] + q[1] * dep), 0, 1);
+                }
+                const n = bd.crust(x * 0.01 + 13, y * 0.024 + 29, 1) * 0.4
+                    + bd.crust(x * 0.038 + 47, y * 0.08 + 7, 1) * 0.32
+                    + bd.crust(x * 0.0035, y * 0.009, 1) * 0.28;
+                const v = 0.11
+                    + 0.24 * clamp((y - pt) / (bd.y0 + bd.h - pt), 0, 1)
+                    + (n - 0.5) * 0.3
+                    + (bd.crack[ay * bd.aw + ax] / 255) * 1.15
+                    + halo * 1.15;
+                return { v: clamp(v, 0, 1), rgb: bd.rgbAlt, cap: LAVA_LAND_CAP };
+            }
+            const nz = bd.crust(x * 0.03, y * 0.05, 1);
+            for (let k = 0; k < LAVA_RANGES.length; k++) {
+                const ct = bd.crest[k][ax];
+                if (y < ct) {
+                    continue;
+                }
+                // Near range first: the loop takes the first crest it is
+                // under, so the order is the occlusion order. A silhouette
+                // decided per art pixel is exactly what the dither must not be
+                // allowed to soften, which is why none of this is `hard` art.
+                const r = LAVA_RANGES[k];
+                return {
+                    v: (r.rung + (nz - 0.5) * r.nz + (y - ct < r.lip ? r.lipK : 0)) / LAVA_LAST,
+                    rgb: bd.rgbRidge,
+                };
+            }
+            if (lavaPlume(bd, x, y) > LAVA_PLUME_CUT) {
+                return {
+                    v: (LAVA_PLUME_RUNG + (nz - 0.5) * 1.2) / LAVA_LAST,
+                    rgb: bd.rgbRidge,
+                };
+            }
+            // The sky, lit from below: brightest at the horizon and clipped by
+            // `topRung` so it can never reach the pale pink of enemy fire.
+            const t = clamp((y - bd.y0) / (bd.hy - bd.y0), 0, 1);
+            return {
+                v: clamp(
+                    Math.pow(t, 2.1) * 0.78
+                    + (bd.cloud(x * 0.0055, y * 0.01, 1) - 0.5) * 0.12 * t
+                    + (bd.cloud(x * 0.003 + 53, y * 0.016 + 11, 1) - 0.44) * 0.18 * t
+                    + Math.exp(-Math.pow((bd.hy - y) / ((bd.hy - bd.y0) * 0.22), 2)) * 0.36,
+                    0, 1
+                ),
+            };
+        },
+        /**
+         * The plane, emitted as runs of art rows that share a slide instead of
+         * as one image. The shimmer is the plane moving against itself, so it
+         * cannot bake: the offset is a function of row and frame together. But
+         * it is quantised to whole art pixels and therefore piecewise constant
+         * down the plane, so the 388 rows of the box come out in about thirty
+         * calls, pixel-identical to one call a row. The still sky above the
+         * heat zone is simply the first of those runs.
+         */
+        blit(bd, g) {
+            let start = 0;
+            let off = lavaShim(bd, 0);
+            for (let r = 1; r <= bd.ah; r++) {
+                // Past the last row, a value that cannot match flushes the run.
+                const o = r < bd.ah ? lavaShim(bd, r) : off - 1;
+                if (o === off) {
+                    continue;
+                }
+                g.drawImage(
+                    bd.layer, 0, start, bd.aw, r - start,
+                    bd.x0 + off, bd.y0 + start * ART_PIX, bd.w, (r - start) * ART_PIX
+                );
+                start = r;
+                off = o;
+            }
+        },
+        live(bd, g) {
+            // The flow front breathing: one fill, and the only additive thing
+            // left in the place now the embers are gone.
+            const fy = bd.hy + (bd.y0 + bd.h - bd.hy) * LAVA_GLOW.at;
+            const grd = g.createLinearGradient(0, fy - LAVA_GLOW.half, 0, fy + LAVA_GLOW.half);
+            grd.addColorStop(0, rgba(bd.p.glow, 0));
+            grd.addColorStop(0.5, rgba(bd.p.glow, 1));
+            grd.addColorStop(1, rgba(bd.p.glow, 0));
+            g.save();
+            g.globalCompositeOperation = "lighter";
+            g.globalAlpha = LAVA_GLOW.a + LAVA_GLOW.amp * Math.sin(bd.t * LAVA_GLOW.rate);
+            g.fillStyle = grd;
+            g.fillRect(bd.x0, fy - LAVA_GLOW.half, bd.w, LAVA_GLOW.half * 2);
+            g.restore();
+            // Ash: 26 rects, source-over, and the only thing here that moves
+            // relative to the plane. No `update` -- every one of them is a pure
+            // function of `bd.t`, so a still can be taken at frame 1500 without
+            // stepping there, and pause and slow motion scale the clock for
+            // free.
+            g.fillStyle = LAVA_ASH_COLOR;
+            for (const a of bd.ash) {
+                const y = bd.y0 + ((a.y + bd.t * a.v) % (bd.h + LAVA_ASH_WRAP))
+                    - LAVA_ASH_WRAP / 2;
+                const x = a.x + Math.sin(bd.t * LAVA_ASH_RATE + a.ph) * LAVA_ASH_SWAY;
+                g.fillRect(snapTo(bd.x0, x), snapTo(bd.y0, y), a.s, a.s);
+            }
+        },
+    },
 };
 
 /**
@@ -3726,9 +4276,23 @@ export const BACKGROUNDS = [
         desc: "A banded giant filling the top right, its rings turning slowly through the frame: behind the body on one side, out in front of it on the other, with the planet's shadow lying across the far arc.",
     },
     {
-        id: "lava_world", name: "MOLTEN WORLD", tint: "#ff7a45", kind: "surface",
-        p: { sky: ["#1a0603", "#5e1206", "#c23a10"], band: "#ff8a3c", speed: 1.1, motes: "ember", moteColor: "#ffb066", lightning: false },
-        desc: "Low over molten ground: red sky and embers rising instead of falling. It paints in the same reds as enemy fire, which is why the backdrop sits behind a veil.",
+        id: "lava_world", name: "MOLTEN WORLD", tint: "#ff7a45", kind: "pixelMolten",
+        // Four ramps, and a cap on the two the place is mostly made of.
+        // `ramp` is the sky seen from under it -- the tint rotated toward the
+        // maroon air reads when the light comes off the ground, clipped at
+        // rung 6 so it can never reach the pale pink of enemy fire. `landRamp`
+        // is basalt at 0-3 and incandescence at 4-5, capped at 5 (see
+        // `LAVA_LAND_CAP`). `ridgeRamp` carries the three ranges on rungs
+        // 1/3/5, two rungs off the sky at the back. `flowRamp` is the only hot
+        // thing in the place and is never dithered.
+        p: {
+            veil: 6, topRung: 6, glow: "#ff7a45",
+            ramp: ["#0a0208", "#16040e", "#240715", "#360a1a", "#4c0f20", "#6a1524", "#8e1c28", "#b3242c"],
+            landRamp: ["#0b0409", "#14060d", "#1e0812", "#2c0b15", "#5a1512", "#952c10", "#d85a12", "#ff9a3c"],
+            ridgeRamp: ["#0d020c", "#160411", "#210718", "#2d0a1e", "#3c0e24", "#4e122a", "#631831", "#7c1f38"],
+            flowRamp: ["#e0600f", "#ff9a2e", "#ffd06a"],
+        },
+        desc: "Cold basalt under a red sky, with one flow still running out of the valley. The crust is nearly black and the ranges behind it fade instead of sharpening, because the air over molten ground is too hot to hold still.",
     },
     {
         id: "pulsar", name: "PULSAR", tint: "#8fd8ff", kind: "pulsar",
@@ -3920,8 +4484,19 @@ export class Backdrop {
             for (let px = 0; px < aw; px++) {
                 const s = field(this, this.x0 + (px + 0.5) * pix, y);
                 const ramp = s.rgb || this.rgb;
-                const bay = (BAYER[row + (px & 3)] / 16 - 0.46) * DITHER;
-                const col = ramp[clamp(Math.round(s.v * last + bay), 0, cap)];
+                // A sample may name a `flat` rung -- this one, undithered --
+                // and its own `cap`. Both exist for MOLTEN WORLD, whose flow
+                // becomes a dotted line the moment it is dithered and whose
+                // land stops two rungs under its own ramp; every other place
+                // returns neither and bakes exactly as it did.
+                let col;
+                if (s.flat === undefined) {
+                    const bay = (BAYER[row + (px & 3)] / 16 - 0.46) * DITHER;
+                    const top = s.cap === undefined ? cap : Math.min(s.cap, cap);
+                    col = ramp[clamp(Math.round(s.v * last + bay), 0, top)];
+                } else {
+                    col = ramp[s.flat];
+                }
                 const o = (py * aw + px) * 4;
                 data[o] = col[0];
                 data[o + 1] = col[1];
@@ -3982,7 +4557,11 @@ export class Backdrop {
             g.save();
             g.translate(0, drift);
             g.imageSmoothingEnabled = !this.pixel;
-            g.drawImage(this.layer, this.x0, this.y0, this.w, this.h);
+            if (this.painter.blit) {
+                this.painter.blit(this, g);
+            } else {
+                g.drawImage(this.layer, this.x0, this.y0, this.w, this.h);
+            }
             g.restore();
         }
         if (this.painter.live) {
