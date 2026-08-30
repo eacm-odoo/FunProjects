@@ -21,6 +21,8 @@
  *   - `hard(bd, g, pix)`  hard-edged art laid over the quantised field, drawn
  *     in art pixels rather than logical ones.
  *   - `occlude(bd, x, y)`  how much of a baked star this place hides, 0..1.
+ *     A place with nothing solid in it may use it for the other reason a
+ *     star gets dropped: the plate behind it is already lit.
  * Painters draw in **logical arena coordinates** (the 680x540 space), over the
  * box the camera can reach when it pulls back for a colossus.
  *
@@ -36,7 +38,8 @@
  * smooth -- and Direction A won: the seam at the play field was an accident,
  * not a depth cue. `deep`, `planet_blue`, `nebula_violet`, `belt` and
  * `blackhole` are now baked on the same 3 px lattice and the same 8-rung ramps
- * the sprites live on. Places 6-27 are still soft gradient art.
+ * the sprites live on. Places 6-27 were still soft gradient art at the time;
+ * `system` has been converted since (below), and the rest still are.
  *
  * Departures from the study, and why:
  *   1. The study kept a 1428x1162 upscaled copy of every bake (~6.6 MB each,
@@ -153,13 +156,80 @@
  * study's own version B, run headless from its page for comparison, measures
  * p95 0.0854 and mean 0.0422 on the same lattice.
  *
+ * -------------------------------------------------------------------------
+ * INNER SYSTEM, Direction A -- place 7 (2026-08-29)
+ * -------------------------------------------------------------------------
+ * The sixth conversion, and the first place whose hard art *moves*: the dust
+ * plane, the five orbital lanes and the star bake, and five bodies ride over
+ * them as sprites rasterised once per lighting direction and blitted on the
+ * lattice. `pixelSystem` replaces the old soft `system` painter, which is gone.
+ *
+ * The composition is one ramp for everything and a second one for the star
+ * alone. The cool ramp is the place tint rotated to its complement and held
+ * under 0.045 chroma, so nothing the field can produce is in the family the
+ * enemies fire in; that is what buys the star the right to stay warm. The star
+ * pays for it with size instead -- its warm core is 72 px across against the
+ * 40 px ceiling a bullet has to fit under.
+ *
+ * Departures from the study, and why:
+ *   1. `occlude` is used, where the study left it returning 0 everywhere and
+ *      listed that as a gap. The study still had a rule for its stars -- place
+ *      one only where the plate behind it is under luminance 46 -- and that is
+ *      exactly the phase the contract already has. It drops 3 of the 170 here,
+ *      which is the 3% of the box the dust actually lights.
+ *   2. There is no `update`. Every angle is a function of `bd.t`, so the place
+ *      keeps no state at all and `backdropThumb` takes it straight to frame
+ *      1500 instead of stepping it there 1500 times.
+ *   3. Drift is not quantised to the lattice. `Backdrop.draw` puts one
+ *      continuous `sin(t * 0.0016) * DRIFT` on the plate and the live layer
+ *      together, so the plane is rigid -- which is what the study's
+ *      quantisation is for -- and a seventh place breathing on a period of its
+ *      own is the worse defect. Same call, and the same reason, as places 1-5.
+ *   4. The study's own integer hash is dropped for this file's `mkNoise`,
+ *      which is the "fold it into the shared generator" its port notes ask
+ *      for. Its lattice wraps every 64 units; the belt samples +-53 of it and
+ *      the grain 0-50, so nothing tiles inside the box.
+ *   5. The sprite baker is a shared helper (`shadedSphere`) taking an explicit
+ *      four-tone palette, which is the smaller of the two shapes the port
+ *      notes offer -- no `bodyPalettes` array beside `landRamp`.
+ *   6. No `liveHard` phase was added. The study asks for one so a moving solid
+ *      can stay on the lattice, but `live` on a Direction A place already runs
+ *      inside the drift translate in logical coordinates and `snapTo` already
+ *      puts an element on the bake grid; five `drawImage`s with smoothing off
+ *      is the whole of it. A sixth phase would carry one place.
+ *   7. The star moved from 0.28 / 0.12 of the arena to 0.17 / 0.24, which is
+ *      where the study puts it. The reason is the pulled-back camera: at 0.24
+ *      across, the colossus hull's left wing tip covers the star, and the star
+ *      is the one element in the composition that cannot be behind the boss.
+ *   8. Orbit radii stay absolute logical px while the star is a fraction of
+ *      the arena, because only the short side of the arena is a fixed size.
+ *      Same split `pixelHorizon` already uses.
+ *
+ * Measured here, on the composed 680x540 arena at frame 1500, by the study's
+ * own detector (a warm blob is luminance >= 100, r-b >= 40, r >= g, 40 px or
+ * less on its longest side, sitting on a 4 px surround under luminance 40):
+ * **0 features pass all four tests**, at veil 0, 12 and 30 alike. Twenty warm
+ * blobs exist and every one of them fails on size or on surround: they are the
+ * corona and the fragments of it, the largest 81 px across. Mean luminance
+ * 22.6 and p95 69 before the veil, 20.6 and 61 at `veil: 12` -- which puts the
+ * place between ASTEROID BELT (18.1 / 22) and VIOLET NEBULA (38.4 / 59), and
+ * well under BLUE MARBLE (48.3 / 98) and GAS GIANT DESCENT (76.8 / 123).
+ *
+ * `topRung: 6` is load-bearing rather than a safety net: the field peaks at
+ * rung 6.76 and the cap clips 78 art pixels that would otherwise come out at
+ * #5f7098, the brightest thing outside the star. It clips the corona's second
+ * ramp too -- 134 art pixels -- but all of them lie inside the 452 the star's
+ * core disc covers, and `hard` paints that straight from `landRamp[7]` rather
+ * than through the ramp, so the star keeps its top rung either way.
+ *
  * Measured against this arena rather than carried over: the box is the same
  * 1428x1162 the study drew for, so its geometry transfers unchanged. The two
  * numbers that had to be checked here are the belt's separation from the wave
  * -- scenery rocks drift at 0.10-0.32 px/frame and 6-9 px wide against
  * `spawnRock`'s 0.7-2.0 px/frame and 32-80 px -- and the live budget, which
- * comes out at 12 rasterising calls for the three quiet places, 78 for `belt`
- * and 96 for `blackhole`, against the ~122 average the animator ports quote.
+ * comes out at 12 rasterising calls for the three quiet places, 6 for
+ * `system`, 78 for `belt` and 96 for `blackhole`, against the ~122 average
+ * the animator ports quote.
  */
 
 // The static layer is soft gradient art, so half resolution is free quality.
@@ -198,6 +268,50 @@ const DISC_SQ = 0.42;
 const SUN_X = 0.55;
 const SUN_Y = -0.62;
 const SUN_Z = 0.56;
+// INNER SYSTEM's geometry, in logical pixels. The ecliptic is seen 0.2 rad off
+// horizontal and squashed to a third of its depth, so an orbit is an ellipse
+// and the sign of `sin(th)` alone says which half of it a body is on. Radii
+// are absolute rather than a fraction of the arena, for the same reason EVENT
+// HORIZON's disc is: only the short side of the arena is a fixed size.
+const SYS_TILT_C = Math.cos(0.2);
+const SYS_TILT_S = Math.sin(0.2);
+const SYS_SQUASH = 0.34;
+// The five orbits: radius, and how bright the dust lane on it is. A lane is
+// `14 + 0.045 r` wide, which makes the outer ones broad and faint and the
+// inner ones tight and sharp without a second number per orbit.
+const SYS_ORBITS = [
+    { R: 150, s: 0.85 },
+    { R: 250, s: 1.0 },
+    { R: 380, s: 0.92 },
+    { R: 500, s: 0.78 },
+    { R: 670, s: 0.62 },
+];
+// The rubble belt between the third and fourth orbits.
+const SYS_BELT_R = 435;
+const SYS_BELT_W = 48;
+// The star: the core disc `hard` paints, and the radius inside which a
+// far-side body is dropped rather than drawn as a dark bite out of the glare.
+const SYS_CORE_R = 36;
+const SYS_OCCULT_R = 52;
+// Above this baked luminance a star is not placed. The dust plane fills the
+// frame in this place, so a point light on a lit lane reads as noise rather
+// than as a star behind it; rungs 0-3 of the place's ramp pass, 4-6 do not.
+const SYS_STAR_MAX = 46;
+// Crescent directions a body is rasterised in: every 22.5 degrees of orbit,
+// which is a new sprite every 56 frames on the innermost body and every 375
+// on the outermost.
+const SYS_PHASES = 16;
+// The five bodies: orbit radius, body radius, period in frames, where each one
+// starts, and its own four tones dark to lit. They are hard art on palettes of
+// their own rather than on the place's ramp -- five bodies at five distances
+// cannot be told apart on eight shared rungs.
+const SYS_BODIES = [
+    { R: 150, r: 5, per: 900, th0: 0.7, pal: ["#0a0e18", "#2b3a55", "#4a5c7d", "#7f93b5"] },
+    { R: 250, r: 7, per: 1500, th0: 0.35, pal: ["#0a1216", "#26414a", "#40606c", "#6f8fa8"] },
+    { R: 380, r: 9, per: 2400, th0: 1.6, pal: ["#100c07", "#33291a", "#4d3f28", "#6b5a3a"] },
+    { R: 500, r: 13, per: 3800, th0: 5.383, pal: ["#080c12", "#1f2c3d", "#3a4c66", "#59708f"] },
+    { R: 670, r: 11, per: 6000, th0: 5.912, pal: ["#0a0a12", "#262a44", "#414669", "#6b6f9c"] },
+];
 // The field of a place that paints nothing at all, shared so the bake does not
 // allocate one per art pixel.
 const FIELD_DARK = { v: 0 };
@@ -475,6 +589,114 @@ function twinkles(bd, g) {
         g.fillStyle = q > 0.66 ? ramp[2] : q > 0.33 ? ramp[1] : ramp[0];
         g.fillRect(snapTo(bd.x0, t.x), snapTo(bd.y0, t.y), ART_PIX, ART_PIX);
     }
+}
+
+/** Rec. 709 luminance of an RGB triplet, on the same 0-255 scale. */
+function lum(c) {
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+
+/**
+ * A shaded ball, rasterised once per lighting direction at art resolution.
+ * `radius` is in logical pixels and `pal` is four tones dark to lit; the
+ * result is `phases` canvases the caller blits with smoothing off, one per
+ * 2*pi/phases of crescent direction.
+ *
+ * It is a shared helper rather than a routine inside one painter because a
+ * moving solid is the one thing Direction A had no way to draw: `hard` runs at
+ * bake time, so anything that moves has to be a sprite, and a sprite that is
+ * not on the lattice is what gives the whole plane away.
+ */
+function shadedSphere(radius, pal, phases) {
+    const ra = radius / ART_PIX;
+    const s = Math.ceil(ra * 2) + 2;
+    const rgb = rampRGB(pal);
+    const out = [];
+    for (let k = 0; k < phases; k++) {
+        const a = (k * 6.2832) / phases;
+        const lx = Math.cos(a);
+        const ly = Math.sin(a);
+        // The light leans 0.8 out of the screen, so a body lit from behind
+        // keeps a rim instead of going flat black.
+        const ln = Math.sqrt(lx * lx + ly * ly + 0.64);
+        const cv = document.createElement("canvas");
+        cv.width = s;
+        cv.height = s;
+        const g = cv.getContext("2d");
+        const img = g.createImageData(s, s);
+        const data = img.data;
+        for (let j = 0; j < s; j++) {
+            for (let i = 0; i < s; i++) {
+                const nx = (i + 0.5 - s / 2) / ra;
+                const ny = (j + 0.5 - s / 2) / ra;
+                const d2 = nx * nx + ny * ny;
+                if (d2 > 1) {
+                    continue;
+                }
+                // Lambert against the sphere normal, on the same Bayer
+                // threshold the field uses: a 6 px ball has a terminator two
+                // pixels wide and it steps without it.
+                const bay = (BAYER[(j & 3) * 4 + (i & 3)] / 16 - 0.46) * 0.07;
+                const lamb = (nx * lx + ny * ly + Math.sqrt(1 - d2) * 0.8) / ln + bay;
+                const col = rgb[lamb < 0.03 ? 0 : lamb < 0.3 ? 1 : lamb < 0.62 ? 2 : 3];
+                const o = (j * s + i) * 4;
+                data[o] = col[0];
+                data[o + 1] = col[1];
+                data[o + 2] = col[2];
+                data[o + 3] = 255;
+            }
+        }
+        g.putImageData(img, 0, 0);
+        out.push(cv);
+    }
+    return out;
+}
+
+/**
+ * INNER SYSTEM as a scalar. Everything static about the place comes out of
+ * this one function: the ecliptic dust plane, the five dust lanes, the rubble
+ * belt, the grain and the star's corona. `u` runs along the ecliptic and `w`
+ * across it un-squashed, so `r` is a true orbital radius and every feature is
+ * a function of it rather than of where it lands on screen.
+ */
+function systemField(bd, x, y) {
+    const dx = x - bd.cx;
+    const dy = y - bd.cy;
+    const u = dx * SYS_TILT_C + dy * SYS_TILT_S;
+    const v = -dx * SYS_TILT_S + dy * SYS_TILT_C;
+    const w = v / SYS_SQUASH;
+    const r = Math.sqrt(u * u + w * w);
+    // Everything in the plane thins out with distance from the star.
+    const fall = 1 / (1 + Math.pow(r / 260, 1.5));
+    // The plane itself: a Gaussian across the ecliptic that flares as it goes.
+    const th = 26 + 0.085 * r;
+    const haze = Math.exp(-((v / th) * (v / th))) * fall;
+    // The lanes, brighter on the near half than the far one.
+    let bands = 0;
+    for (const o of bd.orbits) {
+        const t = (r - o.R) / o.wd;
+        if (t > -2.6 && t < 2.6) {
+            bands += Math.exp(-t * t) * o.s * (v > 0 ? 1.15 : 0.85);
+        }
+    }
+    bands *= fall * 0.92 + 0.1;
+    // The belt, sampled in the plane's own coordinates so it lies in the plane
+    // rather than across the screen.
+    let belt = 0;
+    const bt = (r - SYS_BELT_R) / SYS_BELT_W;
+    if (bt > -2.4 && bt < 2.4) {
+        belt = Math.exp(-bt * bt) * Math.max(0, bd.rubble(u * 0.075, w * 0.075, 1) * 1.7 - 0.72);
+    }
+    const grain = (bd.grain(x * 0.035, y * 0.035, 1) - 0.5) * 0.045;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    const halo = Math.exp(-Math.pow(d / 190, 1.2)) * 0.2;
+    const cool = 0.032 + haze * 0.62 + bands * 0.55 + belt * 0.4 + grain + halo;
+    // Inside the corona the place changes ramp. It is the one warm thing in
+    // the composition, and 136 px of it is the whole warm budget.
+    const glow = Math.exp(-Math.pow(d / 60, 1.4));
+    return glow > 0.3
+        ? { v: Math.min(1, glow * 0.96 + cool * 0.12), rgb: bd.rgbAlt }
+        : { v: cool };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -856,7 +1078,7 @@ const PAINTERS = {
     // fallback for an entry whose `kind` does not resolve.
     void: {},
 
-    /* -- Direction A: places 1-5 ------------------------------------------- */
+    /* -- Direction A ------------------------------------------------------- */
 
     /**
      * DEEP SPACE. One plane and nothing to separate it from, which is the
@@ -1153,6 +1375,110 @@ const PAINTERS = {
         },
     },
 
+    /**
+     * INNER SYSTEM. The only place with hard art that moves: the dust plane,
+     * the five orbital lanes and the star are baked, and the five bodies ride
+     * over them as pre-rasterised sprites blitted on the lattice -- so the
+     * thing that moves is at the resolution of the sky it crosses.
+     *
+     * It keeps no state at all. Every angle is a function of `bd.t`, which is
+     * why there is no `update`: the thumbnail takes the place straight to
+     * frame 1500 instead of stepping it there.
+     */
+    pixelSystem: {
+        init(bd) {
+            bd.cx = bd.W * bd.p.cx;
+            bd.cy = bd.H * bd.p.cy;
+            bd.orbits = SYS_ORBITS.map((o) => ({ R: o.R, s: o.s, wd: 14 + 0.045 * o.R }));
+            bd.rubble = mkNoise(0x5b13);
+            bd.grain = mkNoise(0x1e5a);
+            bd.stars = starList(bd, 0x1e50, 170, 0.24);
+            bd.bodies = SYS_BODIES.map((b) => ({
+                R: b.R,
+                per: b.per,
+                th0: b.th0,
+                cv: shadedSphere(b.r, b.pal, SYS_PHASES),
+            }));
+        },
+        /**
+         * Nothing solid is baked here -- the five things that could hide a
+         * star all move -- so `occlude` carries the other rule instead: a star
+         * only goes down where the plate behind it is dark. This is the place
+         * whose field fills the frame, and a point light on a lit lane is a
+         * speck of noise rather than a star behind the dust.
+         */
+        occlude(bd, x, y) {
+            const s = systemField(bd, x, y);
+            const ramp = s.rgb || bd.rgb;
+            const last = ramp.length - 1;
+            const cap = Math.min(bd.p.topRung === undefined ? last : bd.p.topRung, last);
+            return lum(ramp[clamp(Math.round(s.v * last), 0, cap)]) >= SYS_STAR_MAX ? 1 : 0;
+        },
+        field: systemField,
+        hard(bd, g, pix) {
+            // The orbit hairlines, one art pixel wide and two rungs apart, so
+            // the near half of an ellipse passes in front of the far half.
+            const ramp = bd.p.ramp;
+            for (const o of bd.orbits) {
+                const steps = Math.max(160, Math.round(o.R * 1.6));
+                for (let i = 0; i < steps; i++) {
+                    const th = (i / steps) * 6.2832;
+                    const ct = Math.cos(th) * o.R;
+                    const st = Math.sin(th) * o.R * SYS_SQUASH;
+                    const px = Math.round((bd.cx + ct * SYS_TILT_C - st * SYS_TILT_S - bd.x0) / pix);
+                    const py = Math.round((bd.cy + ct * SYS_TILT_S + st * SYS_TILT_C - bd.y0) / pix);
+                    g.fillStyle = Math.sin(th) > 0 ? ramp[6] : ramp[4];
+                    g.fillRect(px, py, 1, 1);
+                }
+            }
+            // The star's disc, on the second ramp and painted straight rather
+            // than through it, so it keeps the top rung the cap takes off the
+            // field. It is the one element allowed to be warm, and it pays for
+            // that by being 72 px across -- far too big to read as a bullet.
+            const land = bd.p.landRamp;
+            const cr = SYS_CORE_R / pix;
+            const cx = (bd.cx - bd.x0) / pix;
+            const cy = (bd.cy - bd.y0) / pix;
+            for (let py = Math.floor(cy - cr - 1); py <= Math.ceil(cy + cr + 1); py++) {
+                for (let px = Math.floor(cx - cr - 1); px <= Math.ceil(cx + cr + 1); px++) {
+                    const dx = px + 0.5 - cx;
+                    const dy = py + 0.5 - cy;
+                    const d = Math.sqrt(dx * dx + dy * dy);
+                    if (d > cr) {
+                        continue;
+                    }
+                    g.fillStyle = d > cr - 1 ? land[6] : land[7];
+                    g.fillRect(px, py, 1, 1);
+                }
+            }
+        },
+        live(bd, g) {
+            // Five blits, and the only ones in the catalogue: everything else
+            // that moves in a Direction A place is a `fillRect`. Smoothing has
+            // to go off here -- these are 6-11 px sprites blown up three
+            // times, and the layer's own flag was restored before this runs.
+            g.imageSmoothingEnabled = false;
+            for (const b of bd.bodies) {
+                const th = b.th0 + bd.t * (6.2832 / b.per);
+                const ct = Math.cos(th) * b.R;
+                const st = Math.sin(th) * b.R * SYS_SQUASH;
+                const x = bd.cx + ct * SYS_TILT_C - st * SYS_TILT_S;
+                const y = bd.cy + ct * SYS_TILT_S + st * SYS_TILT_C;
+                // A far-side body inside the corona is dropped: it is lost in
+                // the glare rather than punched out of it as a dark bite.
+                if (Math.sin(th) < 0 && Math.hypot(x - bd.cx, y - bd.cy) < SYS_OCCULT_R) {
+                    continue;
+                }
+                // The crescent points at the star, quantised to the directions
+                // the body was rasterised in.
+                const ph = Math.round(Math.atan2(bd.cy - y, bd.cx - x) / (6.2832 / SYS_PHASES));
+                const cv = b.cv[((ph % SYS_PHASES) + SYS_PHASES) % SYS_PHASES];
+                const w = cv.width * ART_PIX;
+                g.drawImage(cv, snapTo(bd.x0, x - w / 2), snapTo(bd.y0, y - w / 2), w, w);
+            }
+        },
+    },
+
     // Coloured gas clouds with a couple of dark dust lanes for depth.
     nebula: {
         paint(bd, g) {
@@ -1210,42 +1536,6 @@ const PAINTERS = {
             }
             blob(g, 0, 0, 90, bd.p.c1, 0.5);
             g.restore();
-        },
-    },
-
-    // A star with planets on wide orbits, seen from far outside the system.
-    system: {
-        paint(bd, g) {
-            const cx = bd.p.cx * bd.W;
-            const cy = bd.p.cy * bd.H;
-            g.save();
-            g.strokeStyle = "rgba(160,190,255,0.10)";
-            g.lineWidth = 1;
-            for (let i = 0; i < 5; i++) {
-                const r = 150 + i * 130;
-                g.beginPath();
-                g.ellipse(cx, cy, r, r * 0.34, 0.2, 0, 6.2832);
-                g.stroke();
-            }
-            g.restore();
-            sun(g, cx, cy, 26, bd.p.star);
-            const cols = ["#8fb6ff", "#d9a066", "#7bffb0", "#ff9db0", "#c9a4ff"];
-            for (let i = 0; i < 5; i++) {
-                const r = 150 + i * 130;
-                const ang = 0.7 + i * 1.3;
-                const x = cx + Math.cos(ang) * r;
-                const y = cy + Math.sin(ang) * r * 0.34;
-                const rad = 6 + (i % 3) * 4;
-                blob(g, x, y, rad * 4, cols[i], 0.28);
-                g.fillStyle = cols[i];
-                g.beginPath();
-                g.arc(x, y, rad, 0, 6.2832);
-                g.fill();
-                g.fillStyle = "rgba(0,0,0,0.45)";
-                g.beginPath();
-                g.arc(x + rad * 0.45, y + rad * 0.2, rad, 0, 6.2832);
-                g.fill();
-            }
         },
     },
 
@@ -1974,9 +2264,21 @@ export const BACKGROUNDS = [
         desc: "Falling through the cloud deck of a gas giant. Belts and zones rise past at their own speeds, tearing where they meet, and the haze thickens and brightens the further you sink.",
     },
     {
-        id: "system", name: "INNER SYSTEM", tint: "#ffe9a8", kind: "system",
-        p: { cx: 0.28, cy: 0.12, star: "#ffd66b" },
-        desc: "A whole system seen from outside it: a yellow star with five planets strung along wide tilted orbits.",
+        id: "system", name: "INNER SYSTEM", tint: "#ffe9a8", kind: "pixelSystem",
+        // The place tint rotated to its complement and held cool -- hue
+        // 250-256, chroma under 0.045. Nothing the field can produce is in the
+        // family the enemies fire in, which is what lets the star keep its
+        // warmth on a ramp of its own.
+        p: {
+            veil: 12, topRung: 6, cx: 0.17, cy: 0.24,
+            ramp: ["#04050b", "#0a0d18", "#101728", "#1a2338", "#26304b", "#354260", "#48587a", "#5f7098"],
+            // Reached only inside the corona, a feature 136 px wide.
+            landRamp: ["#0d0a06", "#241a0c", "#3d2c12", "#5a4319", "#7a5d22", "#9a7a32", "#b89a4c", "#d8bd85"],
+            // Deliberately off the top of the main ramp: a baked star has to
+            // be a point light in the sky, not the brightest lane in the dust.
+            starRamp: ["#2b3550", "#4c6084", "#93a8c9"],
+        },
+        desc: "A whole system seen from outside it: a yellow star, its dust lit from within, and five planets crawling along wide tilted orbits.",
     },
     {
         id: "ice_world", name: "ICE WORLD", tint: "#bfe9ff", kind: "surface",
