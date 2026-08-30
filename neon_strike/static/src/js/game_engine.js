@@ -490,6 +490,38 @@ const HIVE = {
     press: 90, pressScar: 10, pressFloor: 50, pressRaged: 1.35,
     pressTrack: 0.35, pressBob: 2, pressBobRate: 0.025,
     climb: 72,
+    // The press attack: four lances out of the belly glass, held for a second
+    // while the hull sits in the player's lane.
+    //
+    // The fan is 45 degrees apart and centred on straight down, which puts the
+    // GAP straight down: there is no beam under the hull. That is the whole
+    // design of it -- the one place the fan cannot reach is the strip directly
+    // beneath the deck, which is where the pods are, where the brood is coming
+    // out, and where the hull's own contact radius is. The press asks the
+    // player to stand in the worst place on the field or leave the middle of it
+    // entirely, and it is the only window where the bays are in reach anyway.
+    //
+    // They are anchored to the hull (`src`), so the sight lines come down with
+    // it during the dive and the fan then drifts with the 0.35 px/frame track:
+    // the sweep is the carrier's own movement rather than a `spin`, which is
+    // what keeps it slow enough to walk out of. `warn` is exactly the frames
+    // left of the descent, so they go live on the frame it lands.
+    // `len` is the guard, and it is a cliff rather than a preference: the
+    // spears have to STOP ABOVE THE FLOOR. Measured over a whole press at
+    // 180/240/280/320/400/900 -- at 320 the steep pair tips out at y 494 and
+    // the standable floor is one region at 90.0%; at 400 they reach y 568,
+    // past the 540 floor, and the arena splits into FOUR pockets whose largest
+    // is 46%. That is the LANCER failure exactly ("a 25.7% pocket for runs of
+    // 60 frames"), and four beams out of one point is the shape that causes
+    // it. 280 tips at y 457, 83 px of clear floor under the fan, one region at
+    // 90.9%, and still 480 under the enrage's deeper press.
+    // Width is LANCER's 22, which is what a regular boss's beam is in this
+    // bank (VULCAN, a colossus, is 30). At 22 the fan denies 19% of the 200 px
+    // approach band around the hull and still leaves the floor one region.
+    lance: { n: 4, spread: 0.7854, life: [60, 84], w: 22, len: 280 },
+    // How far down the marked lane actually reaches: the depth plus the hull's
+    // own radius, which is the ground the carrier will occupy and no more.
+    laneOver: 1,
     // One escort per bay: the first child it launches, flagged at spawn. Five
     // of them is 20% of the ceiling and it is deliberately texture rather than
     // tension -- they turn the hover into a shape to pick a gap in. They do not
@@ -2437,6 +2469,10 @@ export class NeonStrikeEngine {
             });
             boom.bs = [3, live];
             this._bossWreck(e.x, e.y, e.c, boom.bs);
+            // Its lances go with it. `_updateBeams` would drop them next frame
+            // anyway, once the owner is gone; doing it here means the frame the
+            // hull dies is the frame the light does.
+            this.beams = this.beams.filter((b) => b.src !== e.id);
         }
         this._ev(boom);
         if (killer && killer.dash > 0 && killer.flags.dash_refund) {
@@ -5287,6 +5323,12 @@ export class NeonStrikeEngine {
             if (!e.lock && HIVE.descend - e.pt >= HIVE.lockAt) {
                 this._hiveLock(e, i);
             }
+            if (e.lock) {
+                // The lances' own dashed sight lines are the honest telegraph
+                // -- they are drawn exactly where the beam will be. This is the
+                // second half of it: the emitter says it is the emitter.
+                this._tel(e, e.pt, "lance");
+            }
             if (e.pt <= 0) {
                 e.phase = H_PRESS;
                 e.pt = this._hivePress(e, i);
@@ -5348,6 +5390,32 @@ export class NeonStrikeEngine {
                 b.cd = cd;
             }
         }
+        this._hiveLances(e, i);
+    }
+
+    /**
+     * The four lances, fired on the frame the doors lock and warned for the
+     * rest of the dive so they go live as the hull lands.
+     *
+     * They leave the belly glass because that is the only thing on this hull
+     * that was ever a light: `bossParts` hands the box over from the art, so
+     * the cells the animator brightens are the cells the beam starts at. Their
+     * life is clamped to the press, so the fan is the press and cannot follow
+     * the hull back up out of a window the player already survived.
+     */
+    _hiveLances(e, i) {
+        const L = HIVE.lance;
+        const w = e.parts && e.parts.well;
+        const life = Math.min(L.life[i], this._hivePress(e, i));
+        for (let k = 0; k < L.n; k++) {
+            this.beams.push(this.mkBeam({
+                src: e.id, ox: 0, oy: w ? w.y * e.bh : 0,
+                a: Math.PI / 2 + (k - (L.n - 1) / 2) * L.spread,
+                warn: HIVE.descend - HIVE.lockAt,
+                life, w: L.w, len: L.len, c: e.c,
+            }));
+        }
+        this.sTick();
     }
 
     /**
@@ -5610,7 +5678,10 @@ export class NeonStrikeEngine {
      * The fight itself does not reset. Bay points, hull points, scars, the
      * tempo those scars bought and the phase timer all survive, which is why a
      * bomb thrown during the press is the strongest play in the fight -- it
-     * buys the low, open, defenceless hull for two clear seconds.
+     * buys two clear seconds next to a low, open hull. Not a defenceless one:
+     * a bomb has never cleared a standing beam in this game (LANCER's lances
+     * and VULCAN's both ride one out) and the press fan does not either, so
+     * the play is still a lane to fly and not a free window.
      */
     _hiveFieldClear(e) {
         e.a3 = HIVE.beat + HIVE.bombBeat;
@@ -7379,10 +7450,18 @@ export class NeonStrikeEngine {
                 o.parts = e.parts;
                 o.bw = e.bw;
                 o.bh = e.bh;
-                // The marked corridor is drawn from the hull to the floor, so
-                // the animator needs to know where the floor is. It is the only
-                // effect in this file that leaves the hull's own box.
+                // The marked corridor is the only effect in this file that
+                // leaves the hull's own box, so it needs both ends from here:
+                // the floor it may not run past, and the length of the lane the
+                // carrier will actually occupy. Marking all the way down when
+                // the dive stops a third of the way is a telegraph writing a
+                // cheque the attack does not cash -- and the rest of the column
+                // is exactly where the player is supposed to be able to stand.
+                // Both roles compute the same lane: `raged` comes off the
+                // points, which are already here.
                 o.floor = this.fy1;
+                o.lane = HIVE.depth[e.mhp && e.hp <= e.mhp * BOSS_RAGE_AT ? 1 : 0]
+                    + e.r * HIVE.laneOver;
                 o.tether = [];
                 for (const a of this.enemies) {
                     if (a.own == null || (a.osrc && a.osrc !== e.id)) {

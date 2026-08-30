@@ -623,22 +623,28 @@ function nodeGeometry(name) {
  * drift from the art the first time the sprite is retouched.
  *
  * @param {string} name key in the sprite bank
- * @returns {Object|null} `{ bays: [{x, y, hw, hh}] }`, or null for a hull with
- *      no parts. `x`/`y` are offsets from the hull's centre and `hw`/`hh` half
- *      extents, all as fractions of the drawn width and height.
+ * @returns {Object|null} `{ bays: [{x, y, hw, hh}], well }`, or null for a hull
+ *      with no parts. `x`/`y` are offsets from the hull's centre and `hw`/`hh`
+ *      half extents, all as fractions of the drawn width and height.
  */
 export function bossParts(name) {
     const geo = hiveGeometry(name);
     if (!geo.bays) {
         return null;
     }
+    const box = (b) => ({
+        x: (b.c0 + b.c1 + 1) / 2 / geo.cols - 0.5,
+        y: (b.r0 + b.r1 + 1) / 2 / geo.rows - 0.5,
+        hw: (b.c1 - b.c0 + 1) / 2 / geo.cols,
+        hh: (b.r1 - b.r0 + 1) / 2 / geo.rows,
+    });
     return {
-        bays: geo.bays.map((b) => ({
-            x: (b.c0 + b.c1 + 1) / 2 / geo.cols - 0.5,
-            y: (b.r0 + b.r1 + 1) / 2 / geo.rows - 0.5,
-            hw: (b.c1 - b.c0 + 1) / 2 / geo.cols,
-            hh: (b.r1 - b.r0 + 1) / 2 / geo.rows,
-        })),
+        bays: geo.bays.map(box),
+        // The belly glass, so the simulation can fire the press lances out of
+        // the cells this animator lights up rather than out of a constant next
+        // to them. Same rule `hullParts` follows for a colossus: the place the
+        // damage leaves from and the art that says so are one answer.
+        well: geo.well ? box(geo.well) : null,
     };
 }
 
@@ -937,6 +943,7 @@ export class BossAnimator {
         this.bays = null;
         this.tel = 0;
         this.dive = 0;
+        this.lance = 0;
     }
 
     /**
@@ -1132,6 +1139,7 @@ export class BossAnimator {
                 // wind-up is always the corridor by the time it matters.
                 this.tel = s.telK === "ring" ? clamp01(s.tel || 0) : 0;
                 this.dive = s.telK === "dive" ? clamp01(s.tel || 0) : 0;
+                this.lance = s.telK === "lance" ? clamp01(s.tel || 0) : 0;
                 break;
             case "PRISM":
                 this.spin = (this.spin + t.spiralSpin * dt) % 6.2832;
@@ -1727,7 +1735,15 @@ export class BossAnimator {
             const pulse = t.wellLow + (t.wellHigh - t.wellLow)
                 * (0.5 + 0.5 * Math.sin(this.time * 6.2832 * t.wellHz));
             for (let r = geo.well.r0; r <= geo.well.r1; r++) {
-                const k = pulse - (geo.well.r1 - r) * t.wellFalloff;
+                // The press lances leave this lens, so while they are warming
+                // up it stops breathing and fills: the falloff is dropped and
+                // the whole diamond walks to the top of the ramp instead of
+                // the mouth rows alone. That is the only difference glass has
+                // room to show -- it sits one rung under white, and the idle
+                // peak already touches that rung on the rows nearest the mouth.
+                const k = Math.max(
+                    pulse - (geo.well.r1 - r) * t.wellFalloff, this.lance
+                );
                 if (k <= 0) {
                     continue;
                 }
@@ -1841,8 +1857,13 @@ export class BossAnimator {
      */
     _corridor(g, o, h) {
         const t = this.t;
-        const floor = o.floor;
-        if (!(floor > this.y)) {
+        // The lane ends where the dive does, not at the floor. The carrier
+        // comes down about a third of the arena and stops; marking the whole
+        // column said it was coming all the way, which is a telegraph
+        // promising something the attack never does -- and the rest of that
+        // column is exactly the room the player is meant to still have.
+        const end = Math.min(o.floor, this.y + h / 2 + (o.lane || 0));
+        if (!(end > this.y)) {
             return;
         }
         const w = Math.max(2, Math.round(this.halfW * 2 * t.corridorW));
@@ -1851,7 +1872,7 @@ export class BossAnimator {
         g.save();
         g.fillStyle = mixHex(this.tint, "#05050a",
             Math.floor((this.time * 60) / t.corridorFlick) % 2 ? 0.74 : 0.58);
-        for (let y = y0; y < floor; y += t.corridorStep) {
+        for (let y = y0; y < end; y += t.corridorStep) {
             g.fillRect(x0, y, w, t.corridorDash);
         }
         // The wind-up itself: a bar under the hull that fills the lane's whole
@@ -1859,7 +1880,8 @@ export class BossAnimator {
         g.fillStyle = this.tint;
         g.fillRect(x0, y0 - t.corridorBar - 1,
             Math.round(w * this.dive), t.corridorBar);
-        g.fillRect(x0, Math.round(floor) - t.corridorFloor, w, t.corridorFloor);
+        // ...and the stop line, which is where the leading edge ends up.
+        g.fillRect(x0, Math.round(end) - t.corridorFloor, w, t.corridorFloor);
         g.restore();
     }
 

@@ -285,6 +285,70 @@
  *
  * The regression for all of it: every place composed at frame 1500 plus its
  * 272 px glossary thumbnail, hashed. 26 of 27 byte-identical.
+ *
+ * -------------------------------------------------------------------------
+ * COMET TRAIL, quantised branch (2026-08-30)
+ * -------------------------------------------------------------------------
+ * The 8th Direction A conversion and the first place that **moves**: every
+ * other one bakes because everything hard-edged in it is a function of
+ * position, and a comet is not. It is also the place where a soft backdrop was
+ * most obviously soft -- it is held at normal zoom against ordinary waves, so
+ * nothing large ever sits in front of it to hide a gradient while the near star
+ * field and the 32 px hulls are hard-edged an inch away.
+ *
+ * What the old painter did not do is the thing the catalogue line already
+ * promised: its tail pointed along the velocity. Both tails start from the
+ * anti-solar direction now and only the dust bends off it, which is what makes
+ * the angle between them open from 18 degrees at entry to 153 at exit.
+ *
+ * Departures from the study, and why:
+ *   1. **No per-frame `getImageData`.** The study draws the tails with canvas
+ *      gradients into an art-resolution buffer and quantises the readback of
+ *      their bounding box every frame. A GPU readback in the middle of every
+ *      frame is a cost no other place here pays, and it is avoidable: the
+ *      tails are scanline-filled straight into the buffer at the rung the
+ *      gradient asks for, through the same ordered dither the bake uses. Same
+ *      result, no readback, and no antialiased edge to undo afterwards.
+ *      Measured: 24k art pixels a frame on average, 48k worst, and **two**
+ *      canvas calls -- one `putImageData` over the dirty rect and one blit --
+ *      against the study's own 6 calls plus 38k/86k.
+ *   2. **The star keeps its shape and gives up rung 7.** The study reserves
+ *      rung 7 for the nucleus and the star's core; its core measures pale
+ *      because it paints one from a near-white gradient, and this ramp's rung
+ *      7 is the entry's own gold. A 9 px block of that is *warm* by the
+ *      measurement's own test, which is the one thing a backdrop may not
+ *      contain. INNER SYSTEM's answer -- be warm, and pay for it by being 72 px
+ *      across -- would mean a 56 px sun in a composition that does not want
+ *      one. The core stops at rung 6 instead.
+ *   3. **`starRamp` is dimmer than the study's.** It cut the top rung's share
+ *      to 3.5% to keep baked stars out of the count; that lever does not exist
+ *      here, because `_bakeField` buckets a star by `round(a * 3) / 3` and
+ *      `starList` always spreads `a` over a 0.5-wide band, which puts 48% of
+ *      them on the top rung at any usable `aMin`. Measured with the study's own
+ *      ramp: 24 small bright regions. Every rung is under the measurement's own
+ *      0.70 threshold instead, so the share stops mattering.
+ *   4. Geometry is anchored on the arena and the crossing scales with its
+ *      width, so the head takes the same 43 seconds to cross whatever shape the
+ *      window is. The orbit's slope is fixed, because the anti-orbital
+ *      direction is what the dust bends towards and it may not change with the
+ *      window.
+ *   5. Drift is the shared `sin(t * 0.0016) * DRIFT`, not the study's 7 px on a
+ *      1400-frame period, and it is not quantised to the lattice. Same call,
+ *      and the same reason, as places 1-7.
+ *
+ * Measured here on the composed 680x540 arena, by the study's own detector (a
+ * connected region over luminance 0.70 on a 2 px grid, under 40 px on both
+ * axes, warm if its mean R exceeds 1.12x its mean B): **one small bright
+ * region and zero warm ones** at `veil: 12`, and the one is the nucleus -- 6 px,
+ * pale, and the thing that should be the brightest in a place named after it.
+ * Mean arena luminance 0.041, brightest pixel 0.783. The head is inside the
+ * arena for 62% of a crossing and some part of the comet is visible for 79%;
+ * the rest is the empty sky the entry's last clause is about.
+ *
+ * `THUMB_WARMUP` still lands well: at frame 1500 the head is at arena
+ * (456, 238) with activity 0.99, 86 frames short of closest approach. That was
+ * already the constant's reason and it survives the new 2600-frame crossing --
+ * worth re-checking if either ever moves again.
  */
 
 // The static layer is soft gradient art, so half resolution is free quality.
@@ -412,6 +476,93 @@ const ICE_FLAKE_WRAP = 40;
 const ICE_FALL = [0.06, 0.11];
 const ICE_EDDY = 7;
 const ICE_EDDY_RATE = 6.2832 / 480;
+
+/* -------------------------------------------------------------------------- */
+/* COMET TRAIL                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One crossing, in frames. The head's whole path is a pure function of it and
+ * of `bd.t`, and the crossing index seeds its own generator, so nothing here
+ * reads the frame counter as a random source: the same sequence replays from
+ * any instant, which is what lets `backdropThumb` jump straight to frame 1500.
+ */
+const COMET_T = 2600;
+// Where the head enters and how far it travels, as fractions of the arena
+// width, so the crossing takes the same 43 seconds whatever shape the window
+// is. The slope is fixed instead, because the anti-orbital direction is what
+// the dust tail bends towards and it may not change with the window.
+const COMET_X0 = -0.256;
+const COMET_SPAN = 1.606;
+const COMET_SLOPE = 0.13 / 0.42;
+const COMET_Y0 = [0.006, 0.148];        // of H: the band a crossing enters in
+// Activity: 1 at the closest approach and floored well above 0, so the comet
+// is never a bare dot. The exit is brighter than the entry (0.39 against 0.25)
+// because r grows more slowly on the way out -- the arc is asymmetric on
+// purpose, and it is what tells a player they watched something happen.
+const COMET_PERI = 230;
+const COMET_ACT = [1.2, 0.15];
+// The star. It sits inside the arena, which is the one change here worth
+// arguing about: anti-solar geometry is unreadable if the thing being pointed
+// away from is off screen, and it puts the only warm feature in the place
+// permanently in frame. The small-bright-feature measurement is the defence.
+const COMET_STAR = [0.824, 0.056];
+const COMET_GLOW = [[260, 0.075], [120, 0.2], [40, 0.42]];
+const COMET_CORE = [14, 0.95, 0.55, 0.7];   // radius, peak, mid stop, mid value
+const COMET_STAR_LIT = 46;                  // baked-star cut-off, luminance
+const COMET_SEED = 0x1e25;
+const COMET_KSEED = 0x1421;
+
+/**
+ * The ion tail: a straight polyline along the anti-solar direction with a
+ * travelling ripple on it. It ignores velocity entirely -- that is the whole
+ * point of having two tails, and it is why this one swings 135 degrees across
+ * a crossing while the dust swings about half as far.
+ */
+const COMET_ION = {
+    n: 12, len: [150, 480], w: [9, 7],
+    amp: 5, period: 110, crest: 1.1,
+    alpha: [0.16, 0.24],                    // A = 0.40 * (0.4 + 0.6a)
+    stops: [[0, 1], [0.6, 0.45], [1, 0]],
+};
+const COMET_FADE = [[0, 1], [1, 0]];
+
+/**
+ * The dust tail: an 18-node syndyne. Each step goes along
+ * `normalise(anti-solar + 1.25 * u * anti-orbital)`, so it leaves the head
+ * pointing away from the star and curves back along the path as it goes.
+ *
+ * Four nested striae, two of them sheared across the tail so the grain lanes
+ * are not concentric. The gradient's peak is 0.3 of the way DOWN the tail and
+ * not at the head: with it at the head the base of the dust tail measured as
+ * one warm 20 x 24 px region at peak activity, which is exactly the thing a
+ * backdrop may not contain. Moving the peak gives the head's cyan coma back to
+ * the head and puts the gold 110 px behind it.
+ */
+const COMET_DUST = {
+    n: 18, len: [120, 250], bend: 1.25,
+    w0: 8, w1: [40, 50], flare: 0.75,
+    alpha: [0.05, 0.16],                    // A = 0.16a + 0.05
+    stops: [[0, 0.34], [0.3, 0.78], [0.6, 0.42], [1, 0]],
+    // width scale, brightness, shear across the tail
+    striae: [[1, 0.62, 6], [0.75, 0.76, 0], [0.52, 0.9, -5], [0.28, 1.05, 0]],
+};
+
+const COMET_COMA = {
+    r: [12, 26], b: [0.35, 0.65],
+    stops: [[0, 0.55], [0.35, 0.3], [1, 0]],
+};
+
+/**
+ * Knots in the ion tail: spawned on the crossing's own generator, travelling
+ * outward and retired past the tail's end. Peak alpha is capped at 0.34 so a
+ * knot can never reach the top rung -- at 0.55 it did, and a lone bright block
+ * halfway down the tail is a bullet.
+ */
+const COMET_KNOT = {
+    every: [78, 52], speed: 2.4, over: 1.05,
+    r: [5, 4], alpha: 0.34, cap: 60,
+};
 
 const FIELD_DARK = { v: 0 };
 // The arena the glossary thumbnails are composed in. Painters place things in
@@ -840,6 +991,207 @@ function iceSky(bd, x, y) {
         }
     }
     return v;
+}
+
+/* ---------------------------- COMET TRAIL --------------------------------- */
+
+/**
+ * Where the head is, how bright it is and which way both tails point. A pure
+ * function of `bd.t`: there is no state to step, so a thumbnail can be taken
+ * at any instant and a guest never has to be told anything.
+ */
+function cometGeom(bd) {
+    const cross = Math.floor(bd.t / COMET_T);
+    const local = bd.t - cross * COMET_T;
+    // The crossing seeds itself, so the entry height and the knot cadence are
+    // the same on every machine and replay from any scrub position.
+    const rng = mulberry32((COMET_SEED ^ Math.imul(cross, 2654435761)) >>> 0);
+    const y0 = bd.H * (COMET_Y0[0] + rng() * COMET_Y0[1]);
+    const vx = (bd.W * COMET_SPAN) / COMET_T;
+    const vy = vx * COMET_SLOPE;
+    const hx = bd.W * COMET_X0 + vx * local;
+    const hy = y0 + vy * local;
+    const dx = hx - bd.cx;
+    const dy = hy - bd.cy;
+    const r = Math.hypot(dx, dy) || 1;
+    const a = clamp(Math.pow(COMET_PERI / r, COMET_ACT[0]), COMET_ACT[1], 1);
+    const vs = Math.hypot(vx, vy) || 1;
+    return {
+        cross, local, hx, hy, r, a,
+        // Anti-solar. Recomputed every frame from the head and the star, with
+        // no velocity term anywhere in it -- which is the entry's own promise
+        // and the thing the painter it replaces never actually did.
+        ux: dx / r, uy: dy / r,
+        vhx: vx / vs, vhy: vy / vs,
+        li: COMET_ION.len[0] + COMET_ION.len[1] * a,
+        ld: COMET_DUST.len[0] + COMET_DUST.len[1] * a,
+        rc: COMET_COMA.r[0] + COMET_COMA.r[1] * a,
+        b: COMET_COMA.b[0] + COMET_COMA.b[1] * a,
+    };
+}
+
+/** The star's glow as a scalar, so the whole of it bakes through `field`. */
+function cometSky(bd, x, y) {
+    const d = Math.hypot(x - bd.cx, y - bd.cy);
+    let v = 0;
+    for (const g of COMET_GLOW) {
+        if (d < g[0]) {
+            v += g[1] * (1 - d / g[0]);
+        }
+    }
+    if (d < COMET_CORE[0]) {
+        const u = d / COMET_CORE[0];
+        v += u < COMET_CORE[2]
+            ? COMET_CORE[1] + (COMET_CORE[3] - COMET_CORE[1]) * (u / COMET_CORE[2])
+            : COMET_CORE[3] * (1 - (u - COMET_CORE[2]) / (1 - COMET_CORE[2]));
+    }
+    return v;
+}
+
+/** A gradient's value at `u`, from the stop list the study writes them as. */
+function cometStop(stops, u) {
+    for (let i = 1; i < stops.length; i++) {
+        if (u <= stops[i][0]) {
+            const a = stops[i - 1];
+            const b = stops[i];
+            return a[1] + (b[1] - a[1]) * ((u - a[0]) / (b[0] - a[0] || 1));
+        }
+    }
+    return stops[stops.length - 1][1];
+}
+
+/**
+ * One art pixel, snapped to a ramp through the same ordered dither the bake
+ * uses.
+ *
+ * This is why the tails are rasterised here rather than drawn with canvas
+ * fills and quantised afterwards, which is what the study does: a canvas fill
+ * antialiases every diagonal edge into colours that are not on the ramp, and
+ * un-antialiasing it again costs a `getImageData` per frame -- a GPU readback
+ * in the middle of the frame, which no other place in this file needs. Writing
+ * the pixels straight is both cheaper and exactly on the ramp by construction.
+ */
+function cometPixel(s, x, y, ramp, alpha) {
+    const t = Math.min(1, alpha) * s.last;
+    let k = Math.floor(t);
+    if (t - k > BAYER[(y & 3) * 4 + (x & 3)] / 16) {
+        k++;
+    }
+    if (k > s.cap) {
+        k = s.cap;
+    }
+    if (k <= 0) {
+        return;
+    }
+    const c = ramp[k];
+    const i = (y * s.aw + x) * 4;
+    s.data[i] = c[0];
+    s.data[i + 1] = c[1];
+    s.data[i + 2] = c[2];
+    s.data[i + 3] = 255;
+}
+
+/** One convex quad, scanline-filled. Four corners, in order, in art pixels. */
+function cometQuad(s, q, ramp, alpha) {
+    if (alpha <= 0) {
+        return;
+    }
+    let ymin = q[1];
+    let ymax = q[1];
+    for (let i = 3; i < 8; i += 2) {
+        if (q[i] < ymin) { ymin = q[i]; }
+        if (q[i] > ymax) { ymax = q[i]; }
+    }
+    const yA = Math.max(0, Math.ceil(ymin - 0.5));
+    const yB = Math.min(s.ah - 1, Math.floor(ymax - 0.5));
+    for (let y = yA; y <= yB; y++) {
+        const yc = y + 0.5;
+        let lo = Infinity;
+        let hi = -Infinity;
+        for (let e = 0; e < 4; e++) {
+            const ax = q[e * 2];
+            const ay = q[e * 2 + 1];
+            const bx = q[((e + 1) & 3) * 2];
+            const by = q[((e + 1) & 3) * 2 + 1];
+            if ((ay <= yc) === (by <= yc)) {
+                continue;
+            }
+            const x = ax + ((yc - ay) / (by - ay)) * (bx - ax);
+            if (x < lo) { lo = x; }
+            if (x > hi) { hi = x; }
+        }
+        if (hi < lo) {
+            continue;
+        }
+        const xA = Math.max(0, Math.ceil(lo - 0.5));
+        const xB = Math.min(s.aw - 1, Math.floor(hi - 0.5));
+        for (let x = xA; x <= xB; x++) {
+            cometPixel(s, x, y, ramp, alpha);
+        }
+        if (xA < s.x0) { s.x0 = xA; }
+        if (xB > s.x1) { s.x1 = xB; }
+        if (y < s.y0) { s.y0 = y; }
+        if (y > s.y1) { s.y1 = y; }
+    }
+}
+
+/** A radial falloff, as concentric rungs. The coma and every knot. */
+function cometDisc(s, cx, cy, r, ramp, stops, scale) {
+    const yA = Math.max(0, Math.ceil(cy - r - 0.5));
+    const yB = Math.min(s.ah - 1, Math.floor(cy + r - 0.5));
+    for (let y = yA; y <= yB; y++) {
+        const dy = y + 0.5 - cy;
+        const w = Math.sqrt(Math.max(0, r * r - dy * dy));
+        const xA = Math.max(0, Math.ceil(cx - w - 0.5));
+        const xB = Math.min(s.aw - 1, Math.floor(cx + w - 0.5));
+        for (let x = xA; x <= xB; x++) {
+            const dx = x + 0.5 - cx;
+            cometPixel(s, x, y, ramp,
+                cometStop(stops, Math.sqrt(dx * dx + dy * dy) / r) * scale);
+        }
+        if (xA < s.x0) { s.x0 = xA; }
+        if (xB > s.x1) { s.x1 = xB; }
+        if (y < s.y0) { s.y0 = y; }
+        if (y > s.y1) { s.y1 = y; }
+    }
+}
+
+/**
+ * A tail, as a strip of quads: one per node segment, each at the rung its own
+ * stretch of the gradient asks for. Runs of equal alpha are not merged --
+ * the dither wants the fractional part, so two neighbouring segments at 0.41
+ * and 0.44 are not the same band even though they round the same way.
+ *
+ * `off` shears the ribbon across itself, which is what stops four nested
+ * striae from reading as concentric rings.
+ */
+function cometRibbon(s, pts, wOf, off, ramp, aOf) {
+    const n = (pts.length >> 1) - 1;
+    const l = new Float64Array((n + 1) * 2);
+    const r = new Float64Array((n + 1) * 2);
+    for (let i = 0; i <= n; i++) {
+        const u = i / n;
+        const p = i * 2;
+        const q = Math.min(i + 1, n) * 2;
+        const o = Math.max(i - 1, 0) * 2;
+        let tx = pts[q] - pts[o];
+        let ty = pts[q + 1] - pts[o + 1];
+        const m = Math.hypot(tx, ty) || 1;
+        tx /= m;
+        ty /= m;
+        const w = wOf(u);
+        const c = off * u;
+        l[p] = pts[p] - ty * (w - c);
+        l[p + 1] = pts[p + 1] + tx * (w - c);
+        r[p] = pts[p] + ty * (w + c);
+        r[p + 1] = pts[p + 1] - tx * (w + c);
+    }
+    for (let i = 0; i < n; i++) {
+        const p = i * 2;
+        const q = p + 2;
+        cometQuad(s, [l[p], l[p + 1], l[q], l[q + 1], r[q], r[q + 1], r[p], r[p + 1]],
+            ramp, aOf((i + 0.5) / n));
+    }
 }
 
 const BELT_SEED = 20260829;
@@ -2275,41 +2627,240 @@ const PAINTERS = {
         },
     },
 
-    // A comet on its way in, tail pointing away from the star.
-    comet: {
+    /**
+     * COMET TRAIL. Two tails out of one head, and the whole place is the angle
+     * between them opening as it passes: gold dust curving back along the
+     * orbit, a blue ion tail pinned dead anti-solar. From 18 degrees at entry
+     * to 90 at closest approach to 153 at exit.
+     *
+     * The eighth Direction A conversion and the first one that **moves**. Every
+     * other place bakes once because everything hard-edged in it is a function
+     * of position; a comet is not, so the head, the tails and the knots are
+     * rasterised into an art-resolution buffer every frame and blitted up.
+     *
+     * The study quantises by drawing the tails with canvas gradients and
+     * running `getImageData` over their bounding box each frame. That is not
+     * taken: a GPU readback in the middle of every frame is a cost no other
+     * place here pays, and it is avoidable. The tails are scanline-filled
+     * straight into the buffer at the rung the gradient asks for instead --
+     * same ordered dither, same result, no readback and no antialiased edge to
+     * undo. See `cometPixel`.
+     *
+     * The one thing the old painter never did is the thing its own catalogue
+     * line promised: the tail pointed along the velocity, not away from the
+     * star. Both tails start from the anti-solar direction now, and only the
+     * dust bends off it.
+     */
+    pixelComet: {
         init(bd) {
-            bd.head = { x: bd.x0 - 100, y: bd.y0 + bd.h * 0.25, vx: 0.55, vy: 0.16 };
+            bd.cx = bd.W * COMET_STAR[0];
+            bd.cy = bd.H * COMET_STAR[1];
+            // 240 of them, and the brightness band is what keeps the top rung
+            // of `starRamp` off the field: see the entry.
+            bd.stars = starList(bd, 0x2f7c, 240, 0.24);
+            const aw = Math.max(1, Math.ceil(bd.w / ART_PIX));
+            const ah = Math.max(1, Math.ceil(bd.h / ART_PIX));
+            const cv = document.createElement("canvas");
+            cv.width = aw;
+            cv.height = ah;
+            const g = cv.getContext("2d");
+            const img = g.createImageData(aw, ah);
+            const last = bd.rgb.length - 1;
+            bd.surf = {
+                cv, g, img, data: img.data, aw, ah, last,
+                cap: Math.min(bd.p.topRung === undefined ? last : bd.p.topRung, last),
+                // The rect the last frame dirtied, so only that much has to be
+                // cleared and only that much is uploaded.
+                px0: 0, py0: 0, px1: -1, py1: -1,
+                x0: 0, y0: 0, x1: 0, y1: 0,
+            };
         },
-        paint(bd, g) {
-            speckle(g, bd, 90, "#ffffff", 0.35);
-            blob(g, bd.W * 0.9, -bd.H * 0.2, 260, bd.p.c2, 0.10);
+        /**
+         * A baked star only goes down where the plate behind it is dark. The
+         * star's own corona is the one lit thing in this sky, and a point
+         * light inside it is a speck of noise rather than a star behind it.
+         */
+        occlude(bd, x, y) {
+            const ramp = bd.rgbAlt;
+            const last = ramp.length - 1;
+            const cap = Math.min(bd.p.topRung === undefined ? last : bd.p.topRung, last);
+            const v = cometSky(bd, x, y);
+            return lum(ramp[clamp(Math.round(v * last), 0, cap)]) >= COMET_STAR_LIT ? 1 : 0;
         },
-        update(bd, ts) {
-            const h = bd.head;
-            h.x += h.vx * ts;
-            h.y += h.vy * ts;
-            if (h.x > bd.x0 + bd.w + 200) {
-                h.x = bd.x0 - 200;
-                h.y = bd.y0 + bd.h * (0.1 + (bd.t % 5) / 10);
-            }
+        field(bd, x, y) {
+            const v = cometSky(bd, x, y);
+            // Empty sky is rung 0 of the ion ramp; the corona is the warm one.
+            // Both ramps start on the same near-black, so there is no seam
+            // where the glow runs out.
+            return v > 0 ? { v: clamp(v, 0, 1), rgb: bd.rgbAlt } : FIELD_DARK;
+        },
+        hard(bd, g, pix) {
+            // The star's core, painted straight off the second ramp rather
+            // than through it, so it is a disc and not the top of a dithered
+            // falloff.
+            //
+            // It stops at rung 6 and does NOT take the study's rung 7. The
+            // study's core measures pale because it paints one from a
+            // near-white gradient; this ramp's rung 7 is the entry's own gold,
+            // and a 9 px block of it is warm by the measurement's own test --
+            // mean R over 1.12 x mean B, which is what an enemy core looks
+            // like. The sibling answer (INNER SYSTEM's star is warm and pays
+            // for it by being 72 px across, far too big to read as a bullet) is
+            // not available either: nothing in this composition wants a 56 px
+            // sun in it. So the star keeps its shape and gives up its top rung,
+            // the nucleus keeps rung 7 alone, and the brightest thing in the
+            // place is the comet -- which is the right answer for a place named
+            // after one.
+            const land = bd.p.landRamp;
+            const cx = Math.round((bd.cx - bd.x0) / pix);
+            const cy = Math.round((bd.cy - bd.y0) / pix);
+            g.fillStyle = land[6];
+            g.fillRect(cx - 1, cy - 1, 3, 3);
+            g.fillStyle = land[5];
+            g.fillRect(cx - 2, cy - 1, 1, 3);
+            g.fillRect(cx + 2, cy - 1, 1, 3);
+            g.fillRect(cx - 1, cy - 2, 3, 1);
+            g.fillRect(cx - 1, cy + 2, 3, 1);
         },
         live(bd, g) {
-            const h = bd.head;
-            const len = 420;
-            g.save();
-            g.globalCompositeOperation = "lighter";
-            const grd = g.createLinearGradient(h.x, h.y, h.x - h.vx * len, h.y - h.vy * len);
-            grd.addColorStop(0, rgba(bd.p.c1, 0.4));
-            grd.addColorStop(1, rgba(bd.p.c1, 0));
-            g.strokeStyle = grd;
-            g.lineWidth = 26;
-            g.lineCap = "round";
-            g.beginPath();
-            g.moveTo(h.x, h.y);
-            g.lineTo(h.x - h.vx * len, h.y - h.vy * len);
-            g.stroke();
-            blob(g, h.x, h.y, 40, "#ffffff", 0.5);
-            g.restore();
+            const s = bd.surf;
+            const G = cometGeom(bd);
+            const px = ART_PIX;
+            const ax = (v) => (v - bd.x0) / px;
+            const ay = (v) => (v - bd.y0) / px;
+            const nx = -G.uy;
+            const ny = G.ux;
+
+            // --- the two node runs, in art pixels ------------------------
+            const ion = new Float64Array((COMET_ION.n + 1) * 2);
+            for (let i = 0; i <= COMET_ION.n; i++) {
+                const arc = (G.li * i) / COMET_ION.n;
+                const o = COMET_ION.amp * (i / COMET_ION.n)
+                    * Math.sin((6.2832 * (arc - bd.t * COMET_ION.crest)) / COMET_ION.period);
+                ion[i * 2] = ax(G.hx + G.ux * arc + nx * o);
+                ion[i * 2 + 1] = ay(G.hy + G.uy * arc + ny * o);
+            }
+            const dn = COMET_DUST.n;
+            const dust = new Float64Array((dn + 1) * 2);
+            dust[0] = ax(G.hx);
+            dust[1] = ay(G.hy);
+            let dx = G.hx;
+            let dy = G.hy;
+            const step = G.ld / dn;
+            for (let i = 1; i <= dn; i++) {
+                // The syndyne: anti-solar at the head, bending towards the
+                // anti-orbital direction the further down the tail it gets.
+                const u = i / dn;
+                const bx = G.ux - COMET_DUST.bend * u * G.vhx;
+                const by = G.uy - COMET_DUST.bend * u * G.vhy;
+                const m = Math.hypot(bx, by) || 1;
+                dx += (bx / m) * step;
+                dy += (by / m) * step;
+                dust[i * 2] = ax(dx);
+                dust[i * 2 + 1] = ay(dy);
+            }
+
+            // --- what has to be cleared and uploaded ---------------------
+            const tip = COMET_DUST.w1[0] + COMET_DUST.w1[1] * G.a;
+            const pad = (20 + tip) / px;
+            s.x0 = s.aw;
+            s.y0 = s.ah;
+            s.x1 = -1;
+            s.y1 = -1;
+            for (const run of [ion, dust]) {
+                for (let i = 0; i < run.length; i += 2) {
+                    if (run[i] - pad < s.x0) { s.x0 = run[i] - pad; }
+                    if (run[i] + pad > s.x1) { s.x1 = run[i] + pad; }
+                    if (run[i + 1] - pad < s.y0) { s.y0 = run[i + 1] - pad; }
+                    if (run[i + 1] + pad > s.y1) { s.y1 = run[i + 1] + pad; }
+                }
+            }
+            s.x0 = clamp(Math.floor(s.x0), 0, s.aw);
+            s.y0 = clamp(Math.floor(s.y0), 0, s.ah);
+            s.x1 = clamp(Math.ceil(s.x1), 0, s.aw - 1);
+            s.y1 = clamp(Math.ceil(s.y1), 0, s.ah - 1);
+            // The union with last frame's rect: what this frame does not paint
+            // still has to stop showing what the last one did.
+            const ux0 = s.px1 < s.px0 ? s.x0 : Math.min(s.x0, s.px0);
+            const uy0 = s.px1 < s.px0 ? s.y0 : Math.min(s.y0, s.py0);
+            const ux1 = s.px1 < s.px0 ? s.x1 : Math.max(s.x1, s.px1);
+            const uy1 = s.px1 < s.px0 ? s.y1 : Math.max(s.y1, s.py1);
+            for (let y = uy0; y <= uy1; y++) {
+                s.data.fill(0, (y * s.aw + ux0) * 4, (y * s.aw + ux1 + 1) * 4);
+            }
+
+            // --- the art, in the order the study draws it ----------------
+            // Dust first and outermost stria first: they are nested, and each
+            // one is painted with the brightness of everything covering it, so
+            // the cross-section comes out as banded grain lanes.
+            const dustA = COMET_DUST.alpha[0] + COMET_DUST.alpha[1] * G.a;
+            let cum = 0;
+            for (const st of COMET_DUST.striae) {
+                cum += st[1];
+                const k = dustA * cum;
+                cometRibbon(s, dust,
+                    (u) => ((COMET_DUST.w0 + tip * Math.pow(u, COMET_DUST.flare)) * st[0]) / px,
+                    st[2] / px, bd.rgbAlt,
+                    (u) => k * cometStop(COMET_DUST.stops, u));
+            }
+            const ionA = COMET_ION.alpha[0] + COMET_ION.alpha[1] * G.a;
+            const ionW = (COMET_ION.w[0] + COMET_ION.w[1] * G.a) / 2 / px;
+            cometRibbon(s, ion, () => ionW, 0, bd.rgb,
+                (u) => ionA * cometStop(COMET_ION.stops, u));
+
+            // Knots, off the crossing's own generator so they are the same on
+            // every machine and replay from any instant.
+            const krng = mulberry32((COMET_KSEED ^ Math.imul(G.cross, 40503)) >>> 0);
+            let born = 0;
+            for (let k = 0; born < COMET_T && k < COMET_KNOT.cap; k++) {
+                const at = born;
+                born += COMET_KNOT.every[0] + krng() * COMET_KNOT.every[1];
+                const age = G.local - at;
+                if (age < 0) {
+                    continue;
+                }
+                const arc = age * COMET_KNOT.speed;
+                if (arc > G.li * COMET_KNOT.over) {
+                    continue;
+                }
+                const o = COMET_ION.amp * (arc / G.li)
+                    * Math.sin((6.2832 * (arc - bd.t * COMET_ION.crest)) / COMET_ION.period);
+                const fade = 1 - arc / (G.li * COMET_KNOT.over);
+                cometDisc(s, ax(G.hx + G.ux * arc + nx * o), ay(G.hy + G.uy * arc + ny * o),
+                    (COMET_KNOT.r[0] + COMET_KNOT.r[1] * fade) / px,
+                    bd.rgb, COMET_FADE, COMET_KNOT.alpha * fade * G.a);
+            }
+            cometDisc(s, ax(G.hx), ay(G.hy), G.rc / px, bd.rgb, COMET_COMA.stops, G.b);
+
+            // The nucleus: two art pixels at the top of the ramp, and the only
+            // thing in the place allowed to be the brightest thing in it.
+            const cx = Math.round(ax(G.hx));
+            const cy = Math.round(ay(G.hy));
+            const top = bd.rgb[s.last];
+            for (let y = cy - 1; y <= cy; y++) {
+                if (y < 0 || y >= s.ah) {
+                    continue;
+                }
+                for (let x = cx - 1; x <= cx; x++) {
+                    if (x < 0 || x >= s.aw) {
+                        continue;
+                    }
+                    const i = (y * s.aw + x) * 4;
+                    s.data[i] = top[0];
+                    s.data[i + 1] = top[1];
+                    s.data[i + 2] = top[2];
+                    s.data[i + 3] = 255;
+                }
+            }
+
+            // --- one upload, one blit ------------------------------------
+            s.g.putImageData(s.img, 0, 0, ux0, uy0, ux1 - ux0 + 1, uy1 - uy0 + 1);
+            s.px0 = s.x0;
+            s.py0 = s.y0;
+            s.px1 = s.x1;
+            s.py1 = s.y1;
+            g.imageSmoothingEnabled = false;
+            g.drawImage(s.cv, bd.x0, bd.y0, bd.w, bd.h);
         },
     },
 };
@@ -2549,9 +3100,31 @@ export const BACKGROUNDS = [
         desc: "Air too cold to hold any haze, so nothing here softens with distance: the farthest ridge cuts as hard as the nearest, and a ring of light stands in the crystals overhead. The slowest weather of any of the places.",
     },
     {
-        id: "comet", name: "COMET TRAIL", tint: "#a8f0ff", kind: "comet",
-        p: { c1: "#a8f0ff", c2: "#ffd66b" },
-        desc: "A comet crossing on its way in, tail streaming off the head and pointing away from the star. It crosses, leaves and comes round again.",
+        id: "comet", name: "COMET TRAIL", tint: "#a8f0ff", kind: "pixelComet",
+        // The old `c1` cyan and `c2` gold, run out to eight rungs each: the
+        // ion ramp climbs to the entry tint, the dust ramp to the gold. The cap
+        // keeps every tail one rung under the top of its own ramp; the ion's
+        // rung 7 is spent on the nucleus alone, and `hard` says why the dust's
+        // is spent on nothing.
+        p: {
+            veil: 12, topRung: 6,
+            ramp: ["#05070a", "#0a1720", "#103038", "#1a4c58", "#2a6f7e", "#4a97a4", "#79c4d2", "#a8f0ff"],
+            landRamp: ["#07060a", "#1a1410", "#2e2415", "#46381d", "#63512a", "#8a7440", "#bda45a", "#ffd66b"],
+            // Stars pale rather than white, and dimmer than the study's
+            // #3b4654 / #8fa0b0 / #c6d6e8. Quantising took its count of small
+            // bright regions from 1 to 11, nine of them baked stars at the top
+            // rung -- hard-edged and opaque where the old speckles were alpha
+            // 0.35 -- and it fixed that by cutting the top rung's SHARE to
+            // 3.5%. That lever does not exist here: `_bakeField` buckets a star
+            // by `round(a * 3) / 3` and `starList` always spreads `a` over a
+            // 0.5-wide band, so the top rung's share works out at 48% for any
+            // usable `aMin`. Measured with the study's own ramp: 24 small
+            // bright regions on the composed arena. Every rung here is under
+            // luminance 0.70 instead -- the threshold the measurement is drawn
+            // at -- so the share stops mattering.
+            starRamp: ["#2c3846", "#5d6f80", "#93a8bd"],
+        },
+        desc: "A comet crossing on its way in. Gold dust curves back along its path; a blue ion tail points dead away from the star and swings as it passes. It crosses, leaves and comes round again.",
     },
     {
         id: "ringed", name: "RINGED GIANT", tint: "#e8c98f", kind: "planet",
