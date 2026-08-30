@@ -64,19 +64,22 @@ export const BOSSES = [
         sprite: "boss3",
         tint: "#9b5de5",
         // 42 -> 58: four bays on an 84 px hull are five pixels apart and cannot
-        // be aimed at. At 120 px drawn they are six sprite cells wide each, and
-        // 58 sits two pixels inside the drawn half-width, so the hull never
-        // kills outside its own silhouette. It is the largest regular boss by a
-        // clear margin and still far short of the smallest colossus.
+        // be aimed at. At 116 px drawn the five pods are six sprite cells wide
+        // each on a 19 px pitch, and 58 IS the drawn half-width, so the hull
+        // never kills outside its own silhouette. It is the largest regular
+        // boss by a clear margin and still far short of the smallest colossus.
+        // It is also the radius the descent brings down on the player's lane,
+        // which is the only contact hazard the fight has.
         r: 58,
         // 0.9 -> 1.15, not the ~1.3 that would hold the fight's length against
-        // a 43% wider target: the difference is spent on the four bays instead
-        // (30 + 9*wave each, ~19% of the fight at wave 24). Ignore them and the
+        // a 43% wider target: the difference is spent on the five bays instead
+        // (30 + 9*wave each, ~23% of the fight at wave 24). Ignore them and the
         // fight is a touch shorter than it was while you drown; clear them and
-        // you spend that 19% and fight a hive whose ceiling has dropped to six.
+        // you spend that 23% and fight a hive with no swarm left -- and a
+        // faster, lower, more present hull, which is the whole trade.
         hp: 1.15,
         val: 1.3,
-        desc: "Carrier: four bays, and each one waits for its own brood to thin before it opens again. Break a bay and that much of the swarm never exists. Break the hive and the swarm goes with it.",
+        desc: "Carrier: five bays, each waiting for its own brood to thin before it opens again. Break one and that much of the swarm never exists -- but it spits what was inside straight at you, and the doors that are left open faster. Then it comes down, which is the only time the bays are in reach.",
     },
     {
         id: "prism",

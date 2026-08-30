@@ -230,6 +230,61 @@
  * comes out at 12 rasterising calls for the three quiet places, 6 for
  * `system`, 78 for `belt` and 96 for `blackhole`, against the ~122 average
  * the animator ports quote.
+ *
+ * -------------------------------------------------------------------------
+ * ICE WORLD, quantised branch (2026-08-30)
+ * -------------------------------------------------------------------------
+ * The 7th Direction A conversion, and the first place whose whole idea is an
+ * *edge*: cold air carries no moisture, so it carries no haze, so nothing here
+ * softens with distance. The study built it both ways and the soft branch is
+ * what settles it -- `surface` composites additively over a gradient, and
+ * additive compositing cannot make an occluding edge, so a far ridge drawn
+ * that way brightens the sky behind it instead of hiding it. Aerial
+ * perspective enforced by the blend mode is the exact thing this place is
+ * about not having.
+ *
+ * The study also proposes four axes on the shared painter (`clarity`,
+ * `relief`, `halo`, `settle`) with ice as the only non-zero row. They are not
+ * added: with ice on `pixelIce` all seven rows are zero, so every branch would
+ * be dead code carried by the one place that no longer uses the painter. The
+ * axis table is still the right design language for the desert's dune line and
+ * the jungle's canopy when those convert; it belongs in whichever port first
+ * has a caller.
+ *
+ * Departures from the study, and why:
+ *   1. The eddy period is 480 frames, not 240. Its own numbers disagree -- see
+ *      `ICE_EDDY_RATE` -- and the entry's superlative is the thing that turns
+ *      on which of them wins.
+ *   2. The shelf cracks sit in the first 26 px under the near range instead of
+ *      the 100 px band the study puts them in. At this composition that band
+ *      is almost entirely below the arena floor, so six of its seven cracks
+ *      were art nobody could see.
+ *   3. No baked stars, and therefore no `occlude`. The study's sky is empty on
+ *      purpose and its measured feature count depends on it: the top of this
+ *      ramp is bright enough that a 1-2 art px point light IS the thing the
+ *      count exists to forbid. Its own note that `occlude` should "cover the
+ *      three ranges so baked halo pixels do not print through rock" describes
+ *      something `field` already does -- a pixel under a ridge line returns
+ *      rock and never asks for the halo. The engine's own 44 near stars still
+ *      draw over the place, so the sky is not literally starless in play.
+ *   4. Drift is the shared `sin(t * 0.0016) * DRIFT`, not the study's 3 px on
+ *      a 900-frame period. Same call, and the same reason, as places 1-6.
+ *   5. Geometry is anchored on the arena (ridge bases as fractions of its
+ *      height, halo centre as fractions of both) rather than on the box, so it
+ *      composes where the study composed it. Its own numbers are box-relative
+ *      art pixels against a box 14 px shorter than this one.
+ *
+ * Measured here on the composed 680x540 arena at frame 1500, by the study's
+ * own detector (a connected run at luminance >= 0.62, under 40 px on both
+ * axes, on a 4 px surround under 0.30): **0 features at `veil: 6`**, from 9 at
+ * veil 0 -- so the veil is load-bearing rather than taste, exactly as the
+ * study says. Mean luminance 0.156 (the study's number to three places), p95
+ * 0.262, brightest pixel 0.587 against a 0.80 enemy core. Live cost 15
+ * rasterising calls a frame, worst case, against 78 for the belt and the 86
+ * this place used to spend on 16 ellipses and 70 motes.
+ *
+ * The regression for all of it: every place composed at frame 1500 plus its
+ * 272 px glossary thumbnail, hashed. 26 of 27 byte-identical.
  */
 
 // The static layer is soft gradient art, so half resolution is free quality.
@@ -314,6 +369,50 @@ const SYS_BODIES = [
 ];
 // The field of a place that paints nothing at all, shared so the bake does not
 // allocate one per art pixel.
+/* ICE WORLD ----------------------------------------------------------------
+ * The three ranges, near to far: where the base of each sits as a fraction of
+ * the arena height, how far its crests rise above that, and which of the four
+ * land rungs its body is painted in. Near is the darkest and the lowest, which
+ * is the only depth cue in the place -- there is no haze to give another.
+ */
+const ICE_RIDGES = [
+    { seed: 0x7777, n: 21, base: 0.961, amp: 24, rung: 0 },
+    { seed: 0x4242, n: 13, base: 0.806, amp: 66, rung: 1 },
+    { seed: 0x2329, n: 9, base: 0.617, amp: 102, rung: 2 },
+];
+// Snow, in art pixels, on every crest and always on this rung.
+const ICE_CAP = 2;
+const ICE_CAP_RUNG = 6;
+const ICE_LAST = 7;
+// The 22 degree halo: radius, the width of its falloff, and how far the disc
+// inside it sits under the sky it stands in.
+const ICE_HALO_R = 192;
+const ICE_HALO_W = 5.7;
+const ICE_HALO_HOLE = 0.022;
+const ICE_SKY = [0.09, 0.66, 1.45];     // base, span, gamma down the box
+const ICE_CRACKS = 7;
+const ICE_CRACK_BAND = 26;              // logical px of shelf they may sit in
+const ICE_CRACK_SEED = 0x0c1a;
+// Fourteen flakes, falling 0.06-0.11 px a frame with a 7 px eddy. The eddy's
+// period is 480 frames and not the study's 240, because those two numbers plus
+// its own 7 px amplitude do not agree with each other: 7 px on a 240-frame
+// sine peaks at 0.183 px/frame, where the study's own motion table claims
+// 0.092 and rests the entry's superlative on it. At 240 the fastest thing here
+// measures 0.214 px/frame; at 480 it is 0.143, which is what the table meant.
+// That is what "the slowest weather of any of the places" is now worth: every
+// other place whose scenery moves is quicker at its liveliest -- the gas
+// giant's SLOWEST deck alone is 0.160 and its near one 1.10, the belt's rocks
+// reach 0.32 -- and the three quiet Direction A places have no moving scenery
+// at all. (Not the study's stronger form, "slower than the slowest element
+// anywhere else": the belt's slowest rock drifts at 0.10 and no flake speed
+// that still crosses the arena beats that.) Measured in `probe_ice.mjs`.
+const ICE_FLAKES = 14;
+const ICE_FLAKE_SEED = 0x0f1a;
+const ICE_FLAKE_WRAP = 40;
+const ICE_FALL = [0.06, 0.11];
+const ICE_EDDY = 7;
+const ICE_EDDY_RATE = 6.2832 / 480;
+
 const FIELD_DARK = { v: 0 };
 // The arena the glossary thumbnails are composed in. Painters place things in
 // logical pixels, so a still has to be taken at the size they were written for
@@ -721,6 +820,28 @@ function systemField(bd, x, y) {
 // placements were tuned by eye against this stream, so it is kept rather than
 // reseeded off the place id -- the same reason `mulberry32` is in this file at
 // all.
+/**
+ * ICE WORLD's sky: a plain gamma ramp down the box with one ring standing in
+ * it. Both are pure functions of position, which is what lets the whole place
+ * bake and leaves fourteen flakes as its only live work.
+ */
+function iceSky(bd, x, y) {
+    const t = clamp((y - bd.y0) / bd.h, 0, 1);
+    let v = ICE_SKY[0] + ICE_SKY[1] * Math.pow(t, ICE_SKY[2]);
+    const halo = bd.p.halo;
+    if (halo > 0) {
+        const d = Math.hypot(x - bd.cx, y - bd.cy);
+        const e = (d - ICE_HALO_R) / ICE_HALO_W;
+        v += halo * Math.exp(-e * e);
+        if (d < ICE_HALO_R - ART_PIX * 2) {
+            // The inside of a halo is darker than the sky around it, which is
+            // the one thing that stops the ring reading as a lens flare.
+            v -= ICE_HALO_HOLE;
+        }
+    }
+    return v;
+}
+
 const BELT_SEED = 20260829;
 // Band edges are polylines sampled this often across the box. At 24 logical px
 // the wave (2-14 px amplitude, 0.0035-0.0115 rad per px) is smooth and a deck
@@ -1478,6 +1599,137 @@ const PAINTERS = {
             }
         },
     },
+    /**
+     * ICE WORLD. The only place with no air in the way, and everything in it is
+     * that one claim: cold air carries no moisture, so it carries no haze, so
+     * nothing here softens with distance.
+     *
+     * Two consequences, and they are the whole composition. **Hard edges all
+     * the way back**: three ridge ranges drawn at identical edge hardness, with
+     * their snow caps all on the *same* rung, so depth comes only from
+     * occlusion order and silhouette scale -- the reverse of every other place
+     * in the catalogue, which fades toward its horizon. And **near-stillness**:
+     * clear air is calm air, so the fastest thing here moves 0.14 logical px a
+     * frame and a flake takes about 4,800 frames to cross the arena.
+     *
+     * The 22 degree halo is the evidence of the clear air rather than a second
+     * idea -- only suspended crystals make one, and it can only be seen because
+     * there is nothing between the eye and it. It is structure, not texture:
+     * one ring, one rung over the sky it stands in, and the ridges cut it off
+     * where they meet it because they are in front of it.
+     *
+     * Why this place is quantised and not a `surface` entry with new axes on
+     * it: `surface` composites additively over a gradient, and additive
+     * compositing cannot make an occluding edge -- a far ridge drawn that way
+     * brightens the sky behind it instead of hiding it, which is aerial
+     * perspective enforced by the blend mode. "The far ridge cuts as hard as
+     * the near one" is not a sentence that renderer can say.
+     */
+    pixelIce: {
+        init(bd) {
+            bd.aw = Math.max(1, Math.ceil(bd.w / ART_PIX));
+            // Near range first: the loops below take the first line they are
+            // under, so the order is the occlusion order.
+            bd.ridges = ICE_RIDGES.map((d) => {
+                const rng = mulberry32(d.seed);
+                const cp = [];
+                for (let i = 0; i <= d.n; i++) {
+                    cp.push(rng());
+                }
+                const h = new Float32Array(bd.aw);
+                for (let i = 0; i < bd.aw; i++) {
+                    const t = (i / bd.aw) * d.n;
+                    const k = Math.floor(t);
+                    const f = t - k;
+                    const a = cp[k];
+                    const b = cp[k + 1] === undefined ? cp[0] : cp[k + 1];
+                    // Smoothstep between control points: a ridge line is a
+                    // silhouette, and a linear one reads as a folded strip.
+                    h[i] = bd.H * d.base - (a + (b - a) * (f * f * (3 - 2 * f))) * d.amp;
+                }
+                return { h, rung: d.rung };
+            });
+            bd.cx = bd.W * bd.p.cx;
+            bd.cy = bd.H * bd.p.cy;
+            // The shelf cracks, in art pixels, on the near range and inside the
+            // arena rather than the 100 px band under it the study puts them
+            // in -- at this composition that band is almost entirely below the
+            // floor, and a shelf crack nobody can see is not a feature.
+            const rng = mulberry32(ICE_CRACK_SEED);
+            bd.cracks = [];
+            for (let i = 0; i < ICE_CRACKS; i++) {
+                bd.cracks.push({
+                    x: rng() * bd.aw,
+                    y: (bd.H * ICE_RIDGES[0].base + 4 + rng() * ICE_CRACK_BAND - bd.y0) / ART_PIX,
+                    w: 14 + rng() * 46,
+                });
+            }
+            const rf = mulberry32(ICE_FLAKE_SEED);
+            bd.flakes = [];
+            for (let i = 0; i < ICE_FLAKES; i++) {
+                bd.flakes.push({
+                    x: rf() * bd.W,
+                    y: rf() * (bd.H + ICE_FLAKE_WRAP),
+                    v: ICE_FALL[0] + rf() * (ICE_FALL[1] - ICE_FALL[0]),
+                    ph: rf() * 6.2832,
+                    // Six logical px minimum -- two art pixels, and above the
+                    // 1-4 px an enemy core is. A flake has to read as mass.
+                    s: rf() < 0.35 ? ART_PIX * 3 : ART_PIX * 2,
+                    rung: rf() < 0.4 ? 5 : 6,
+                });
+            }
+        },
+        field(bd, x, y) {
+            const i = clamp(Math.floor((x - bd.x0) / ART_PIX), 0, bd.aw - 1);
+            for (const r of bd.ridges) {
+                const h = r.h[i];
+                if (y < h) {
+                    continue;
+                }
+                // The settled snow. All three ranges wear it on the same rung
+                // and at the same two art pixels, which IS the no-haze claim:
+                // a far cap that read dimmer than a near one would be aerial
+                // perspective drawn by hand.
+                return y < h + ICE_CAP * ART_PIX
+                    ? { v: ICE_CAP_RUNG / ICE_LAST }
+                    : { v: r.rung / ICE_LAST, rgb: bd.rgbAlt };
+            }
+            return { v: iceSky(bd, x, y) };
+        },
+        hard(bd, g, pix) {
+            // Cracks: one art pixel, stepping a row every ninth column, in the
+            // darkest of the four land rungs. The only hard art in the place --
+            // the ranges themselves come out of `field`, because a silhouette
+            // whose edge is decided per art pixel is exactly what the dither
+            // must not be allowed to soften.
+            g.fillStyle = bd.p.landRamp[3];
+            for (const c of bd.cracks) {
+                for (let k = 0; k < c.w; k++) {
+                    g.fillRect(
+                        Math.floor(c.x + k) % bd.aw,
+                        Math.floor(c.y + k / 9),
+                        1, 1
+                    );
+                }
+            }
+        },
+        live(bd, g) {
+            // Fourteen rects, and they are the entire live layer: the cheapest
+            // place in the catalogue. Everything else is a pure function of
+            // position and bakes, and the flakes are only here because they
+            // move relative to the plane. No `update` either -- their path is a
+            // function of `bd.t`, so `backdropThumb` takes them straight to
+            // frame 1500 instead of stepping them there.
+            const ramp = bd.p.ramp;
+            for (const f of bd.flakes) {
+                const y = ((f.y + bd.t * f.v) % (bd.H + ICE_FLAKE_WRAP)) - ICE_FLAKE_WRAP / 2;
+                const x = (f.x + Math.sin(bd.t * ICE_EDDY_RATE + f.ph) * ICE_EDDY + bd.W)
+                    % bd.W;
+                g.fillStyle = ramp[f.rung];
+                g.fillRect(snapTo(bd.x0, x), snapTo(bd.y0, y), f.s, f.s);
+            }
+        },
+    },
 
     // Coloured gas clouds with a couple of dark dust lanes for depth.
     nebula: {
@@ -1740,7 +1992,7 @@ const PAINTERS = {
      *
      * `bandForm: "bank"` -- the default, and what the six other worlds are: a
      * baked sky with 16 soft ellipses scrolling over it in `lighter`, plus
-     * `motes` (embers, snow, spores, sand) simulated on top.
+     * `motes` (embers, spores, sand) simulated on top.
      *
      * `bandForm: "belt"` -- GAS GIANT DESCENT: the sky plus a stack of tiles
      * that wrap and translate at their own rates, so the decks shear against
@@ -2281,9 +2533,20 @@ export const BACKGROUNDS = [
         desc: "A whole system seen from outside it: a yellow star, its dust lit from within, and five planets crawling along wide tilted orbits.",
     },
     {
-        id: "ice_world", name: "ICE WORLD", tint: "#bfe9ff", kind: "surface",
-        p: { sky: ["#0b2438", "#2a6a8f", "#a9dcf2"], band: "#e6f7ff", speed: 0.5, motes: "snow", moteColor: "#ffffff" },
-        desc: "Snow falling across a pale blue sky, with cloud banks drifting behind it. The slowest weather of any of the places.",
+        id: "ice_world", name: "ICE WORLD", tint: "#bfe9ff", kind: "pixelIce",
+        // Eight rungs interpolated from the entry tint down to a near-black of
+        // the same hue, with the chroma pulled down as the lightness falls so
+        // the dark end never goes purple. Rung 7 is the tint itself and the cap
+        // means it is never drawn: nothing the backdrop can paint reaches the
+        // colour of the place's own name.
+        p: {
+            veil: 6, topRung: 6, halo: 0.16, cx: 0.376, cy: 0.505,
+            ramp: ["#061420", "#0d2434", "#16394c", "#234f63", "#34677c", "#4b8296", "#79a8b8", "#bfe9ff"],
+            // Rock. Four rungs are used -- one per range, plus the cracks --
+            // and the four above them exist only because a ramp is eight long.
+            landRamp: ["#050e16", "#08161f", "#0c1f2b", "#122a38", "#1a3a4a", "#244c5e", "#305f74", "#40738a"],
+        },
+        desc: "Air too cold to hold any haze, so nothing here softens with distance: the farthest ridge cuts as hard as the nearest, and a ring of light stands in the crystals overhead. The slowest weather of any of the places.",
     },
     {
         id: "comet", name: "COMET TRAIL", tint: "#a8f0ff", kind: "comet",

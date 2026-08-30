@@ -116,6 +116,55 @@ export const WARDEN_DEATH = {
     dimEvery: 9,    // frames per rung the falling plates dim
 };
 
+/**
+ * HIVE's death, frame by frame. Exported because `game_engine.js` needs the
+ * total to size the corpse's lifetime and the two beats to throw a burst on,
+ * and one number in two files drifts.
+ *
+ * A carrier does not collapse inward the way WARDEN does -- it is a deck with
+ * things hanging off it, so it comes apart in the order it was built: it
+ * shakes where it is, the pods let go one at a time, and only then does the
+ * hull above them peel off bottom-up. Every one of those beats is something
+ * the player spent the fight looking at.
+ */
+export const HIVE_DEATH = {
+    frames: 224,        // corpse lifetime, 3.73 s
+    shudder: 44,        // f0..43 it shakes where it is; nothing comes off yet
+    shudderPx: 2, shudderTo: 3, shudderRate: 9,
+    sink: 0.28, sinkMax: 52,        // px/frame, and how far it may fall
+    shearAt: 40, shearRate: 5,      // rows tear a whole cell either way
+    // ...and the whole hull walks down the ladder. 70 and not the study's 40:
+    // its hull had six rungs of headroom and this one has four, so at 40 the
+    // whole corpse was off the screen by frame 185 and the flash-out below was
+    // dead code. At 70 the peel is what erases the hull, bottom-up, and the
+    // flash-out finishes what is left of it.
+    dimAt: 60, dimEvery: 70,
+    // The pods, 12 frames apart from the middle of the shudder. A pod that has
+    // let go stops taking the hull's own bleaching and walks down on `podDim`
+    // alone: it is a separate falling object, and on this hull it is painted in
+    // the bank's dark accent with exactly one rung under it, so anything that
+    // demotes it twice takes it off the screen. At 26 frames a rung each pod
+    // is visible for 52 frames and falls 135 px in them, which is clear of the
+    // deck; at the study's 13 it was gone 31 px down and the detach did not
+    // read at all.
+    // `podFlare` is the mount shearing: five frames at the top of the hull's
+    // ladder as each pod lets go. Without it a detaching pod is the bank's dark
+    // accent falling across black and the beat cannot be seen at all -- the
+    // study's pods were four rungs brighter and needed no such thing.
+    podAt: 44, podEvery: 12, podFall: 0.05, podDim: 26, podFlare: 5,
+    // The peel, bottom-up. Four frames a row and not the study's seven: it
+    // wrote its choreography against eight hull bands and this hull has 22
+    // rows, and seven would still be peeling when the corpse is already gone.
+    peelAt: 108, peelEvery: 4, peelFall: 0.035, peelDim: 8,
+    // A pod the player already broke is a scar by the time the hull dies, and
+    // it peels with the hull rather than detaching a second time.
+    scarDim: 2,
+    flashAt: 196, flashEvery: 3,    // ...and the last pixel goes before the cutoff
+    // The two frames the engine throws a burst on: the deck letting go, and the
+    // hull starting to peel.
+    beats: [44, 108],
+};
+
 const wardenGeo = new Map();
 
 /**
@@ -384,11 +433,39 @@ function hiveGeometry(name) {
             }
         }
     }
+    // The rungs this hull can actually show, darkest first. The corpse's wear
+    // walks down *this* and not the bank's nine, so a step can never be a
+    // no-op on a hull whose art skips the rung it would have landed on --
+    // `boss3` uses five of the nine, and a plain `-1` off rung 5 folds straight
+    // back on to rung 5.
+    const fold = rungFold(used);
+    const ladder = [];
+    const rungAt = new Int8Array(TOP + 1);
+    for (let i = 0; i <= TOP; i++) {
+        if (ladder.indexOf(fold[i]) < 0) {
+            ladder.push(fold[i]);
+        }
+    }
+    ladder.sort((a, b) => a - b);
+    for (let i = 0; i <= TOP; i++) {
+        rungAt[i] = ladder.indexOf(fold[i]);
+    }
+    const list = bays.length >= 3 && bays.length <= 6 ? bays : null;
+    // Which pod owns each cell, so the corpse can detach them as units and the
+    // hull it peels afterwards is the hull with the pods taken out of it.
+    const podAt = new Int8Array(cols * rows).fill(-1);
+    (list || []).forEach((b, i) => {
+        for (let r = b.r0; r <= b.r1; r++) {
+            for (let c = b.c0; c <= b.c1; c++) {
+                podAt[r * cols + c] = i;
+            }
+        }
+    });
     geo = {
-        cols, rows, cells, rim,
-        rungs: rungFold(used),
+        cols, rows, cells, rim, ladder, rungAt, podAt,
+        rungs: fold,
         // Two pods would be a hull with a split tail, not a carrier.
-        bays: bays.length >= 3 && bays.length <= 6 ? bays : null,
+        bays: list,
         well: w1 >= w0 ? { c0: w0, c1: w1, r0: wr0, r1: wr1 } : null,
     };
     hiveGeo.set(name, geo);
@@ -696,6 +773,12 @@ export const BOSS_ANIM = {
         // close says so.
         steps: 4,
         doorLift: 0.62,         // the well interior, at the last open step
+        // ARMED: the charge has finished and the pod is parked open waiting for
+        // the hive beat, which is the one door state the player has to read as
+        // "now". On `boss3`'s pod lining (the bank's dark accent, rung 1) the
+        // three levels land on rungs 3, 5 and 7 with the launch flare at 8 --
+        // four steps that each actually repaint, which 0.62 -> 0.70 would not.
+        armedLift: 0.82,
         launchFrames: 10,       // ...and it goes white for this long on launch
         recoilFrames: 9,        // the pod kicks a cell down and comes back
         wreckSteps: 3,
@@ -724,6 +807,18 @@ export const BOSS_ANIM = {
         tetherDash: 4,          // frames per pixel the dashes travel
         hullRollRef: 66,        // px/s
         maxRoll: 0.07,          // rad
+        // The marked corridor: the lane the hull has committed to before it
+        // comes down it. The only thing this animator draws outside the hull's
+        // own box, and the reason it may is that the descent is a contact
+        // hazard -- a hull that is about to occupy a strip of the arena has to
+        // say which strip, on the floor, where the player is flying.
+        corridorW: 1.13,        // of the drawn hull width
+        corridorGap: 6,         // px below the hull the dashes start
+        corridorStep: 8,        // px between dashes
+        corridorDash: 2,        // px tall
+        corridorFlick: 6,       // frames per alternation of the two darks
+        corridorBar: 3,         // px of the wind-up bar under the hull
+        corridorFloor: 4,       // px of the bar on the floor itself
     },
 
     PRISM: {
@@ -841,6 +936,7 @@ export class BossAnimator {
         this.rageF = 0;
         this.bays = null;
         this.tel = 0;
+        this.dive = 0;
     }
 
     /**
@@ -1030,8 +1126,12 @@ export class BossAnimator {
                 } else if (this.rageF < t.rageFrames) {
                     this.rageF += dt * 60;
                 }
-                // The ring tell, off the telegraph the engine already computes.
+                // The ring tell and the corridor, both off the one telegraph
+                // the engine already computes and already ships. They cannot
+                // both be up: `_tel` keeps the strongest cue, which during the
+                // wind-up is always the corridor by the time it matters.
                 this.tel = s.telK === "ring" ? clamp01(s.tel || 0) : 0;
+                this.dive = s.telK === "dive" ? clamp01(s.tel || 0) : 0;
                 break;
             case "PRISM":
                 this.spin = (this.spin + t.spiralSpin * dt) % 6.2832;
@@ -1231,6 +1331,9 @@ export class BossAnimator {
             this._ring(g, cell, w, h);
         }
         if (this.kind === "HIVE") {
+            if (this.dive > 0) {
+                this._corridor(g, o, h);
+            }
             this._tethers(g, o, cell);
         }
     }
@@ -1582,8 +1685,9 @@ export class BossAnimator {
 
     /** HIVE: a light chasing along the rim, so the carrier reads as powered. */
     /**
-     * Everything HIVE says on its own plating: the four doors, the pods it has
-     * lost, the belly well breathing and the ring it is about to throw.
+     * Everything HIVE says on its own plating: the five doors and which of them
+     * is armed, the pods it has lost, the belly well breathing and the ring it
+     * is about to throw.
      *
      * All of it is promotion along the sprite bank's ramp over the cached
      * raster, and only over the cells an effect actually changes -- a closed,
@@ -1690,7 +1794,14 @@ export class BossAnimator {
                 const mid = (pod.c0 + pod.c1) / 2;
                 const half = (b.step / (t.steps - 1)) * (pod.c1 - pod.c0) / 2;
                 const flare = b.since >= 0 && b.since < t.launchFrames;
-                const k = flare ? 1 : t.doorLift * ((b.step + 1) / t.steps);
+                // Four levels, and every one of them repaints: the charge walks
+                // the lining up, the armed hold parks it one rung brighter than
+                // any open door ever gets, the launch goes to the top of the
+                // ramp for ten frames, and an open pod that has already fired
+                // sits back down at the charge's own top step.
+                const k = flare
+                    ? 1
+                    : (b.armed ? t.armedLift : t.doorLift * ((b.step + 1) / t.steps));
                 for (let r = pod.r0 + 1 + rec; r <= pod.r1; r++) {
                     for (let c = Math.ceil(mid - half); c <= Math.floor(mid + half); c++) {
                         this._promoteCell(g, geo, f, c, r, k);
@@ -1710,6 +1821,46 @@ export class BossAnimator {
                 );
             }
         }
+    }
+
+    /**
+     * The lane the carrier has committed to, drawn from the hull to the floor
+     * over the 48-frame wind-up.
+     *
+     * It is the only thing this animator paints outside the hull's own box, and
+     * it earns the exception: the descent is the fight's one contact hazard, so
+     * the strip of arena the hull is about to occupy has to be marked on the
+     * floor, where the player is actually flying, and not on the hull, where
+     * they are not. The hull's x is frozen for the whole wind-up, so what is
+     * drawn is where it goes.
+     *
+     * No promotion here, and no ramp: this is not plating, it is a mark on the
+     * floor, so it takes the boss's own colour darkened the way the tether
+     * takes it. Two darks alternating every six frames is what stops a static
+     * lane from reading as scenery.
+     */
+    _corridor(g, o, h) {
+        const t = this.t;
+        const floor = o.floor;
+        if (!(floor > this.y)) {
+            return;
+        }
+        const w = Math.max(2, Math.round(this.halfW * 2 * t.corridorW));
+        const x0 = Math.round(this.x) - Math.round(w / 2);
+        const y0 = Math.round(this.y + h / 2) + t.corridorGap;
+        g.save();
+        g.fillStyle = mixHex(this.tint, "#05050a",
+            Math.floor((this.time * 60) / t.corridorFlick) % 2 ? 0.74 : 0.58);
+        for (let y = y0; y < floor; y += t.corridorStep) {
+            g.fillRect(x0, y, w, t.corridorDash);
+        }
+        // The wind-up itself: a bar under the hull that fills the lane's whole
+        // width by the frame the hull starts moving.
+        g.fillStyle = this.tint;
+        g.fillRect(x0, y0 - t.corridorBar - 1,
+            Math.round(w * this.dive), t.corridorBar);
+        g.fillRect(x0, Math.round(floor) - t.corridorFloor, w, t.corridorFloor);
+        g.restore();
     }
 
     /**
@@ -1937,6 +2088,10 @@ export function drawLanceNode(g, o) {
  * @param {Object} w wreck record: `{name, x, y, t, tint, px, armor}`
  */
 export function drawBossWreck(g, w) {
+    if (w.boss === 3) {
+        drawHiveWreck(g, w);
+        return;
+    }
     const D = WARDEN_DEATH;
     const geo = wardenGeometry(w.name);
     if (!geo.cols) {
@@ -2022,6 +2177,112 @@ export function drawBossWreck(g, w) {
             g.transform(1, 0, shear * 0.18 * side, 1, Math.round(x), Math.round(y));
             g.drawImage(cv, -cv.width / 2, -cv.height / 2);
             g.restore();
+        }
+    }
+    g.restore();
+}
+
+/**
+ * HIVE's corpse: a deck coming apart in the order it was built.
+ *
+ * A pure function of the wreck record `killEnemy` pushed -- where it died, which
+ * pods were still on it, and how old the corpse is -- so a guest that only ever
+ * receives the kill cue draws the same death as the host.
+ *
+ * The order is the whole point, and it is why the corpse has to outlive
+ * `killEnemy`: it shakes where it is while nothing comes off (the frames where
+ * a player who has been shooting pods for a minute is waiting to see them go),
+ * then the pods let go one at a time from the left of the deck, then the hull
+ * above them peels off bottom-up. A boss that simply stops existing on the
+ * frame its points reach zero has none of that.
+ *
+ * Every step of wear walks down the hull's own ladder rather than the bank's
+ * nine rungs, so no step of it is a no-op on a hull that skips a rung -- which
+ * `boss3`, with five of the nine, would otherwise be full of.
+ *
+ * @param {CanvasRenderingContext2D} g
+ * @param {Object} w wreck record: `{name, x, y, t, tint, px, pods}`
+ */
+export function drawHiveWreck(g, w) {
+    const D = HIVE_DEATH;
+    const geo = hiveGeometry(w.name);
+    if (!geo.cols || !geo.bays) {
+        return;
+    }
+    const f = w.t;
+    const px = w.px;
+    const sz = Math.ceil(px);
+    const pal = palette(w.tint);
+    const ramp = RAMP_CHARS.map((ch) => pal[ch]);
+    // The shudder rises from 2 px to 3 the frame the deck lets go, and the
+    // whole thing sinks at a constant 0.28 px a frame until it has fallen 52.
+    const shake = Math.round(Math.sin(f / D.shudderRate)
+        * (f < D.shudder ? D.shudderPx : D.shudderTo));
+    const ox = Math.round(w.x) + Math.round(-Math.round(geo.cols * px) / 2);
+    const oy = Math.round(w.y + Math.min(D.sinkMax, f * D.sink) + shake)
+        + Math.round(-Math.round(geo.rows * px) / 2);
+    // One rung down the hull's ladder, `n` steps; -1 once there is nothing left
+    // under it and the cell is simply gone.
+    const step = (rung, n) => {
+        const i = geo.rungAt[rung] - n;
+        return i < 0 ? -1 : geo.ladder[i];
+    };
+    // The flash-out is the whole corpse going at once, so it applies to
+    // everything still on screen; the slow bleach is the hull's own and a pod
+    // that has already let go of it does not take it.
+    const flash = f >= D.flashAt ? Math.floor((f - D.flashAt) / D.flashEvery) : 0;
+    const dim0 = Math.floor(Math.max(0, f - D.dimAt) / D.dimEvery) + flash;
+    const cell = (c, r, rung, dx, dy) => {
+        if (rung < 0) {
+            return;
+        }
+        g.fillStyle = ramp[rung];
+        g.fillRect(ox + Math.round((c + dx) * px), oy + Math.round(r * px + dy), sz, sz);
+    };
+
+    g.save();
+    g.imageSmoothingEnabled = false;
+
+    // 1. The hull, peeling bottom-up one row at a time, each row shearing a
+    //    whole cell either way. A cell and not two pixels: turning a 48-cell
+    //    row by anything less only costs it its lattice (the DRONE-B lesson).
+    for (let r = geo.rows - 1; r >= 0; r--) {
+        const peel = f - (D.peelAt + (geo.rows - 1 - r) * D.peelEvery);
+        const dy = peel > 0 ? peel * peel * D.peelFall : 0;
+        const dim = dim0 + (peel > 0 ? Math.floor(peel / D.peelDim) : 0);
+        const shear = f > D.shearAt
+            ? (r % 2 ? 1 : -1) * Math.round(Math.sin((f - D.shearAt) / D.shearRate))
+            : 0;
+        for (let c = 0; c < geo.cols; c++) {
+            const rung = geo.cells[r * geo.cols + c];
+            if (rung < 0) {
+                continue;
+            }
+            const pod = geo.podAt[r * geo.cols + c];
+            if (pod >= 0 && (w.pods >> pod) & 1) {
+                continue;       // still attached to the deck; it falls on its own
+            }
+            cell(c, r, step(rung, dim + (pod >= 0 ? D.scarDim : 0)), shear, dy);
+        }
+    }
+
+    // 2. The pods. They let go twelve frames apart, left to right, and they fall
+    //    faster than the hull dims -- a pod that is still on screen should still
+    //    look like a pod and not like a stain.
+    for (let i = 0; i < geo.bays.length; i++) {
+        if (!((w.pods >> i) & 1)) {
+            continue;
+        }
+        const b = geo.bays[i];
+        const a = f - (D.podAt + i * D.podEvery);
+        const dy = a > 0 ? a * a * D.podFall : 0;
+        const dim = a > 0 ? flash + Math.floor(a / D.podDim) : dim0;
+        const top = a >= 0 && a < D.podFlare ? geo.ladder[geo.ladder.length - 1] : -1;
+        for (let r = b.r0; r <= b.r1; r++) {
+            for (let c = b.c0; c <= b.c1; c++) {
+                const rung = geo.cells[r * geo.cols + c];
+                cell(c, r, top >= 0 && rung >= 0 ? top : step(rung, dim), 0, dy);
+            }
         }
     }
     g.restore();
