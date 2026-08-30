@@ -349,6 +349,100 @@
  * (456, 238) with activity 0.99, 86 frames short of closest approach. That was
  * already the constant's reason and it survives the new 2600-frame crossing --
  * worth re-checking if either ever moves again.
+ *
+ * -------------------------------------------------------------------------
+ * RINGED GIANT, quantised branch (2026-08-30)
+ * -------------------------------------------------------------------------
+ * The 9th Direction A conversion, and the one where the contract already held
+ * the answer to the place's hardest problem. Translucency, occlusion and
+ * behind-versus-in-front are three descriptions of one number, and `occlude` is
+ * that number: drawn soft, a ring plane is the same arcs stroked twice with
+ * alpha and a hope about the ordering; drawn as a plane with an opacity
+ * profile, the body test and the ring test are evaluated at the same art pixel
+ * and which one wins is the sign of one plane coordinate. `pixelGiant`
+ * replaces the entry's use of the shared `planet` painter, whose ring
+ * machinery is deleted with it -- ECLIPSE is the only place left on `planet`
+ * and it has no rings.
+ *
+ * The place gains three things it did not have: the planet's shadow across the
+ * far arc, solved as a cylinder rather than drawn; nine belts in *latitude*
+ * evaluated on the sphere, so the weather curves with the body and compresses
+ * toward the limb instead of lying flat across the disc; and the turn, which is
+ * the only thing here that cannot bake.
+ *
+ * Departures from the study, and why:
+ *   1. **No per-frame readback, and no per-frame work at all.** The study
+ *      strokes 31 arcs into an art-pixel buffer and then quantises the whole
+ *      thing with a `getImageData`/`putImageData` pair -- 40,860 pixels a frame
+ *      -- and its own port notes say not to ship that. Its replacement (art-
+ *      pixel spans, 90-160 `fillRect`s) is not needed either: the density table
+ *      steps one cell every 86.7 frames, so the live layer is a pure function
+ *      of 96 states. It is rasterised into the buffer on a roll step and blitted
+ *      the other 86 frames out of 87. Measured: **one rasterising call a frame**
+ *      for the live layer (two for the place, counting the bake's own blit),
+ *      418 art pixels and one `putImageData` every 86.7 frames.
+ *   2. **A clump promotes the band it lands on** instead of taking an absolute
+ *      rung. The study's rungs -- 2 in umbra, 4 in penumbra, 5 or 6 in the light
+ *      -- are the same numbers wherever the plate is dark and a silent no-op
+ *      where it is not: the B ring bakes at rung 5, so 24 of the 31 clumps
+ *      repainted **nothing at all** and the turn was invisible. Promotion
+ *      cannot have that failure. Measured after: 418 art pixels a cell of which
+ *      11.4% land back on the plate, against 226 and 71% before.
+ *   3. **The Encke gap and the F strand are dropped unconditionally**, not
+ *      below 0.85 zoom. The study makes the bake depend on the camera for them,
+ *      which would mean a re-bake on the wave-30 pull-back; it does not have to,
+ *      because the art lattice here is 3 *logical* px and does not change with
+ *      the camera at all. Both features are under two art pixels at every zoom,
+ *      so the study's own rule -- "anything under two art pixels is dropped
+ *      rather than dithered" -- settles it once. Encke's 5 px fold into the A
+ *      ring's outer step, which is 22 px, the same width as the Cassini.
+ *   4. **`occlude` returns a fraction**, the first partial return in the
+ *      catalogue and exactly what the study asks for, plus INNER SYSTEM's rule
+ *      as a third clause: a star is hidden by the body, dimmed by a band's own
+ *      opacity, and dropped where the plate is already lit (luminance 46). That
+ *      last clause is what makes a star visible through the C ring, whose plate
+ *      is rung 2, and invisible through B, whose plate is rung 5.
+ *   5. **The star ramp comes down.** The study's #4a5866 / #8a97a3 / #d6dde4
+ *      tops out at luminance 0.863 against the 0.62 the small-bright-feature
+ *      detector cuts at; measured with it, this arena has 8 features. Every
+ *      rung is under the threshold instead and it has 0. Third ramp to come
+ *      down for this reason, after EVENT HORIZON and COMET TRAIL.
+ *   6. The clump thresholds are retuned, because the counts are what the study
+ *      tuned and the thresholds belong to its own generator: on `mkNoise` its
+ *      0.70 leaves 17 clumps of 192 against its 31, and 0.65 lands on 31 with
+ *      the same run structure. Same for the dense cut, 0.86 -> 0.82 for 5.
+ *   7. Drift is the shared `sin(t * 0.0016) * DRIFT`, not the study's 6 px on a
+ *      2992-frame period. Same call, and the same reason, as places 1-8. There
+ *      is no `update` either: every angle is a function of `bd.t`.
+ *
+ * Two of the study's headline numbers are rejected by its own metrics, which is
+ * now the fourth time.
+ *
+ * The first is **"both reworked branches put zero pixels in the enemy-fire
+ * band"**. They cannot. Measured on the undithered field, the top two rungs of
+ * this ramp are reached only on the body -- 622 art pixels of the arena, and 0
+ * anywhere in the rings -- so any 8-rung quantisation of this composition paints
+ * them, and rung 6 (#c9a463, the place's own gold) is inside the band's
+ * brightness and chroma at any veil under 22. What the arena actually holds at
+ * veil 16 is 7,755 pixels in the band, in 421 components under 40 px and **0
+ * thin ones**: that is the ordered dither of a large lit planet, not 421
+ * features. The study's detector has no surround test, which is the clause the
+ * catalogue's own detector has had since ICE WORLD precisely so that the texture
+ * of something big is not counted as a speck on a dark field. By that detector
+ * the place measures **0 small bright features** at veil 6 and above, against
+ * BLUE MARBLE's 13 -- and BLUE MARBLE is the nearest thing to it in the
+ * catalogue. The study's own sentence is the resolution: every small bright
+ * thing in this sky is cool, and every warm thing is large.
+ *
+ * The second is the **veil of 11**; see the entry.
+ *
+ * Measured here on the composed 680x540 arena at frame 1500: mean luminance
+ * 0.162, p95 0.392, brightest pixel 0.690 (sRGB), 0.0404 / 0.1333 / 0.4379 in
+ * linear light. The ramp's top rung is 36 arena pixels -- four art pixels of
+ * cream on the lit limb -- so `topRung` is deliberately absent here: it would
+ * be clipping nothing, which is the mirror of INNER SYSTEM, where it clips 78.
+ * The regression is the same as the last three: 26 of 27 places byte-identical
+ * over the composed frame and the 272 px thumbnail.
  */
 
 // The static layer is soft gradient art, so half resolution is free quality.
@@ -564,6 +658,132 @@ const COMET_KNOT = {
     r: [5, 4], alpha: 0.34, cap: 60,
 };
 
+/* --- RINGED GIANT ---------------------------------------------------------
+ *
+ * The ring plane is the body's own equatorial plane, so everything about the
+ * rings comes out of one orthonormal basis rather than out of drawn ellipses:
+ * `GIANT_E1`/`GIANT_E2` span it in screen coordinates with a real z, and
+ * `GIANT_AXIS` is its normal, which is also the body's pole. That third
+ * component is the whole difference between this and the old painter -- it is
+ * what lets the planet's shadow be solved rather than drawn, and it is what
+ * makes the belts curve with the body instead of lying flat across the disc.
+ */
+const GIANT_TILT = -0.3;
+// sin of the opening angle: 0.22 is 12.7 degrees, the tilt the entry has always
+// had. The plane's z scale follows from it, so this one number is the camera.
+const GIANT_SQUASH = 0.22;
+const GIANT_COS = Math.cos(GIANT_TILT);
+const GIANT_SIN = Math.sin(GIANT_TILT);
+const GIANT_DEPTH = Math.sqrt(1 - GIANT_SQUASH * GIANT_SQUASH);
+const GIANT_E1 = [GIANT_COS, GIANT_SIN, 0];
+const GIANT_E2 = [-GIANT_SIN * GIANT_SQUASH, GIANT_COS * GIANT_SQUASH, GIANT_DEPTH];
+const GIANT_AXIS = [GIANT_DEPTH * GIANT_SIN, -GIANT_DEPTH * GIANT_COS, GIANT_SQUASH];
+// Positive z, so the shadow wedge falls on the far half -- the half the entry
+// says passes behind the body.
+const GIANT_LIGHT = (function normalise() {
+    const v = [-1, -0.25, 0.35];
+    const m = Math.hypot(v[0], v[1], v[2]);
+    return [v[0] / m, v[1] / m, v[2] / m];
+})();
+
+/**
+ * The bands, in multiples of the body radius, with the fraction of the light
+ * each one stops. Two of the study's seven are not here: the Encke gap (5
+ * logical px) and the F strand (4). The lattice is 3 logical px and does not
+ * change with the camera, so both are under two art pixels at every zoom --
+ * "anything under two art pixels is dropped rather than dithered" is the
+ * study's own rule and it applies unconditionally here. Dropping Encke leaves
+ * the A ring in two steps of its own brightness, 1.785-1.935 and 1.935-2.000,
+ * and every gap that has to read is now at or above the Cassini's 22 px.
+ */
+const GIANT_BANDS = [
+    { a: 1.28, b: 1.47, op: 0.13, fin: 0.02 },
+    { a: 1.47, b: 1.72, op: 0.4 },
+    { a: 1.72, b: 1.785, op: 0.03 },
+    { a: 1.785, b: 1.935, op: 0.26 },
+    { a: 1.935, b: 2.0, op: 0.22, fout: 0.015, fk: 0.85 },
+];
+const GIANT_R0 = GIANT_BANDS[0].a;
+const GIANT_R1 = GIANT_BANDS[GIANT_BANDS.length - 1].b;
+// Base value of a ring pixel, how much its opacity adds, and a fine radial
+// ripple so a band is grain and not a flat stripe.
+const GIANT_RING_V = [0.16, 1.38, 0.035, 190];
+// The umbra takes a ring point down to a tenth of lit; the penumbra is the last
+// 6% of the perpendicular distance and the first 15% downstream.
+const GIANT_UMBRA = 0.9;
+const GIANT_PENUMBRA = [0.94, 0.15];
+// ...and the rings' own shadow on the body, solved the same way round: the
+// light ray from a surface point is crossed with the ring plane and the
+// crossing radius looked up in the same table.
+const GIANT_RING_SHADOW = 0.8;
+// Terminator, limb darkening, and the atmosphere rim: 21 logical px of the lit
+// limb, adding at most 0.34, source-over so it cannot exceed the top rung.
+const GIANT_TERM = [-0.1, 0.16];
+const GIANT_LIMB = 0.52;
+const GIANT_RIM = [0.935, 0.998, 2.4, 0.34];
+const GIANT_BODY_V = [0.3, 0.62, 0.035];
+
+// Nine belts in latitude rather than fourteen ellipses across the disc, so the
+// weather curves with the body and compresses toward the limb. Same seed the
+// study tuned them against.
+const GIANT_BELT_SEED = 2830;
+const GIANT_BELTS = 9;
+const GIANT_BELT_LAT0 = -1.02;
+const GIANT_BELT_W = [0.07, 0.1];
+const GIANT_BELT_A = [0.16, 0.24];
+const GIANT_BELT_GAP = [0.015, 0.05];
+const GIANT_BELT_FALL = 2.4;
+const GIANT_BELT_BASE = 0.48;
+// The mid-latitude group -- the decks the player flew through twelve waves
+// earlier -- is the only one that carries filaments, and they go to the second
+// ramp so they read as a different material, exactly as that place separates
+// its filaments from its decks.
+const GIANT_FIL = [3, 5];
+const GIANT_FIL_SEED = 0x2b0e;
+const GIANT_FIL_N = [3.5, 22];
+const GIANT_FIL_AMP = 0.2;
+const GIANT_FIL_GATE = 0.2;
+const GIANT_FIL_CUT = 0.055;
+
+// The turn. Bands B and A-inner carry a seeded azimuthal density table that
+// rolls one cell every 86.7 frames -- 3.75 degrees a step, one turn in 8320
+// frames (138.7 s). Stepping rather than sliding is what pixel art does, and
+// it keeps every clump edge on the lattice.
+const GIANT_CELLS = 96;
+const GIANT_ROLL = 86.666;
+const GIANT_CLUMP_SEED = 9214;
+const GIANT_CLUMP_NOISE = 0x24ea;
+const GIANT_CLUMP_MIX = [0.55, 0.45, 0.16, 5.5];
+const GIANT_CLUMP_BANDS = [1, 3];
+// The study's cut of 0.70 belongs to its own generator: on this file's shared
+// noise it leaves 17 clumps of 192 against its 31, because `mkNoise` smooths
+// where its hash does not and the tail of the distribution is thinner. 0.65
+// lands on the same 31 and the same run structure, and 0.82 on the same 5 hot
+// ones -- the counts are the thing the sheet tuned, not the thresholds.
+const GIANT_CLUMP_CUT = 0.65;
+const GIANT_CLUMP_HOT = 0.82;
+const GIANT_CLUMP_W = 0.3;
+const GIANT_CLUMP_ARC = 0.92;
+// Three seats inside the band, picked per cell, so a clump is a lump in the
+// ring rather than a segment of a drawn circle.
+const GIANT_CLUMP_R = [0.34, 0.32];
+// A clump PROMOTES the band it lands on -- one rung, two for a dense one --
+// rather than taking a colour of its own. The study's absolute rungs (2 in
+// umbra, 4 in penumbra, 5 or 6 in the light) are the same numbers wherever the
+// plate is dark, and a silent no-op where it is not: the B ring bakes at rung 5
+// and its 5 is what most clumps were painted with, so 24 of the 31 repainted
+// nothing at all. Promotion cannot have that failure. The cap keeps them off
+// the cream, which is the one rung this sky spends on the body.
+const GIANT_CLUMP_STEP = [1, 2];
+const GIANT_CLUMP_TOP = 6;
+
+const GIANT_STAR_SEED = 0x117b;
+const GIANT_STARS = 150;
+// A star does not go on a plate that is already lit. Same rule and same number
+// as INNER SYSTEM: it is what makes a star visible through the C ring and
+// invisible through B, which is the sentence the study asks `occlude` for.
+const GIANT_STAR_LIT = 46;
+
 const FIELD_DARK = { v: 0 };
 // The arena the glossary thumbnails are composed in. Painters place things in
 // logical pixels, so a still has to be taken at the size they were written for
@@ -660,6 +880,12 @@ function speckle(g, bd, n, color, maxA) {
 
 function clamp(v, lo, hi) {
     return v < lo ? lo : v > hi ? hi : v;
+}
+
+/** Hermite ramp between two edges. A terminator is one, and so is a penumbra. */
+function smoothstep(x, e0, e1) {
+    const t = clamp((x - e0) / (e1 - e0), 0, 1);
+    return t * t * (3 - 2 * t);
 }
 
 /**
@@ -1192,6 +1418,264 @@ function cometRibbon(s, pts, wOf, off, ramp, aOf) {
         cometQuad(s, [l[p], l[p + 1], l[q], l[q + 1], r[q], r[q + 1], r[p], r[p + 1]],
             ramp, aOf((i + 0.5) / n));
     }
+}
+
+/* -------------------------------------------------------------------------- */
+/* RINGED GIANT                                                                */
+/* -------------------------------------------------------------------------- */
+
+/** How much of the light a ring point stops, from the band table. 0 in a gap. */
+function giantRingOp(rho) {
+    for (let i = 0; i < GIANT_BANDS.length; i++) {
+        const b = GIANT_BANDS[i];
+        if (rho >= b.a && rho < b.b) {
+            let e = 1;
+            if (b.fin) {
+                e = smoothstep(rho, b.a, b.a + b.fin);
+            }
+            if (b.fout) {
+                e *= 1 - smoothstep(rho, b.b - b.fout, b.b) * b.fk;
+            }
+            return b.op * e;
+        }
+    }
+    return 0;
+}
+
+/** How bright it is once it has stopped that much of it. */
+function giantRingVal(rho, op) {
+    const k = GIANT_RING_V;
+    return clamp(k[0] + k[1] * op + k[2] * Math.sin(rho * k[3]), 0, 1);
+}
+
+/**
+ * The planet's shadow on the rings, computed rather than drawn. The ring plane
+ * IS the body's equatorial plane, so the shadow is a cylinder: a ring point is
+ * in umbra when it is downstream of the light and its distance from the light
+ * axis is under one body radius. One test, no artwork, and it is the reason the
+ * rings read as a plane instead of as a pair of arcs.
+ *
+ * `u`/`w` are the point's plane coordinates in logical px, unsquashed.
+ */
+function giantRingShadow(bd, u, w) {
+    const L = GIANT_LIGHT;
+    const px = u * GIANT_E1[0] + w * GIANT_E2[0];
+    const py = u * GIANT_E1[1] + w * GIANT_E2[1];
+    const pz = u * GIANT_E1[2] + w * GIANT_E2[2];
+    const pr = px * L[0] + py * L[1] + pz * L[2];
+    if (pr >= 0) {
+        return 1;
+    }
+    const qx = px - pr * L[0];
+    const qy = py - pr * L[1];
+    const qz = pz - pr * L[2];
+    const inside = 1 - smoothstep(Math.hypot(qx, qy, qz), bd.R * GIANT_PENUMBRA[0], bd.R);
+    const entry = smoothstep(-pr, 0, bd.R * GIANT_PENUMBRA[1]);
+    return 1 - GIANT_UMBRA * inside * entry;
+}
+
+/**
+ * ...and the rings' shadow on the body, the same solve the other way round:
+ * the light ray leaving a surface point is crossed with the ring plane and the
+ * crossing radius looked up in the same band table. It puts a thin dark line
+ * with a Cassini gap in it across the northern third, which no amount of
+ * hand-placed ellipses gets right.
+ */
+function giantRingShadowOnBody(bd, nx, ny, nz) {
+    const A = GIANT_AXIS;
+    const L = GIANT_LIGHT;
+    const la = L[0] * A[0] + L[1] * A[1] + L[2] * A[2];
+    if (Math.abs(la) < 1e-4) {
+        return 1;
+    }
+    const t = (-bd.R * (nx * A[0] + ny * A[1] + nz * A[2])) / la;
+    if (t <= 0) {
+        return 1;
+    }
+    const qx = bd.R * nx + t * L[0];
+    const qy = bd.R * ny + t * L[1];
+    const qz = bd.R * nz + t * L[2];
+    return 1 - GIANT_RING_SHADOW * giantRingOp(Math.hypot(qx, qy, qz) / bd.R);
+}
+
+// One object rather than a fresh one per art pixel: the bake asks 184k times
+// and `field` already allocates its own return.
+const GIANT_BELT_OUT = { v: 0, land: false };
+
+/**
+ * The weather, as a function of latitude on the sphere. The three cloud decks
+ * of the inside-the-deck place are these same three belt classes seen from
+ * without: broad zones, belt edges, and the filament detail the mid-latitude
+ * group carries.
+ */
+function giantBelt(bd, lat, lon) {
+    let v = GIANT_BELT_BASE;
+    let fil = 0;
+    for (let i = 0; i < bd.belts.length; i++) {
+        const b = bd.belts[i];
+        const d = (lat - b.c) / b.w;
+        const g = Math.exp(-d * d * GIANT_BELT_FALL);
+        v += b.a * g;
+        if (b.fil && g > GIANT_FIL_GATE) {
+            fil += (bd.fil(lon * GIANT_FIL_N[0], lat * GIANT_FIL_N[1], 1) - 0.5) * GIANT_FIL_AMP * g;
+        }
+    }
+    GIANT_BELT_OUT.v = clamp(v + fil, 0, 1);
+    GIANT_BELT_OUT.land = Math.abs(fil) > GIANT_FIL_CUT;
+    return GIANT_BELT_OUT;
+}
+
+/**
+ * RINGED GIANT as a scalar. One pass covers the whole place: the ring bands and
+ * the shadow wedge across them, the body, its belts and filaments, the rings'
+ * shadow on it and the atmosphere rim. Which of the body and the rings wins at
+ * a given art pixel is the sign of one plane coordinate -- the near half of the
+ * plane composites over the disc, the far half is simply behind it -- which is
+ * the whole reason this place is quantised rather than drawn twice with alpha.
+ */
+function giantField(bd, x, y) {
+    const dx = x - bd.cx;
+    const dy = y - bd.cy;
+    const u = dx * GIANT_COS + dy * GIANT_SIN;
+    const w = (-dx * GIANT_SIN + dy * GIANT_COS) / GIANT_SQUASH;
+    const rho = Math.hypot(u, w) / bd.R;
+    const op = rho > GIANT_R0 && rho < GIANT_R1 ? giantRingOp(rho) : 0;
+    const rv = op > 0 ? giantRingVal(rho, op) * giantRingShadow(bd, u, w) : 0;
+    const dd = Math.hypot(dx, dy) / bd.R;
+    if (dd > 1) {
+        return op > 0 ? { v: rv } : FIELD_DARK;
+    }
+    const nx = dx / bd.R;
+    const ny = dy / bd.R;
+    const nz = Math.sqrt(Math.max(0, 1 - dd * dd));
+    const L = GIANT_LIGHT;
+    const lam = nx * L[0] + ny * L[1] + nz * L[2];
+    const lit = smoothstep(lam, GIANT_TERM[0], GIANT_TERM[1]);
+    const limb = 1 - GIANT_LIMB * (1 - nz);
+    const A = GIANT_AXIS;
+    const lat = nx * A[0] + ny * A[1] + nz * A[2];
+    const t1 = nx * GIANT_E1[0] + ny * GIANT_E1[1] + nz * GIANT_E1[2];
+    const t2 = nx * GIANT_E2[0] + ny * GIANT_E2[1] + nz * GIANT_E2[2];
+    const belt = giantBelt(bd, lat, Math.atan2(t2, t1));
+    let v = (GIANT_BODY_V[0] + GIANT_BODY_V[1] * belt.v) * lit * limb + GIANT_BODY_V[2];
+    v *= giantRingShadowOnBody(bd, nx, ny, nz);
+    const rim = smoothstep(dd, GIANT_RIM[0], GIANT_RIM[1])
+        * clamp((lam + 0.02) * GIANT_RIM[2], 0, 1);
+    v = Math.min(1, v + rim * GIANT_RIM[3]);
+    // The near half of the plane passes over the body. Anything under a ring is
+    // on the ring's own ramp, so the filament ramp stops there.
+    if (w > 0 && op > 0) {
+        return { v: v * (1 - op) + rv * Math.min(1, op * 1.6) };
+    }
+    return belt.land && rim <= 0.2 ? { v, rgb: bd.rgbAlt } : { v };
+}
+
+/**
+ * One clump of the turning ring, straight into the art-pixel buffer.
+ *
+ * The study strokes an arc and then quantises the readback of the whole buffer
+ * with a `getImageData`/`putImageData` pair -- 40,860 pixels a frame behind a
+ * bullet pattern -- and its own port notes say not to ship that. The sector is
+ * exact in plane coordinates, so testing each art pixel of its bounding box is
+ * the same silhouette with nothing to undo: hard-edged by construction, on the
+ * bake's own lattice, and never dithered, which is what makes the crawl the
+ * study worries about impossible rather than merely unlikely.
+ */
+function giantArc(bd, r0, r1, a0, a1, front, col) {
+    const s = bd.clump;
+    // The sector spans 3.75 degrees, so its bulge is under half an art pixel:
+    // the four corners plus a pad are the bounding box.
+    let bx0 = Infinity;
+    let by0 = Infinity;
+    let bx1 = -Infinity;
+    let by1 = -Infinity;
+    for (let i = 0; i < 4; i++) {
+        const r = i < 2 ? r0 : r1;
+        const a = i & 1 ? a1 : a0;
+        const pu = Math.cos(a) * r;
+        const pw = Math.sin(a) * r * GIANT_SQUASH;
+        const sx = bd.cx + pu * GIANT_COS - pw * GIANT_SIN;
+        const sy = bd.cy + pu * GIANT_SIN + pw * GIANT_COS;
+        bx0 = Math.min(bx0, sx);
+        bx1 = Math.max(bx1, sx);
+        by0 = Math.min(by0, sy);
+        by1 = Math.max(by1, sy);
+    }
+    const pad = ART_PIX * 2;
+    const i0 = clamp(Math.floor((bx0 - pad - bd.x0) / ART_PIX), 0, s.aw - 1);
+    const i1 = clamp(Math.ceil((bx1 + pad - bd.x0) / ART_PIX), 0, s.aw - 1);
+    const j0 = clamp(Math.floor((by0 - pad - bd.y0) / ART_PIX), 0, s.ah - 1);
+    const j1 = clamp(Math.ceil((by1 + pad - bd.y0) / ART_PIX), 0, s.ah - 1);
+    const rr = bd.R * bd.R;
+    for (let py = j0; py <= j1; py++) {
+        const dy = bd.y0 + (py + 0.5) * ART_PIX - bd.cy;
+        for (let px = i0; px <= i1; px++) {
+            const dx = bd.x0 + (px + 0.5) * ART_PIX - bd.cx;
+            // The far half goes behind the body; the near half over it.
+            if (!front && dx * dx + dy * dy <= rr) {
+                continue;
+            }
+            const u = dx * GIANT_COS + dy * GIANT_SIN;
+            const w = (-dx * GIANT_SIN + dy * GIANT_COS) / GIANT_SQUASH;
+            const r = Math.hypot(u, w);
+            if (r < r0 || r > r1) {
+                continue;
+            }
+            let a = Math.atan2(w, u);
+            if (a < 0) {
+                a += 6.2832;
+            }
+            if (a < a0 || a > a1) {
+                continue;
+            }
+            const o = (py * s.aw + px) * 4;
+            s.data[o] = col[0];
+            s.data[o + 1] = col[1];
+            s.data[o + 2] = col[2];
+            s.data[o + 3] = 255;
+        }
+    }
+}
+
+/**
+ * Repaint the whole live layer for one cell of the roll.
+ *
+ * It is a pure function of that cell, and the table rolls one cell every 86.7
+ * frames, so the layer has 96 states and the other 86 frames out of 87 are a
+ * single blit. That is what makes the turn -- the one thing the entry promises
+ * that no bake can deliver -- cost about one rasterising call a frame.
+ */
+function giantRoll(bd, cell) {
+    const s = bd.clump;
+    s.data.fill(0);
+    const step = 6.2832 / GIANT_CELLS;
+    const last = bd.rgb.length - 1;
+    for (let bi = 0; bi < GIANT_CLUMP_BANDS.length; bi++) {
+        const b = GIANT_BANDS[GIANT_CLUMP_BANDS[bi]];
+        const tab = bd.clumpTab[bi];
+        const half = (b.b - b.a) * bd.R * GIANT_CLUMP_W * 0.5;
+        for (let k = 0; k < GIANT_CELLS; k++) {
+            const dens = tab[(k + cell) % GIANT_CELLS];
+            if (dens < GIANT_CLUMP_CUT) {
+                continue;
+            }
+            const a0 = k * step;
+            const mid = a0 + step * 0.5;
+            const seat = GIANT_CLUMP_R[0] + GIANT_CLUMP_R[1] * ((k * 7 + bi * 13) % 3);
+            const rho = b.a + (b.b - b.a) * seat;
+            const r = rho * bd.R;
+            // The rung the bake put under this clump, shadow included, so the
+            // promotion is measured against the plate it lands on: a clump in
+            // the umbra comes out nearly black on its own, for free.
+            const sh = giantRingShadow(bd, Math.cos(mid) * r, Math.sin(mid) * r);
+            const plate = clamp(Math.round(giantRingVal(rho, giantRingOp(rho)) * sh * last), 0, last);
+            const rung = Math.min(plate + GIANT_CLUMP_STEP[dens > GIANT_CLUMP_HOT ? 1 : 0],
+                GIANT_CLUMP_TOP);
+            giantArc(bd, r - half, r + half, a0, a0 + step * GIANT_CLUMP_ARC,
+                Math.sin(mid) > 0, bd.rgb[rung]);
+        }
+    }
+    s.g.putImageData(s.img, 0, 0);
 }
 
 const BELT_SEED = 20260829;
@@ -2263,6 +2747,13 @@ const PAINTERS = {
      * A world going past: the planet limb fills one side of the sky. `style`
      * picks the surface treatment, and the terminator always comes from the
      * same direction as the light in `p.lit`.
+     *
+     * ECLIPSE is the only place left on it, and the ring machinery is gone with
+     * RINGED GIANT: three of the four things that place needed -- the ring-plane
+     * basis, the cylindrical shadow solve, the clump roll -- are dead weight in
+     * a ringless world, and the fourth replaces the banding helper this shares
+     * with the marble. Extending it in place would have been a painter that is
+     * half rings behind a `rings: true` flag.
      */
     planet: {
         paint(bd, g) {
@@ -2272,9 +2763,6 @@ const PAINTERS = {
             const r = p.r * bd.W;
             if (p.star) {
                 sun(g, cx + p.lit * r * 2.6, cy - r * 1.4, 18, p.star);
-            }
-            if (p.rings) {
-                ring(g, bd, cx, cy, r, p.ringColor || "#cbb8a0", true);
             }
             // Body.
             g.save();
@@ -2304,9 +2792,6 @@ const PAINTERS = {
             g.arc(cx, cy, r + 2, -1.2 + (p.lit < 0 ? Math.PI : 0), 1.5 + (p.lit < 0 ? Math.PI : 0));
             g.stroke();
             g.restore();
-            if (p.rings) {
-                ring(g, bd, cx, cy, r, p.ringColor || "#cbb8a0", false);
-            }
             speckle(g, bd, 50, "#ffffff", 0.3);
         },
     },
@@ -2863,6 +3348,110 @@ const PAINTERS = {
             g.drawImage(s.cv, bd.x0, bd.y0, bd.w, bd.h);
         },
     },
+
+    /**
+     * RINGED GIANT. The ninth Direction A conversion, and the one where the
+     * contract already contained the answer to the place's hardest problem.
+     *
+     * Translucency, occlusion and behind-versus-in-front are three descriptions
+     * of one number, and `occlude` is that number. Drawn soft, a ring plane is
+     * the same arcs stroked twice with alpha, hoping the ordering reads; drawn
+     * as a plane with an opacity profile, the body test and the ring test are
+     * evaluated at the same art pixel and which one wins is the sign of one
+     * plane coordinate. The arcs-drawn-twice problem stops existing.
+     *
+     * The body is not new work either: it is the converted marble with the
+     * noise swapped for a belt table, which is what lands the two gas giants of
+     * a run -- this and the deck you fly through twelve waves earlier -- on the
+     * same value language.
+     *
+     * The one thing here that cannot bake is the turn, and it does not have to
+     * run: the density table steps one cell every 86.7 frames, so the live
+     * layer has 96 states and 86 frames out of 87 are one blit.
+     */
+    pixelGiant: {
+        init(bd) {
+            bd.cx = bd.W * bd.p.cx;
+            bd.cy = bd.H * bd.p.cy;
+            bd.R = bd.W * bd.p.r;
+            bd.fil = mkNoise(GIANT_FIL_SEED);
+            bd.stars = starList(bd, GIANT_STAR_SEED, GIANT_STARS, 0.24);
+            // Nine belts walking north from -1.02 rad, alternating light and
+            // dark, on the study's own seed.
+            const rb = mulberry32(GIANT_BELT_SEED);
+            bd.belts = [];
+            let lat = GIANT_BELT_LAT0;
+            for (let i = 0; i < GIANT_BELTS; i++) {
+                const w = GIANT_BELT_W[0] + rb() * GIANT_BELT_W[1];
+                bd.belts.push({
+                    c: lat + w,
+                    w,
+                    a: (i % 2 ? -1 : 1) * (GIANT_BELT_A[0] + rb() * GIANT_BELT_A[1]),
+                    fil: i >= GIANT_FIL[0] && i <= GIANT_FIL[1],
+                });
+                lat += w * 2 + GIANT_BELT_GAP[0] + rb() * GIANT_BELT_GAP[1];
+            }
+            // The azimuthal density of the two clumping bands: half of it flat
+            // random per cell, half a slow noise, so clumps come in groups.
+            const rc = mulberry32(GIANT_CLUMP_SEED);
+            const noise = mkNoise(GIANT_CLUMP_NOISE);
+            bd.clumpTab = [];
+            for (let b = 0; b < GIANT_CLUMP_BANDS.length; b++) {
+                const row = new Float32Array(GIANT_CELLS);
+                for (let k = 0; k < GIANT_CELLS; k++) {
+                    row[k] = rc() * GIANT_CLUMP_MIX[0]
+                        + GIANT_CLUMP_MIX[1]
+                            * noise(k * GIANT_CLUMP_MIX[2], b * GIANT_CLUMP_MIX[3], 1);
+                }
+                bd.clumpTab.push(row);
+            }
+            const aw = Math.max(1, Math.ceil(bd.w / ART_PIX));
+            const ah = Math.max(1, Math.ceil(bd.h / ART_PIX));
+            const cv = document.createElement("canvas");
+            cv.width = aw;
+            cv.height = ah;
+            const g = cv.getContext("2d");
+            const img = g.createImageData(aw, ah);
+            bd.clump = { cv, g, img, data: img.data, aw, ah };
+            bd.rollCell = -1;
+        },
+        /**
+         * The first partial return in the catalogue, and the study is right
+         * that one function does three jobs here: it hides a star behind the
+         * body, dims one behind a ring by that band's own opacity, and -- on
+         * INNER SYSTEM's rule, with INNER SYSTEM's number -- drops one that
+         * would land on a plate already lit. That last clause is what makes a
+         * star visible through the C ring and invisible through B.
+         */
+        occlude(bd, x, y) {
+            const dx = x - bd.cx;
+            const dy = y - bd.cy;
+            if (dx * dx + dy * dy <= bd.R * bd.R) {
+                return 1;
+            }
+            const u = dx * GIANT_COS + dy * GIANT_SIN;
+            const w = (-dx * GIANT_SIN + dy * GIANT_COS) / GIANT_SQUASH;
+            const rho = Math.hypot(u, w) / bd.R;
+            const op = rho > GIANT_R0 && rho < GIANT_R1 ? giantRingOp(rho) : 0;
+            if (op <= 0) {
+                return 0;
+            }
+            const last = bd.rgb.length - 1;
+            const cap = Math.min(bd.p.topRung === undefined ? last : bd.p.topRung, last);
+            const v = giantRingVal(rho, op) * giantRingShadow(bd, u, w);
+            return lum(bd.rgb[clamp(Math.round(v * last), 0, cap)]) >= GIANT_STAR_LIT ? 1 : op;
+        },
+        field: giantField,
+        live(bd, g) {
+            const cell = Math.floor(bd.t / GIANT_ROLL) % GIANT_CELLS;
+            if (cell !== bd.rollCell) {
+                bd.rollCell = cell;
+                giantRoll(bd, cell);
+            }
+            g.imageSmoothingEnabled = false;
+            g.drawImage(bd.clump.cv, bd.x0, bd.y0, bd.w, bd.h);
+        },
+    },
 };
 
 /**
@@ -2913,34 +3502,9 @@ function discValue(bd, x, y) {
     return clamp(band * (0.3 + 0.85 * inner) * tex, 0, 1);
 }
 
-/** Planet rings: `back` is the half behind the body, drawn before it. */
-function ring(g, bd, cx, cy, r, color, back) {
-    g.save();
-    g.translate(cx, cy);
-    g.rotate(-0.3);
-    g.scale(1, 0.22);
-    for (let i = 0; i < 5; i++) {
-        const rr = r * (1.35 + i * 0.16);
-        g.strokeStyle = rgba(color, i % 2 ? 0.3 : 0.16);
-        g.lineWidth = r * 0.09;
-        g.beginPath();
-        g.arc(0, 0, rr, back ? Math.PI : 0, back ? 6.2832 : Math.PI);
-        g.stroke();
-    }
-    g.restore();
-}
-
 /** Surface detail inside an already-clipped planet disc. */
 function surface(g, bd, cx, cy, r, p) {
-    if (p.style === "gas") {
-        for (let i = 0; i < 14; i++) {
-            const y = cy - r + bd.rng() * r * 2;
-            g.fillStyle = rgba(bd.rng() < 0.5 ? p.hi : p.base, 0.1 + bd.rng() * 0.3);
-            g.beginPath();
-            g.ellipse(cx, y, r, 6 + bd.rng() * 26, 0, 0, 6.2832);
-            g.fill();
-        }
-    } else if (p.style === "rock") {
+    if (p.style === "rock") {
         for (let i = 0; i < 60; i++) {
             const a = bd.rng() * 6.2832;
             const d = bd.rng() * r;
@@ -3127,9 +3691,39 @@ export const BACKGROUNDS = [
         desc: "A comet crossing on its way in. Gold dust curves back along its path; a blue ion tail points dead away from the star and swings as it passes. It crosses, leaves and comes round again.",
     },
     {
-        id: "ringed", name: "RINGED GIANT", tint: "#e8c98f", kind: "planet",
-        p: { cx: 0.78, cy: 0.2, r: 0.5, lit: -1, base: "#6b4a22", hi: "#e2b877", atmo: "#ffd9a0", style: "gas", rings: true, ringColor: "#e8d6b0" },
-        desc: "A banded giant filling the top right, with its rings passing behind the body and back out in front of it.",
+        id: "ringed", name: "RINGED GIANT", tint: "#e8c98f", kind: "pixelGiant",
+        // The old `base` #6b4a22 and `hi` #e2b877 are kept as rungs 4 and 7, so
+        // the place still looks like itself. Two things changed and they are
+        // the whole palette fix. `atmo` #ffd9a0 drawn additively at 50% is
+        // retired: rung 7 is a cream, and the rim composites source-over so it
+        // cannot exceed it. And the fifty white speckles become baked stars on
+        // a cool ramp of their own -- the same fix EVENT HORIZON made when its
+        // point lights came out as bullets. Every small bright thing in this
+        // sky is cool now, and every warm thing is large.
+        // The veil is 16, not the study's 11. Its own two reasons for 11 are
+        // both measurable here and neither binds: the shared flat scrim does
+        // not "close the Cassini division" (the division reads at rung 1
+        // against the A ring's 3 at every veil up to 30), and the standing
+        // feature detector is already satisfied at 6. What does bind is that
+        // this is the brightest place in the catalogue and wave 30 puts the
+        // largest hull in the game in front of it: 16 is the lowest value that
+        // brings p95 under 0.136 in linear light, which is 4:1 against the
+        // brightest enemy bullet, and it lands the place just under BLUE
+        // MARBLE -- the other place that is one big lit planet.
+        p: {
+            veil: 16, cx: 0.78, cy: 0.2, r: 0.5,
+            ramp: ["#090a0c", "#191410", "#2c2116", "#46331d", "#6b4a22", "#9a7238", "#c9a463", "#e8cea0"],
+            // The filaments of the mid-latitude belts, one step cooler, so they
+            // read as a second material rather than as a brighter zone.
+            landRamp: ["#090a0c", "#191411", "#2b2218", "#453522", "#684d2c", "#957442", "#c3a26c", "#e4cda6"],
+            // Dimmer than the study's #4a5866 / #8a97a3 / #d6dde4. Its top rung
+            // is luminance 0.863 against the 0.62 the small-bright-feature
+            // detector cuts at, and 150 baked stars of it measure 8 features on
+            // this arena; every rung here is under the threshold, so a star
+            // cannot be one. Third star ramp to come down for the same reason.
+            starRamp: ["#3a4550", "#5e6b78", "#8e9aa6"],
+        },
+        desc: "A banded giant filling the top right, its rings turning slowly through the frame: behind the body on one side, out in front of it on the other, with the planet's shadow lying across the far arc.",
     },
     {
         id: "lava_world", name: "MOLTEN WORLD", tint: "#ff7a45", kind: "surface",
