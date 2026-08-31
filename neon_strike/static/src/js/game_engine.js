@@ -7598,8 +7598,8 @@ export class NeonStrikeEngine {
         // Scenery first, star field on top of it: the stars are the near layer.
         if (this.bg) {
             this.bg.draw(g);
-            // A veil between the scenery and everything that can kill you. Nine
-            // of the 27 places paint in the same warm reds as the enemy bullets
+            // A veil between the scenery and everything that can kill you.
+            // Eight of the 28 places paint in the same warm reds as the bullets
             // and scatter 1-3 px motes the exact size of a bullet core, all in
             // `lighter`: on the lava world or under a supernova a shot and the
             // background were literally the same pixels. The places ported to

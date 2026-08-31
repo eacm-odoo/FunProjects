@@ -726,6 +726,325 @@
  * 0.39 -- a third of the player's own fire. Longest bright run 99 px, which is
  * how a ray fails a 40 px test by construction.
  *
+ * -------------------------------------------------------------------------
+ * LOW MOON ORBIT, quantised branch -- the fourteenth conversion (2026-08-30)
+ * -------------------------------------------------------------------------
+ * The branch question settled itself here: the reference is flat-tone
+ * hard-edged pixel art with no gradient anywhere in it, and the one element
+ * that contradicted the glossary line -- a 100 px soft gradient laid across
+ * the horizon -- is exactly what cannot survive quantisation. There was no
+ * argument to have.
+ *
+ * Two rules hold the whole place together and neither is drawn. The horizon is
+ * a *decision*: `field` asks per art pixel which side of `horizonAt(column)`
+ * it is on, so no dither can straddle it and the edge comes out one art pixel
+ * wide, #0a0b10 against #9db9c0, luminance 4 against 180. And one camera fixes
+ * everything under it -- a pixel `dy` art rows below the line looks at depth
+ * `z = f*h/dy`, so a crater of screen half-width `a` is exactly `a*dy/f` tall.
+ * That single rule is what makes 350 craters read as one plane receding rather
+ * than as ellipses of assorted flatness, and it is why none of their heights
+ * were chosen. The light is the same idea: one direction everywhere, so a far
+ * rim, a near wall and a boulder's shadow all agree about where the sun is.
+ *
+ * Crater tones are written on rung *centres*. The Bayer term is +-0.4 of a
+ * rung and a boundary is 0.5 away, so the dither cannot move one -- a crater
+ * edge is as hard as the horizon, and the dither's texture lives on the open
+ * plain, which its two world-space mottles keep deliberately off the centres.
+ *
+ * Departures from the study, and why:
+ *   1. **The depth range follows the box, not the arena.** The study authors
+ *      its craters and boulders against the 68 art rows the arena holds; the
+ *      box the camera reaches for a colossus is 1.86x deeper, and stopping
+ *      where the study stops leaves 239 logical px of bare plain under the
+ *      pull-back. The range extends and the count follows the same power law
+ *      rather than the same number: `dy = D*u^p` puts `N/(p*D^(1/p))` craters
+ *      per row at the horizon, so holding that density while D grows by k
+ *      costs `k^(1/p)` of them -- 200 becomes 278. The boulders' count does
+ *      not move at all, because their density is areal and the wedge of ground
+ *      the deeper limit adds is 0.004% of it.
+ *   2. **`flashRamp` is not a contract change.** The study calls its two flash
+ *      tones "the one thing the design needs that does not exist" and offers
+ *      to add a ramp to the contract. It is already there: `p` is per place
+ *      and free-form, the way MOLTEN WORLD carries a `flowRamp` and AURORA a
+ *      `dustRamp`. Two hexes in this entry's own `p`, and nothing shared moves.
+ *   3. **Which four rows of the noise lattice the horizon reads is the one
+ *      free choice, and it is spent on the study's own measured figure.** The
+ *      amplitudes are its; `mkNoise` is this file's, so the relief they
+ *      produce had to be re-measured rather than carried over. The first set
+ *      tried gave 9.2 logical px across the arena's 227 columns and a horizon
+ *      that read as a ruled line; the shipped set gives **14.8**, which is the
+ *      number the sheet publishes.
+ *   4. **`topRung` is 6, not the sheet's 7.** The razor rim and the boulders
+ *      are `flat` rungs and bypass the cap either way, so what 7 buys is the
+ *      dithered lit crater rims -- and they are small, scattered and bright.
+ *      Measured at veil 12: 71 bright regions at cap 7 against 45 at cap 6,
+ *      for art nobody reported missing at either.
+ *   5. **`veil` is 14 and it is the study's own number.** Its harness applies
+ *      `veil * 0.014` and recommends 10, which is alpha 0.14; this engine's
+ *      veil is `veil / 100`, so the same wash is 14 here. It arrives at the
+ *      same place from the other end too: 14 is where the standing detector
+ *      goes to zero, because nothing in the frame is over luminance 0.62 any
+ *      more. Its reason is the far plain, not the impacts -- rung 6 is
+ *      luminance 145 and enemy cores sit at 150-190, too close for a large
+ *      area directly behind them.
+ *   6. **The rock's star occlusion is `live`, not `occlude`.** In this engine
+ *      `occlude` is a bake-time phase: it decides once how much of a baked
+ *      star a place hides forever, which is right for the ground and wrong for
+ *      a rock that is over a given star for four frames. `occlude` takes the
+ *      ground (and the six art rows over the line, where the plain's own top
+ *      rung is brighter than the whole star ramp), and the rock repaints the
+ *      handful of stars it covers in rung 0 as it falls. Same picture, and the
+ *      only way the rock is ever seen -- it has no trail, no glow and no fire,
+ *      because there is no air for any of them.
+ *   7. Drift is the shared `sin(t * 0.0016) * DRIFT`, not the study's 2 art px
+ *      on a 900-frame period, and it is not quantised to the lattice. Same
+ *      call, and the same reason, as places 1-13. Its "still to check" about
+ *      drift slack answers itself here: the box already carries 297 logical px
+ *      of margin above the arena, against the +-14 the drift uses.
+ *   8. The harness's manual trigger is not ported, exactly as its notes ask:
+ *      it pushes an impact at `f + 92`, which is not a function of the frame
+ *      counter, and the whole schedule's value is that it is.
+ *
+ * Measured here on the composed 680x540 arena at frame 1500, by the standing
+ * small-bright-feature detector (a connected run at luminance >= 0.62, under
+ * 40 px on both axes, on a 4 px surround under 0.30): **0 features at veil 14
+ * and above**, from 34 at veil 0 -- and **0 at the flash as well**, which is
+ * the study's own claim tested where it matters. The flash is the brightest
+ * thing the place ever paints (0.717 against the frame's 0.609) and it is
+ * still not a feature, because it lands on lit ground and the test is as much
+ * about the surround as the blob. Linear-light arena mean 0.049 and p95 0.208,
+ * which puts it between RINGED GIANT (0.040 / 0.133) and GAS GIANT DESCENT
+ * (0.273 / 0.285) -- it is a lit ground plane filling two fifths of the frame,
+ * so it belongs at that end. Live cost **4 to 25 rasterising calls a frame,
+ * mean 9.1** over 600 frames, against the sheet's own 4-25.
+ *
+ * One number the study could not have: the schedule puts 60% of its impacts
+ * below the arena floor, where only the colossus camera reaches them. That is
+ * not a defect -- the same 60% falls out of its own geometry, because the box
+ * has the same proportions -- but it makes "one impact every 420 frames" read
+ * as less than it is. Measured over 4200 frames, **81.6% of frames have some
+ * impact art inside the arena** and 18.9% have ejecta in flight, because a
+ * scar outlives the rock that made it by 2400 frames. See
+ * `tools/neon_strike_bench/probe_moon.mjs`.
+ *
+ * -------------------------------------------------------------------------
+ * PLANETARY NEBULA -- place 28, and the first one added (2026-08-30)
+ * -------------------------------------------------------------------------
+ * Every port before this one replaced a painter under an entry that already
+ * existed. This one is a new entry: the catalogue goes from 27 places to 28,
+ * the route from 81 waves to 84, and the soft EMERALD NEBULA it was studied
+ * against stays exactly where it is. Appended, it takes waves 82-84 -- so the
+ * study's own closing line about the composition, "that is the last sky in the
+ * game: a ring, a hull, and one flash going out through it", is literally true
+ * of where it landed rather than aspirational. Nothing else in the file changes shape --
+ * `backgroundForWave` is already `% BACKGROUNDS.length` and the glossary
+ * already counts the array rather than a constant.
+ *
+ * The place is one object seen from outside, which the catalogue did not have.
+ * Every other cloud in it is weather you fly through; this one has a centre
+ * you can point at, an edge where it stops, and a flash that crosses it on a
+ * clock. It is radial rather than layered, and that is its own function rather
+ * than a parameterisation of `gasDensity`: parameterising the layered one
+ * would have made this place a configuration of the violet nebula, and it
+ * would have put the violet nebula's measured output at risk for nothing.
+ * What is shared is the lattice, the dither, the ramp machinery and the star
+ * system -- and VIOLET NEBULA is byte-identical, arena and thumbnail, before
+ * and after.
+ *
+ * Departures from the study, and why:
+ *   1. **`field` returns a rung, not a value.** The study's own first
+ *      departure is that `field` carries a second channel so `live` can
+ *      band-limit the echo without recomputing five noises. Taken further
+ *      here: `field` fills four per-cell tables *and* does its own quantise,
+ *      so the plate and the tables are one thing rather than two that have to
+ *      agree. `base` and `gas` are bytes on a fixed scale for the same reason
+ *      -- a cell the echo leaves alone is then repainted with exactly the
+ *      colour already under it, and the annulus cannot show as a seam.
+ *   2. **The live pass walks a rect, not the lattice.** The map from screen to
+ *      shell space is a rotation and a squash, so it never expands a distance:
+ *      a cell whose shell radius is R is at most R from the centre on screen.
+ *      One bound covers the whole annulus and shrinks to the cavity for the
+ *      277 dark frames of the cycle. Measured: **33% of the lattice visited a
+ *      frame on average and 7 rasterising calls**, flat, against the study's
+ *      own fallback of baking eight echo phases at eight times the memory.
+ *   3. **The star ramp comes down two steps.** Its hue was chosen for the
+ *      right reason -- a warm star reads as a bullet -- but its top rung is
+ *      #eafcff at luminance 0.97, and 24 of the 190 baked stars came out as
+ *      3 px near-white blocks on black sky, which is the other half of what a
+ *      bullet looks like. Every rung under the detector's 0.62 instead: **28
+ *      small bright features to 0**, at every veil from 0 to 30. Fifth star
+ *      ramp in the programme to need this.
+ *   4. **Rung 6 is #5cdc9c and not the study's #7bffb0**, and this is the one
+ *      finding worth carrying forward. The study measures its bright-feature
+ *      count at frame 1500, where the echo is between shells -- so it never
+ *      measured the event its place is named for. When the front crosses the
+ *      main shell it promotes a long arc of the rim to the top gas rung at
+ *      once, and #7bffb0 is linear luminance 0.789 against an enemy core's
+ *      0.547. Measured over a whole 720-frame cycle, the share of the arena
+ *      brighter than an enemy core **peaked at 9.08%**, against 0.00% for
+ *      every other place in the catalogue and 1.58% for LAVA WORLD's flow,
+ *      which is the hottest thing in it. The echo's own amplitude is not the
+ *      lever: 0.15 instead of the study's 0.45 still peaks at 3.49%, because
+ *      the ramp's last step is a *leap* (0.331 to 0.789) rather than a step,
+ *      so anything that reaches rung 6 at all lands there. One hex fixes it.
+ *      #5cdc9c is 0.559 -- the same luminance AURORA's own top used rung
+ *      already ships at -- and it takes the quiet field and the crossing both
+ *      to **0.00%** while leaving the ring its brightest arc. The lesson is
+ *      the general one: **measure a place at the phase of its own event, not
+ *      at frame 1500**, and check the ramp's spacing before blaming the effect
+ *      that rides it.
+ *   5. Rung 7 goes unspent. The sheet reserves #c8fff0 for the central source
+ *      "by budget, not by ramp cap", but its own painter caps every cell at 6
+ *      and never reaches it -- and a 9 px block of luminance 0.95 is precisely
+ *      the small bright feature the measurement forbids. It stays in the ramp
+ *      and stays unreachable, which is what `topRung` is for.
+ *   6. No diffraction crosses on the stars. The bake draws a point light as
+ *      one or two art pixels; a four-armed cross is four more small bright
+ *      islands per star, which is the thing the count exists to prevent.
+ *   7. The twinkle is this file's baseline -- a dozen stars inside the arena
+ *      on `twinkleList` -- rather than scintillating all 190. The study's own
+ *      note says "the existing baseline", and the existing baseline is that.
+ *      It costs the one property the study claims for the whole place: the
+ *      twinkle's phase is stepped state, so `backdropThumb` steps this place
+ *      to 1500 rather than jumping there. Everything else in it, the echo
+ *      included, is a pure function of the clock, and stepping is what the
+ *      thumbnail already does for every place that keeps any state at all.
+ *   8. Drift is the shared `sin(t * 0.0016) * DRIFT`, not the study's 14 px on
+ *      an 1800-frame period. Same call, and the same reason, as places 1-14.
+ *   9. **The veil's upper bound is not reproduced.** The study says past 14
+ *      the dark columns lose their read against the bank. Measured in linear
+ *      light against the gas beside them, the columns hold 6.1:1 at veil 0,
+ *      5.6:1 at the shipped 9, 5.4:1 at 14 and still 4.5:1 at 30 -- the
+ *      silhouettes are `landRamp` and never enter the dither, so a wash that
+ *      dims both cannot close a ratio. `veil: 9` is kept as the study's own
+ *      number, but it is taste here rather than a measurement: the detector
+ *      reads 0 at every veil from 0 to 30 once rung 6 comes down.
+ *
+ * Measured on the composed 680x540 arena at `veil: 9`, sampled every 60 frames
+ * across a full echo cycle: **0 small bright features at every phase**. Linear
+ * arena mean 0.032 and p95 0.138 in the quiet, rising to 0.062 and 0.456 for
+ * the ~57 frames the front is over the main shell -- which is the event doing
+ * its job while staying under the 0.547 an enemy core sits at. Against the
+ * places it sits among: VIOLET NEBULA 0.029 / 0.056, ICE WORLD 0.032 / 0.060,
+ * RINGED GIANT 0.040 / 0.133, OCEAN WORLD 0.055 / 0.158. The 53 bright regions
+ * it does hold are the rim and the filament, the longest 165 px across, which
+ * is how an arc fails a 40 px test by construction. See
+ * `tools/neon_strike_bench/probe_shell.mjs`.
+ *
+ * -------------------------------------------------------------------------
+ * BINARY SUNS, quantised branch -- the fifteenth conversion (2026-08-31)
+ * -------------------------------------------------------------------------
+ * The first port whose central question is a colour, and the first where
+ * taking the study's recommendation costs the entry a sentence.
+ *
+ * The companion was `#ff6b8a`, which is not a colour like the ones the enemies
+ * fire in -- it is literally `BULLET_COLS[0]` -- painted as a soft radial blob
+ * 40 px across, sitting still on black while real cores crossed it. It is
+ * blue-white now. The physics agrees (mass transfer runs from the evolved,
+ * swollen, cool star to the compact hot one, so a gold giant with a blue-white
+ * companion is the pairing that produces the stream the place is named for)
+ * and so does the composition (a warm half and a cool half meeting at the
+ * stream is a structure two warm blobs cannot have). The cost is real, the
+ * study states it plainly, and it is worth restating: at 130 px a red blob
+ * reads as a second sun and a blue-white point reads as a star and a
+ * spotlight, so a place called BINARY SUNS gives up a little of its own name.
+ * The `desc` is rewritten in the same entry as the art, which is the only
+ * honest way to ship it.
+ *
+ * The other half of the defect was not colour at all. The gold giant's centre
+ * sat 54 px **above the top edge of the arena**, so the larger of the two
+ * stars was a clipped sliver and the "bridge" was a 68 px gradient bar. Both
+ * stars are inside the frame now, at a size that survives the 130 px card.
+ *
+ * The sheet is ONE shared plane centred between the stars rather than a ring
+ * around one of them, with the radius measured after the squash so it reads as
+ * a tilted sheet running off every edge of the box. Which of the two ramps a
+ * pixel takes is `d_blue^2 / (d_blue^2 + d_gold^2)`, and that changeover is
+ * **dithered rather than drawn** -- a second Bayer tap two rows and one column
+ * away, scaled by the local value -- because the two ramps otherwise meet on a
+ * hard vertical seam down the middle of the frame.
+ *
+ * Departures from the study, and why:
+ *   1. **The bake covers the box, not the arena.** The study bakes 227x188 art
+ *      pixels -- the arena plus its own drift padding -- and every previous
+ *      conversion has had to do the same sum: the camera pulls back for a
+ *      colossus, so a place that stops at the arena edge stops being a place.
+ *   2. **`live` re-quantises only the cells that can ever change.** The study
+ *      walks its whole arena every frame, which is the honest reading of "the
+ *      subject is material in motion". It does not have to: the four periodic
+ *      terms are independent sines, so the extremes of each are known, and a
+ *      cell whose rung AND ramp are the same at every corner of that box can
+ *      never move. `binaryActive` decides it once, at bake time, from a
+ *      superset of the states the place actually visits -- so it can cost a
+ *      few cells that never move and can never miss one that does. Measured:
+ *      **47,088 of 184,688 art pixels, 25.5%**, and two rasterising calls a
+ *      frame (one upload over a constant dirty rect, one blit).
+ *   3. **The ten scalars per art pixel are packed to that list**, not kept per
+ *      cell. Ten Float32Arrays over the box would be 7.4 MB for a place that
+ *      moves in a quarter of it; the packed form is 1.7 MB. `occlude` is not
+ *      tabled at all -- it re-samples, which is 520 evaluations against the
+ *      184,688 the bake already did, and tabling it would cost more memory
+ *      than the entire live pass.
+ *   4. **`hard` exists here only because it runs after the point lights.** A
+ *      baked star standing on a cell the live pass repaints would be erased
+ *      every frame, so the 199 star pixels that land on active cells are
+ *      copied into the overlay and put back on top of it. That is the phase's
+ *      one job in this place, and it is the first time the ordering inside
+ *      `_bakeField` -- field, then stars, then `hard` -- has been load-bearing.
+ *   5. **Sixth star ramp to come down.** #6d7d99 / #a9bcd6 / #e8f1ff measures
+ *      0.49 / 0.73 / 0.94 against the detector's 0.62, and about 115 of the
+ *      520 land inside the arena, so the sky was 129 near-white blocks of 3-6
+ *      px on black. Every rung under the threshold instead: **129 features to
+ *      0**, at every veil from 0 to 30. Blacking the ramp out entirely also
+ *      reads 0, which is the control that says none of the art was ever one.
+ *   6. **Two caps, one `topRung`.** The gold ramp stops at 6 -- a 9 px block of
+ *      its rung 7 measures mean R over 1.12x mean B on a dark surround, the
+ *      same failure COMET TRAIL's core took -- and the cool ramp keeps all
+ *      eight, being nowhere near the palette the enemies fire in. One entry
+ *      field cannot hold two ramps, so `topRung` is the cool cap and the gold
+ *      one is applied per sample, which the contract already allows.
+ *   7. `veil: 13` is the study's own 8: its harness applies `veil / 60` and
+ *      this engine's is `veil / 100`, so the same wash is 13 here. Second time
+ *      a study's veil has needed only that conversion.
+ *   8. Drift is the shared `sin(t * 0.0016) * DRIFT`, not the study's 9 px on
+ *      a 1795-frame sine snapped to whole art rows. Same call, and the same
+ *      reason, as places 1-14 -- and it takes the study's row-offset indexing
+ *      with it, because the engine translates the plate and the live layer
+ *      together and the plane is rigid without anyone arranging it.
+ *   9. Where the sheet's own two halves disagree, section 2 wins over the port
+ *      notes' summary: squash 0.34 and tilt -0.22 rather than 0.30 and -0.20,
+ *      seven arms at pitch 5.5 rather than three at 2.4, control offset 0.22
+ *      rather than 0.30. Section 2 agrees with the code it shipped, and the
+ *      code is what was measured.
+ *
+ * Measured here on the composed 680x540 arena at frame 1500. The companion
+ * decision, on the study's own warm metric (9 px blocks whose mean R exceeds
+ * 1.12x their mean B, clustered, under 40 px, on a dark surround): **0 warm
+ * features either way**, so the number that discriminates is the warm area --
+ * red 11.3% against blue-white 6.4% unveiled, 7.9% against 4.6% at the
+ * shipped veil. The study predicted 10.9 / 6.2 and 7.4 / 4.5 on its own
+ * canvas, which is as close as two different arenas and two different veil
+ * formulas get. The standing detector reads **0 at every veil from 0 to 30**.
+ * Linear arena mean 0.0158, p95 0.0463, p99 0.145, and **0.00% of the arena
+ * brighter than an enemy core** -- which makes this, after the port, the
+ * darkest place in the catalogue: VIOLET NEBULA is 0.029, ICE WORLD 0.032,
+ * GAS GIANT DESCENT 0.273. Peak frame-to-frame change in arena mean over 640
+ * frames is 0.000088 in linear light, 0.02% of an enemy core, so the sheet's
+ * "no eclipse" claim holds: nothing crosses anything and there is no
+ * full-frame step. Periods land exactly where it says -- 90 frames for the arm
+ * pattern, 628 for a full turn of the sheet, 167 for the stream's flow.
+ * See `tools/neon_strike_bench/probe_binary.mjs`.
+ *
+ * One finding worth carrying, because it will recur: **the conversion makes
+ * one of the study's own numbers go the wrong way, and that is correct.** The
+ * painter this replaces measures 0% warm area, better than anything the port
+ * can offer -- because half of what the place is called after was off the top
+ * of the screen and the rest was a dim additive gradient. A metric that
+ * rewards an absent composition is measuring the wrong thing. The feature
+ * count is what tracks the hazard, it is 0 on both, and the place is *darker*
+ * than what it replaces on the number that matters: arena mean 0.0158 against
+ * the old painter's 0.0248.
+ *
  */
 
 // The static layer is soft gradient art, so half resolution is free quality.
@@ -734,8 +1053,8 @@ const LAYER_SCALE = 0.5;
 // baked box is this much taller on each side so the edge never shows.
 const DRIFT = 14;
 // Veil between the backdrop and the play field, for the places still painted
-// the old way. Sixteen of the 27 are still on it, and about half of those
-// (supernova, binary, graveyard...) paint in the same warm reds and the same
+// the old way. Twelve of the 28 are still on it, and about half of those
+// (supernova, graveyard, crystal...) paint in the same warm reds and the same
 // 1-3 px motes the enemy bullets use, adding up in `lighter` until a bullet is
 // indistinguishable from scenery. One flat number fixes those and flattens the
 // rest, which is why a Direction A place carries its own `p.veil` instead --
@@ -1555,6 +1874,314 @@ const ION_RUNG = 7.6;
 // -- which is the whole reason a ray cannot be counted as a bullet.
 const ION_COHERENT = 0.45;
 const ION_MIN = 0.006;
+
+/* -- LOW MOON ORBIT ------------------------------------------------------- */
+
+// The horizon, as a fraction of arena height, and the one camera the ground
+// under it is drawn through: focal length in art pixels, eye height in world
+// units. A pixel `dy` art rows under the line looks at depth z = f*h/dy, so a
+// crater of screen half-width a is exactly a*dy/f tall -- a sliver at the line,
+// near-circular at the player's feet. Both numbers were set by eye in the
+// study until that read right, and neither has anything left to tune.
+const MOON_HORIZON = 0.62;
+const MOON_FOC = 110;
+const MOON_CAMH = 34;
+// The jag on the line, as [period in art columns, amplitude in art rows], plus
+// the ridge term: a crest over 0.72 lifts the line by up to 11 rows.
+const MOON_JAG = [[84, 3.1], [29, 1.7], [9.5, 0.9]];
+const MOON_RIDGE = [47, 0.72, 11];
+const MOON_JAG_SEED = 0x6d0a;
+// The lattice rows the four terms are read from. `mkNoise` sampled at an
+// integer y is exactly that row of its grid -- the bilinear weight vanishes --
+// so four distinct rows are four independent 1D noises out of one table.
+//
+// Which four is the one free choice here, and it is spent on the study's own
+// measured figure: the amplitudes above are its, but this file's generator is
+// not, so the relief they produce had to be re-measured rather than carried
+// over. These rows put it at 14.8 logical px across the arena's 227 columns,
+// which is the number the sheet publishes; the first set tried gave 9.2 and a
+// horizon that read as a ruled line.
+const MOON_JAG_ROWS = [3, 17, 29, 47];
+// The plain's tone: value at the line, what it loses by `dy` 70, and two
+// world-space mottles as [x rate, z rate, amplitude]. The mottles are what
+// keep the open plain off the rung centres, which is where the dither texture
+// lives; the craters are written on the centres so that it cannot reach them.
+const MOON_TONE = [0.86, 0.32, 70];
+const MOON_MOTTLE = [[0.09, 0.06, 0.014], [0.017, 0.011, 0.026]];
+// The razor rim: art rows under the line pinned to the top rung, undithered.
+// #0a0b10 against #9db9c0 in one art pixel, which is the no-atmosphere claim.
+const MOON_RIM = 2;
+const MOON_RIM_RUNG = 7;
+// Craters, authored per depth row rather than per screen pixel: `dy` is skewed
+// by this exponent so a uniform areal density in world space packs towards the
+// horizon on screen. `a` is the screen half-width; `b` follows from the
+// perspective rule and is never chosen.
+const MOON_CRATERS = 200;
+const MOON_DY_SKEW = 1.9;
+const MOON_CRATER_A = [3, 1.9, 4, 0.6];
+const MOON_DEPTH = 1.35;
+// Distant rim arcs, sub-pixel deep: two rows, a bright far arc and a dark one
+// under it. All of them sit inside the first 9 art rows, so the box being
+// deeper than the study's arena does not change their count.
+const MOON_ARCS = 150;
+const MOON_ARC_DY = [0.4, 2.6, 9];
+const MOON_ARC_A = [6, 1.4, 46];
+const MOON_ARC_FLAT = 0.85;
+const MOON_CRATER_SEED = 4648;
+// One light direction everywhere, low and from the upper left, in ellipse
+// space, and what a rim takes on each side of it: +1 rung lit, -2 unlit, -1
+// across the terminator, -2 on the floor and -3 when the crater is deep.
+const MOON_LIGHT = [-0.82, -0.58];
+const MOON_LIT = 0.14;
+const MOON_FLOOR_R = 0.66;
+const MOON_DEEP = 0.7;
+// Boulders and rim fragments: uniform areal density between `MOON_BOULDER_Z`
+// and the depth the box bottom is at, silhouetted on a fixed rung, with one
+// consistent shadow running right at [length x screen height, drop per column,
+// how much of the field it takes].
+const MOON_BOULDERS = 150;
+const MOON_BOULDER_Z = 5200;
+const MOON_BOULDER_SPREAD = 1.55;
+const MOON_BOULDER_R = [0.35, 2.2, 5.2];
+const MOON_BOULDER_W = 20;
+const MOON_BOULDER_RUNG = [1, 4];
+const MOON_SHADOW = [3.4, 0.12, 0.17];
+const MOON_BOULDER_SEED = 90210;
+// 140 point lights, and none within six art rows of the line: the plain's own
+// top rung is brighter than the whole star ramp, so a star standing on it
+// reads as noise on the ground rather than as a star behind it.
+const MOON_STARS = 140;
+const MOON_STAR_SEED = 0x6b2d;
+const MOON_STAR_A = 0.4;
+const MOON_STAR_GAP = 6;
+// The impact schedule, and all of it is a pure function of the frame counter:
+// one every 420 frames plus up to 231 of jitter, the rock falls for 92, and
+// the scar it leaves lives 2400 and steps a rung every 600.
+const MOON_PERIOD = 420;
+const MOON_JITTER = 0.55;
+const MOON_LEAD = 90;
+const MOON_FALL = 92;
+const MOON_LIFE = 2400;
+const MOON_STEP = 600;
+const MOON_EVENT_SEED = 0x11ac;
+// Where one lands: this far in from the edge, and never in the 16 art rows
+// under the line, where a crater would be under a pixel deep.
+const MOON_EDGE = 26;
+const MOON_DROP = 16;
+const MOON_BOTTOM = 8;
+// The rock: how far it drifts sideways over the fall, how far above the box it
+// starts, and its radius. It is painted in rung 0, the colour of the sky, so
+// the only way it is ever seen is the baked stars it puts out.
+const MOON_ROCK_DRIFT = 26;
+const MOON_ROCK_TOP = 40;
+const MOON_ROCK_R = 3;
+// The flash: six frames of these radii, the first two on the brighter of the
+// two flash tones. It lands on lit ground, so it never has a dark surround.
+const MOON_FLASH_R = [4, 5, 4, 3, 2, 1];
+const MOON_FLASH_HOT = 2;
+// Ejecta: 18 grains in a +-38 degree cone, two art pixels each so none of them
+// is ever the 1-4 logical px an enemy core is, under a gravity low enough that
+// they hang for 177 frames -- and they all land. Nothing stays up.
+const MOON_EJECTA = 18;
+const MOON_CONE = 1.32;
+const MOON_EJECTA_V = [0.7, 0.42];
+const MOON_EJECTA_SPREAD = 1.5;
+const MOON_GRAV = 0.012;
+const MOON_EJECTA_LIFE = 200;
+const MOON_EJECTA_PX = 2;
+// The scar, in art pixels around its own origin: the canvas it is drawn into,
+// the fresh crater's radius against depth, the rays, and how many scars are
+// kept rasterised at once. Seven is the most that are ever live at 420 frames
+// and a 2400-frame life, so the cache never thrashes.
+const MOON_SCAR = { w: 128, h: 80, cx: 64, cy: 40, cache: 8 };
+const MOON_SCAR_R = [3, 0.055, 3.2];
+const MOON_RAYS = 7;
+const MOON_RAY_LEN = [10, 26, 0.5, 170];
+const MOON_RAY_STEP = [1.6, 2.6];
+const MOON_RAY_SEED = 0x2f61;
+// A cell that takes the dither rather than a pinned rung.
+const MOON_FREE = 255;
+
+/* -- PLANETARY NEBULA ----------------------------------------------------- */
+
+// The shell's centre, offset from the arena centre in logical px, and the
+// frame it is measured in: rotated 20 degrees and squashed to 0.78. Off-centre
+// right and high on purpose, so the widened field of a colossus camera reveals
+// the far side of the ring rather than emptying.
+const SHELL_C = [74, -34];
+const SHELL_ROT = [0.94, 0.34];
+const SHELL_SQUASH = 0.78;
+// The radius is warped twice before anything is measured against it, as
+// [rate, octaves, amplitude]: a low frequency bending the shell out of round,
+// a high one roughening its rim.
+const SHELL_WARP = [[0.0016, 3, 110], [0.007, 2, 44]];
+// The most the two together can move a radius. It is what bounds the live
+// pass: a cell whose baked radius is further outside the echo band than this
+// cannot be inside it.
+const SHELL_WARP_MAX = 77;
+// The main shell and the inner ring, as [radius, width, amplitude]. The inner
+// one is a fraction of the main radius, so the pair scales together.
+const SHELL_MAIN = [250, 38, 0.52];
+const SHELL_INNER = [0.652, 22, 0.3];
+// The angular patch field, `base + gain * noise(rate)`, and it is the whole
+// reason this does not read as a target: the rim is bright in three places and
+// thin in two, and the inner ring only exists where the patch clears its gate.
+const SHELL_PATCH = { base: 0.35, gain: 1.25, rate: 0.0035 };
+const SHELL_INNER_GATE = [0.72, 2.4];
+// The floor the empty field sits at, and the cavity the star stands in.
+const SHELL_FLOOR = 0.012;
+const SHELL_CAVITY = [0.05, 120];
+// The ionisation rim: hard on its outside, over the 6 px inside r + 12, fading
+// in over the 30 px from r - 35. The one edge here that is a boundary and not
+// a falloff, which is why it is a pair of clamps and not a gaussian.
+const SHELL_ION = { amp: 0.22, out: 12, hard: 6, in: 35, soft: 30, cap: 1.15 };
+// Knots embedded in the shell: the noise that decides them, the cut it has to
+// clear, and the band of radius they are masked to.
+const SHELL_KNOT = { rate: 0.012, cut: 0.62, amp: 0.7, at: -5, w: 45 };
+// The grain over everything, as a multiplier, and the spiral smudge low-left:
+// its own thing, seen through the gas.
+const SHELL_GRAIN = { rate: 0.05, base: 0.86, gain: 0.28 };
+const SHELL_SPIRAL = { x: 300, y: 210, squash: 0.6, reach: 90,
+    core: 0.32, coreW: 26, arm: 0.16, armR: 34, armW: 22, turns: 2, pitch: 0.11 };
+// The filament wall crossing the upper field: a slope and an intercept, a
+// noise that bends it, how far out it reaches, and the 7 px hard crest with a
+// 26 px glow on its lit side only.
+const SHELL_FIL = { slope: 0.5, at: -220, rate: 0.004, wobble: 90,
+    mid: 40, reach: 900, crest: 7, glow: 0.42, off: 20, wide: 30 };
+// The two dust columns standing in front of the shell, in logical px from the
+// arena centre. Decided per art pixel as a boolean and drawn from `landRamp`,
+// which never enters the dither -- the ice-world precedent, and the reason
+// their edges are ragged without being soft: every boundary pixel is a full
+// step. `sway` is their share of the shared lean; `noise`/`rate`/`off` is the
+// roughness that eats their taper.
+const SHELL_COLUMNS = [
+    { t: 90, u: -200, sway: 1, lo: -230, hi: 320, hw: 52, drop: 240, taper: 700,
+        sh: 230, sh2: 110, min: 7, noise: "n3", rate: 0.018, off: 0 },
+    { t: 150, u: 250, sway: 0.6, lo: -200, hi: 300, hw: 34, drop: 220, taper: 640,
+        sh: 200, sh2: 90, min: 6, noise: "n2", rate: 0.02, off: 5 },
+];
+const SHELL_SWAY = { rate: 0.006, off: 30, row: 7, amp: 70 };
+const SHELL_BANK = { at: 215, rate: 0.005, off: 12, row: 3, amp: 130 };
+const SHELL_ROUGH = 0.6;
+// Which of the two silhouette rungs a solid pixel takes.
+const SHELL_SIL_CUT = { rate: 0.03, off: 40, cut: 0.64 };
+// How much of the ramp each live term is worth. The first two were measured
+// rather than felt: they are what took the study's own bright-feature count
+// from 10 to 4, and the shell rim was left alone because it is one long
+// connected arc rather than competing points.
+const SHELL_FIL_A = 0.42;
+const SHELL_ECHO_A = 0.45;
+const SHELL_CORE_A = 0.55;
+const SHELL_CORE_W = 34;
+// The light echo. The front's radius is a pure function of the frame counter,
+// with no stored countdown: it leaves the star, crosses the inner ring at
+// about f+115, the main shell between f+150 and f+205, and is past the box
+// before the cycle's last 280 frames, which are dark.
+const SHELL_PERIOD = 720;
+const SHELL_RATE = 1.4;
+const SHELL_REACH = 620;
+const SHELL_SIGMA = 22;
+const SHELL_BAND = 66;
+const SHELL_GATE = 2;
+// The central source, breathing +-12% on a 300-frame sine, and the radius the
+// live pass covers for it alone while no front is travelling.
+const SHELL_PULSE = [0.12, 300];
+const SHELL_CORE_R = 90;
+// `base` and `gas` are kept as bytes on this scale, so a cell's live rung is
+// computed from exactly the value its baked rung came from: the two can never
+// disagree by a rounding step, and a cell the echo does not reach is never
+// repainted with a colour one off the plate's.
+const SHELL_Q = 200;
+// A table entry at or over this is a silhouette rather than a gas rung.
+const SHELL_SIL = 254;
+const SHELL_SEEDS = [0x5a31, 0x2c07, 0x71bd, 0x0e49, 0x38f2];
+const SHELL_STARS = 190;
+const SHELL_STAR_SEED = 0x1417;
+const SHELL_TWINKLE_SEED = 0x63d8;
+// A shell is thin, so a star reads through it: 0.55 of the gas against the
+// violet nebula's 0.80. A silhouette is the other case -- it is an object.
+const SHELL_OCCLUDE = 0.55;
+
+/* -- BINARY SUNS ---------------------------------------------------------- */
+
+// Both stars, as fractions of the arena, with their radii in absolute logical
+// px: only the short side of the arena is a fixed size, so the split is the
+// one INNER SYSTEM and LOW MOON ORBIT already use. Neither is clipped -- the
+// donor's old centre sat 54 px above the top edge, and half of what the place
+// is called after was never in the frame.
+const BIN_DONOR = { cx: 0.3059, cy: 0.4667, core: 22, peak: 1.05, halo: 0.3, hr: 48 };
+const BIN_COMP = { cx: 0.6382, cy: 0.437, core: 11, peak: 1.15, halo: 0.32, hr: 40 };
+// The 8-fold ray burst on each: amplitude, phase, and the window that keeps it
+// from reaching across the box, as `exp(-(d/w)^2)`.
+const BIN_RAYS = 8;
+const BIN_DONOR_RAY = [0.35, 0.4, 140];
+const BIN_COMP_RAY = [0.42, -0.7, 120];
+// The surface radius the stream leaves from, on the line to the companion.
+const BIN_DONOR_R = 32;
+// ONE shared plane, centred between the stars rather than a small ring around
+// one of them: rotated, and its y divided by the squash before the radius is
+// measured, so it reads as a tilted sheet running off every edge of the box
+// instead of an ellipse drawn on glass.
+const BIN_PLANE = { cx: 0.4706, cy: 0.4519, tilt: -0.22, squash: 0.34 };
+// Its radial profile: a broad annulus plus a filling haze, each [radius,
+// sigma, amplitude].
+const BIN_RING = [250, 210, 0.52];
+const BIN_HAZE = [0, 430, 0.16];
+// Seven logarithmic arms -- fine filaments, not three fat bars -- as pitch on
+// ln R, and the modulation their sine is shaped through.
+const BIN_ARMS = 7;
+const BIN_PITCH = 5.5;
+const BIN_ARM = [0.42, 0.58];
+const BIN_LN_MIN = 12;
+// Below this the plane contributes nothing an eight-rung ramp can show, so the
+// `atan2` and the `log` are skipped: outside the sheet they are most of what
+// the bake would cost.
+const BIN_PROF_MIN = 0.002;
+// The stream, as a quadratic Bezier: the end point relative to the companion,
+// the control point's offset along the perpendicular as a share of the
+// separation (leading the orbit -- that is what makes the stream miss the
+// companion instead of pointing at it), and how finely it is sampled.
+const BIN_STREAM_END = [-44, 30];
+const BIN_STREAM_LEAD = 0.22;
+const BIN_STREAM_N = 48;
+const BIN_STREAM_W = [8, 4];
+const BIN_STREAM_A = 0.8;
+// How far from the curve's own bounding box a pixel can be and still be tested
+// against it. Past this the Gaussian is under a thousandth of a rung.
+const BIN_STREAM_PAD = 34;
+// The hot spot, where the stream lands: sigma, and the radius past which it is
+// not evaluated. 0.03% of the arena's area, and mostly on the cool ramp -- a
+// hot spot is hot, so painting it blue-white is both correct and one fewer
+// small warm point.
+const BIN_HOT = 6;
+const BIN_HOT_PAD = 26;
+// The mixing weights: how much of the plane, the stream and the hot spot each
+// ramp takes, and the master scale over the pair.
+const BIN_MIX = { disc: [0.72, 0.88], stream: 0.7, hot: [0.2, 0.38], master: 0.78 };
+// The changeover between the two ramps is DITHERED, not drawn: the ramp choice
+// takes a second Bayer tap two rows and one column away, at this share of the
+// local value. Without it the warm half and the cool half meet on a hard
+// vertical seam down the middle of the frame.
+const BIN_SEAM = 0.55;
+const BIN_SEAM_TAP = [2, 1];
+// The gold ramp stops one rung short. A 9 px block of its rung 7 measures mean
+// R over 1.12x mean B on a dark surround, which is the same failure COMET
+// TRAIL's core took; the cool ramp is nowhere near the enemy palette and keeps
+// all eight.
+const BIN_GOLD_CAP = 6;
+// Every rate is per frame, and every one of them is a pure `sin(k*f)` with no
+// stored countdown -- so `backdropThumb` jumps straight to 1500 and two
+// machines in a co-op match show the same sky.
+const BIN_SPIN = 0.01;
+const BIN_FLOW = { rate: 0.006, waves: 3, base: 0.55, amp: 0.45 };
+const BIN_FLICK = [[0.11, 0, 0.6], [0.043, 1.7, 0.4]];
+const BIN_FLICK_A = 0.28;
+const BIN_BREATHE = [0.004, 0.015];
+const BIN_STARS = 520;
+const BIN_STAR_SEED = 0x5115;
+const BIN_STAR_A = 0.3;
+// How much of a point light the sheet in front of it puts out.
+const BIN_OCCLUDE = 0.9;
 
 const FIELD_DARK = { v: 0 };
 // The arena the glossary thumbnails are composed in. Painters place things in
@@ -4211,6 +4838,653 @@ function ionCurtainPass(bd) {
     }
 }
 
+/**
+ * The horizon, in art rows, at art column `c`.
+ *
+ * It is never drawn. `field` asks per art pixel which side of this it is on,
+ * so no dither can straddle it and the edge comes out one art pixel wide by
+ * construction: rung 0 above, rung 7 below, #0a0b10 against #9db9c0. That is
+ * the whole no-atmosphere claim, and it is a decision rather than a stroke.
+ */
+function moonHorizon(bd, c) {
+    let j = 0;
+    for (let k = 0; k < MOON_JAG.length; k++) {
+        j += MOON_JAG[k][1] * (bd.jag(c / MOON_JAG[k][0], MOON_JAG_ROWS[k], 1) - 0.5);
+    }
+    const ridge = bd.jag(c / MOON_RIDGE[0], MOON_JAG_ROWS[3], 1);
+    return bd.hr + (ridge > MOON_RIDGE[1] ? j - (ridge - MOON_RIDGE[1]) * MOON_RIDGE[2] : j);
+}
+
+/**
+ * The ground, resolved once into two tables: the tone of the open plain, which
+ * takes the dither, and -- where a pixel is not the plain -- the rung it is
+ * pinned to. `field` is then a lookup, which is what lets 350 craters and 150
+ * boulders be decided in the order they overlap rather than per pixel.
+ */
+function moonSurface(bd) {
+    const aw = bd.aw;
+    const ah = bd.ah;
+    const yh = bd.yh;
+    const tone = new Float32Array(aw * ah);
+    // The un-cratered plain, kept beside it so two craters over one pixel step
+    // from the ground rather than from each other.
+    const plain = new Float32Array(aw * ah);
+    const fixed = new Uint8Array(aw * ah);
+    fixed.fill(MOON_FREE);
+    for (let c = 0; c < aw; c++) {
+        const top = Math.ceil(yh[c]);
+        for (let r = 0; r < ah; r++) {
+            const i = r * aw + c;
+            if (r < top) {
+                fixed[i] = 0;
+                continue;
+            }
+            // One camera: the depth a row is at, and the world x it looks at.
+            const dy = r - yh[c] + 0.5;
+            const z = (MOON_FOC * MOON_CAMH) / Math.max(dy, 0.55);
+            const wx = ((c - aw / 2) * z) / MOON_FOC;
+            const v = MOON_TONE[0] - MOON_TONE[1] * Math.min(1, dy / MOON_TONE[2])
+                + MOON_MOTTLE[0][2] * Math.sin(wx * MOON_MOTTLE[0][0])
+                    * Math.sin(z * MOON_MOTTLE[0][1])
+                + MOON_MOTTLE[1][2] * Math.sin(wx * MOON_MOTTLE[1][0] + z * MOON_MOTTLE[1][1]);
+            tone[i] = v;
+            plain[i] = v;
+            if (r - top < MOON_RIM) {
+                fixed[i] = MOON_RIM_RUNG;
+            }
+        }
+    }
+    bd.tone = tone;
+    bd.fixed = fixed;
+    moonCraters(bd, plain);
+    moonBoulders(bd);
+}
+
+/**
+ * 350 craters, authored per depth row rather than per screen pixel: `dy` is
+ * skewed towards the horizon, so a uniform areal density in world space comes
+ * out packing as it recedes. The screen half-width `a` is chosen and the
+ * height `b = a * dy / f` follows from the camera -- a sliver at the line,
+ * near-circular at the player's feet.
+ *
+ * Every tone written here is a rung *centre*. The Bayer term is +-0.4 of a
+ * rung and a boundary is 0.5 away, so the dither cannot move one: a crater
+ * edge is as hard as the horizon, and the dither's texture lives on the open
+ * plain, which is deliberately left off the centres by its two mottles.
+ */
+function moonCraters(bd, plain) {
+    const aw = bd.aw;
+    const ah = bd.ah;
+    const yh = bd.yh;
+    const tone = bd.tone;
+    const fixed = bd.fixed;
+    const last = bd.rgb.length - 1;
+    const cen = (k) => clamp(k, 0, last) / last;
+    const rnd = mulberry32(MOON_CRATER_SEED);
+    // The study authors its depth range against the arena. The box the camera
+    // can reach for a colossus is 1.86x deeper than that, so the range follows
+    // the box and the count follows the same power law: dy = D * u^p puts
+    // N / (p * D^(1/p)) craters per row at the horizon, so holding that
+    // density while D grows by k costs k^(1/p) of them. Anything else changes
+    // the near-horizon density the study set by eye.
+    const arena = ((bd.H - bd.H * MOON_HORIZON) / ART_PIX) * MOON_DEPTH;
+    const span = Math.max(arena, (bd.y0 + bd.h - bd.H * MOON_HORIZON) / ART_PIX);
+    const n = Math.round(MOON_CRATERS * Math.pow(span / arena, 1 / MOON_DY_SKEW));
+    const craters = [];
+    for (let i = 0; i < n; i++) {
+        const dy = 0.6 + Math.pow(rnd(), MOON_DY_SKEW) * span;
+        craters.push([dy, rnd() * aw + (rnd() - 0.5) * 40,
+            MOON_CRATER_A[0] + Math.pow(rnd(), MOON_CRATER_A[1])
+                * (MOON_CRATER_A[2] + dy * MOON_CRATER_A[3])]);
+    }
+    // The distant rim arcs. All of them sit inside the first 9 art rows, so
+    // the deeper box does not change their count.
+    for (let i = 0; i < MOON_ARCS; i++) {
+        craters.push([MOON_ARC_DY[0] + Math.pow(rnd(), MOON_ARC_DY[1]) * MOON_ARC_DY[2],
+            rnd() * aw,
+            MOON_ARC_A[0] + Math.pow(rnd(), MOON_ARC_A[1]) * MOON_ARC_A[2]]);
+    }
+    // Far first, so a near crater is written over what is behind it.
+    craters.sort((p, q) => p[0] - q[0]);
+    for (const [dy, cc, a] of craters) {
+        const b = (a * dy) / MOON_FOC;
+        const cr = dy + yh[clamp(Math.round(cc), 0, aw - 1)];
+        if (cc + a < -4 || cc - a > aw + 4 || cr - b > ah) {
+            continue;
+        }
+        if (b < MOON_ARC_FLAT) {
+            // Under an art pixel deep: a lit far arc and one dark row under
+            // it, which is all a crater at that distance can be.
+            const r0 = Math.round(cr);
+            const c0 = Math.max(0, Math.floor(cc - a));
+            const c1 = Math.min(aw - 1, Math.ceil(cc + a));
+            for (let c = c0; c <= c1; c++) {
+                const t = (c - cc) / a;
+                if (Math.abs(t) > 1) {
+                    continue;
+                }
+                if (r0 >= 0 && r0 < ah && r0 >= yh[c]) {
+                    const i = r0 * aw + c;
+                    if (fixed[i] === MOON_FREE) {
+                        tone[i] = cen(Math.round(plain[i] * last) + (t < 0.4 ? 1 : 0));
+                    }
+                }
+                if (r0 + 1 >= 0 && r0 + 1 < ah && r0 + 1 >= yh[c]) {
+                    const i = (r0 + 1) * aw + c;
+                    if (fixed[i] === MOON_FREE) {
+                        tone[i] = cen(Math.round(plain[i] * last) - 1);
+                    }
+                }
+            }
+            continue;
+        }
+        const deep = Math.min(1, a / (14 + dy));
+        const c0 = Math.max(0, Math.floor(cc - a));
+        const c1 = Math.min(aw - 1, Math.ceil(cc + a));
+        const r0 = Math.max(0, Math.floor(cr - b - 1));
+        const r1 = Math.min(ah - 1, Math.ceil(cr + b + 1));
+        for (let r = r0; r <= r1; r++) {
+            for (let c = c0; c <= c1; c++) {
+                if (r < yh[c]) {
+                    continue;
+                }
+                const u = (c - cc) / a;
+                const v = (r - cr) / Math.max(b, 0.45);
+                const d = u * u + v * v;
+                if (d > 1.04) {
+                    continue;
+                }
+                const i = r * aw + c;
+                if (fixed[i] !== MOON_FREE) {
+                    continue;
+                }
+                const k = Math.round(plain[i] * last);
+                if (d > MOON_FLOOR_R) {
+                    // The wall, against the one light direction the place has.
+                    const lit = MOON_LIGHT[0] * u + MOON_LIGHT[1] * v;
+                    tone[i] = cen(k + (lit > MOON_LIT ? 1 : lit < -MOON_LIT ? -2 : -1));
+                } else {
+                    tone[i] = cen(k - 2 - (deep > MOON_DEEP ? 1 : 0));
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Boulders and rim fragments: dark silhouettes on a pinned rung, each with one
+ * long shadow running right. Their depths are drawn so that equal areas of
+ * ground hold equal numbers, which is what makes them crowd the horizon
+ * without being told to -- and the ones at `dy` under 1 are written *above*
+ * the line, so the silhouette breaks the horizon instead of standing under it.
+ */
+function moonBoulders(bd) {
+    const aw = bd.aw;
+    const ah = bd.ah;
+    const yh = bd.yh;
+    const tone = bd.tone;
+    const fixed = bd.fixed;
+    // The near limit follows the box for the same reason the craters' range
+    // does. The count does not: the wedge of ground it adds is 0.004% of the
+    // area, so the density is unchanged at 150.
+    const zmin = (MOON_FOC * MOON_CAMH)
+        / ((bd.y0 + bd.h - bd.H * MOON_HORIZON) / ART_PIX);
+    const rng = mulberry32(MOON_BOULDER_SEED);
+    const list = [];
+    for (let i = 0; i < MOON_BOULDERS; i++) {
+        const z = Math.sqrt(rng() * (MOON_BOULDER_Z * MOON_BOULDER_Z - zmin * zmin)
+            + zmin * zmin);
+        list.push([z, (rng() * 2 - 1) * MOON_BOULDER_SPREAD * z,
+            MOON_BOULDER_R[0] + Math.pow(rng(), MOON_BOULDER_R[1]) * MOON_BOULDER_R[2],
+            rng()]);
+    }
+    list.sort((p, q) => q[0] - p[0]);
+    for (const [z, wx, wr, jit] of list) {
+        const dy = (MOON_FOC * MOON_CAMH) / z;
+        const cc = Math.round(aw / 2 + (wx * MOON_FOC) / z);
+        if (cc < -3 || cc > aw + 3) {
+            continue;
+        }
+        const base = Math.round(dy + yh[clamp(cc, 0, aw - 1)]);
+        const w = Math.max(1, Math.round((MOON_FOC * wr) / z));
+        if (w > MOON_BOULDER_W || base > ah + 4) {
+            continue;
+        }
+        const h = Math.max(1, Math.round(w * (1.1 + jit * 1.3)));
+        for (let r = base - h; r <= base; r++) {
+            const half = Math.max(0, Math.round(w * 0.5
+                * (0.35 + (0.65 * (r - (base - h))) / Math.max(1, h))));
+            for (let c = cc - half; c <= cc + half; c++) {
+                if (c < 0 || c >= aw || r < 0 || r >= ah) {
+                    continue;
+                }
+                fixed[r * aw + c] = r === base - h && h > 2
+                    ? MOON_BOULDER_RUNG[1]
+                    : MOON_BOULDER_RUNG[0];
+            }
+        }
+        const sl = Math.round(h * MOON_SHADOW[0]);
+        for (let k = 1; k <= sl; k++) {
+            const c = cc + k;
+            const r = base + Math.round(k * MOON_SHADOW[1]);
+            if (c < 0 || c >= aw || r < 0 || r >= ah) {
+                continue;
+            }
+            const i = r * aw + c;
+            if (fixed[i] === MOON_FREE && r >= yh[c]) {
+                tone[i] = Math.max(0.03, tone[i] - MOON_SHADOW[2] * (1 - k / sl));
+            }
+        }
+    }
+}
+
+/**
+ * Every impact live at frame `bd.t`. The schedule is a pure function of the
+ * frame counter with no stored countdown, which is what lets the glossary
+ * still be taken at frame 1500 without stepping there, keeps two clients in a
+ * co-op match watching the same rock without a byte on the bus, and makes
+ * pause and slow motion free.
+ */
+function moonEvents(bd) {
+    const f = bd.t;
+    const out = [];
+    const k0 = Math.floor(f / MOON_PERIOD) - 6;
+    for (let k = k0; k <= k0 + 8; k++) {
+        if (k < 0) {
+            continue;
+        }
+        const t0 = k * MOON_PERIOD
+            + Math.floor(hash2(k, 0, MOON_EVENT_SEED) * MOON_JITTER * MOON_PERIOD)
+            + MOON_LEAD;
+        const age = f - t0;
+        if (age <= -MOON_FALL || age >= MOON_LIFE) {
+            continue;
+        }
+        const ix = MOON_EDGE + hash2(k, 1, MOON_EVENT_SEED) * (bd.aw - MOON_EDGE * 2);
+        // Never in the 16 art rows under the line, where a crater would be
+        // under a pixel deep and the scar would have nowhere to go.
+        const top = moonHorizon(bd, ix) + MOON_DROP;
+        out.push({
+            k, age, ix,
+            iy: top + hash2(k, 2, MOON_EVENT_SEED) * (bd.ah - MOON_BOTTOM - top),
+        });
+    }
+    return out;
+}
+
+/** One art-pixel rectangle of the plane, in logical coordinates. */
+function moonRect(bd, g, ac, ar, aw, ah) {
+    g.fillRect(bd.x0 + Math.round(ac) * ART_PIX, bd.y0 + Math.round(ar) * ART_PIX,
+        Math.max(1, Math.round(aw)) * ART_PIX, Math.max(1, Math.round(ah)) * ART_PIX);
+}
+
+/**
+ * The scar one impact leaves: a fresh crater and its rays, drawn once into its
+ * own art-resolution canvas and blitted from then on. It is redrawn only when
+ * its rung steps, which is once every 600 frames -- so a scar costs one draw
+ * call a frame for 2400 frames and four rasterisations in its whole life.
+ *
+ * It cannot be part of the bake for the obvious reason: it postdates it. The
+ * alternative the study offers -- re-baking the 128x80 block under each new
+ * crater -- is 10,240 field samples in one frame every 420, and this is the
+ * cheaper side of that trade at seven live scars.
+ */
+function moonScar(bd, e, rung) {
+    const hit = bd.scars[e.k];
+    if (hit && hit.rung === rung) {
+        return hit.cv;
+    }
+    const cv = (hit && hit.cv) || document.createElement("canvas");
+    // Assigning the size clears it, which is what a stepped scar needs.
+    cv.width = MOON_SCAR.w;
+    cv.height = MOON_SCAR.h;
+    const g = cv.getContext("2d");
+    const put = (ac, ar, aw, ah, col) => {
+        g.fillStyle = col;
+        g.fillRect(Math.round(ac), Math.round(ar),
+            Math.max(1, Math.round(aw)), Math.max(1, Math.round(ah)));
+    };
+    const land = bd.p.landRamp;
+    const yh = moonHorizon(bd, e.ix);
+    const dy = Math.max(1, e.iy - yh);
+    const rr = Math.max(2, MOON_SCAR_R[0] + dy * MOON_SCAR_R[1]);
+    const rb = Math.max(1, ((rr * dy) / MOON_FOC) * MOON_SCAR_R[2]);
+    for (let r = -Math.ceil(rb); r <= Math.ceil(rb); r++) {
+        const w = Math.round(rr * Math.sqrt(Math.max(0, 1 - (r / rb) * (r / rb))));
+        if (w < 1) {
+            continue;
+        }
+        // Fresh rim above, dark floor below. The far wall is the material that
+        // came out of the hole, which is why it is on the warm `landRamp` and
+        // the surface around it is not: young ground against weathered.
+        put(MOON_SCAR.cx - w, MOON_SCAR.cy + r, w * 2, 1,
+            r < 0 ? land[Math.min(land.length - 2, rung + 1)] : bd.p.ramp[1]);
+    }
+    for (let i = 0; i < MOON_RAYS; i++) {
+        const ang = hash2(e.k, i * 13, MOON_RAY_SEED) * 6.2832;
+        const len = (MOON_RAY_LEN[0] + hash2(e.k, i * 29, MOON_RAY_SEED) * MOON_RAY_LEN[1])
+            * (MOON_RAY_LEN[2] + dy / MOON_RAY_LEN[3]);
+        for (let t = 2; t < len; t += 1) {
+            // A ray runs along the ground, so it is compressed by the same
+            // depth the crater is, and it stops at the horizon: past the line
+            // there is no ground for it to be on.
+            const r = MOON_SCAR.cy + Math.sin(ang) * t * (dy / MOON_FOC) * MOON_RAY_STEP[1];
+            if (e.iy - MOON_SCAR.cy + r < yh + 1) {
+                break;
+            }
+            if (((t | 0) + i) % 3 === 0) {
+                continue;
+            }
+            put(MOON_SCAR.cx + Math.cos(ang) * t * MOON_RAY_STEP[0], r, 1, 1,
+                land[Math.min(land.length - 3, rung)]);
+        }
+    }
+    bd.scars[e.k] = { rung, cv };
+    // Integer-like keys enumerate in ascending order, so the one dropped is
+    // always the oldest impact.
+    const keys = Object.keys(bd.scars);
+    if (keys.length > MOON_SCAR.cache) {
+        delete bd.scars[keys[0]];
+    }
+    return cv;
+}
+
+/**
+ * The shell, at one point of the plane, into `out`.
+ *
+ * Radial, not layered, and deliberately not `gasDensity` with a second
+ * palette: a configuration of the violet nebula is exactly the relationship
+ * this place exists in order not to have. Roughly the same cost -- three
+ * gaussians and three noise reads against four octaves and a sine -- and the
+ * violet nebula's own output is untouched, so nothing already measured has to
+ * be measured again.
+ */
+function shellSample(bd, wx, wy, out) {
+    const ex = wx - SHELL_C[0];
+    const ey = wy - SHELL_C[1];
+    const dx = ex * SHELL_ROT[0] + ey * SHELL_ROT[1];
+    const dy = (-ex * SHELL_ROT[1] + ey * SHELL_ROT[0]) / SHELL_SQUASH;
+    const warp =
+        (bd.n1(wx * SHELL_WARP[0][0], wy * SHELL_WARP[0][0], SHELL_WARP[0][1]) - 0.5)
+            * SHELL_WARP[0][2]
+        + (bd.n4(wx * SHELL_WARP[1][0] + 20, wy * SHELL_WARP[1][0], SHELL_WARP[1][1]) - 0.5)
+            * SHELL_WARP[1][2];
+    const r = Math.hypot(dx, dy) + warp;
+    const patch = SHELL_PATCH.base
+        + SHELL_PATCH.gain * bd.n5(wx * SHELL_PATCH.rate, wy * SHELL_PATCH.rate, 2);
+    const ring = (R, w, amp) => {
+        const t = (r - R) / w;
+        return amp * Math.exp(-t * t);
+    };
+    // The patch is what stops this reading as a target: the rim is bright in
+    // three places and thin in two, and the inner ring only exists where the
+    // patch clears its gate.
+    let v = SHELL_FLOOR
+        + ring(SHELL_MAIN[0], SHELL_MAIN[1], SHELL_MAIN[2]) * patch
+        + ring(SHELL_MAIN[0] * SHELL_INNER[0], SHELL_INNER[1], SHELL_INNER[2])
+            * clamp((patch - SHELL_INNER_GATE[0]) * SHELL_INNER_GATE[1], 0, 1);
+    v += SHELL_CAVITY[0] * Math.exp(-Math.pow(r / SHELL_CAVITY[1], 2));
+    v += SHELL_ION.amp
+        * clamp((SHELL_MAIN[0] + SHELL_ION.out - r) / SHELL_ION.hard, 0, 1)
+        * clamp((r - SHELL_MAIN[0] + SHELL_ION.in) / SHELL_ION.soft, 0, 1)
+        * Math.min(SHELL_ION.cap, patch);
+    const kn = bd.n2(wx * SHELL_KNOT.rate, wy * SHELL_KNOT.rate, 2);
+    v += SHELL_KNOT.amp * Math.max(0, kn - SHELL_KNOT.cut)
+        * Math.exp(-Math.pow((r - SHELL_MAIN[0] - SHELL_KNOT.at) / SHELL_KNOT.w, 2));
+    const gx = wx + SHELL_SPIRAL.x;
+    const gy = (wy - SHELL_SPIRAL.y) / SHELL_SPIRAL.squash;
+    const gr = Math.hypot(gx, gy);
+    if (gr < SHELL_SPIRAL.reach) {
+        const th = Math.atan2(gy, gx);
+        v += SHELL_SPIRAL.core * Math.exp(-Math.pow(gr / SHELL_SPIRAL.coreW, 2))
+            + SHELL_SPIRAL.arm
+                * Math.exp(-Math.pow((gr - SHELL_SPIRAL.armR) / SHELL_SPIRAL.armW, 2))
+                * (0.5 + 0.5 * Math.sin(th * SHELL_SPIRAL.turns + gr * SHELL_SPIRAL.pitch));
+    }
+    v *= SHELL_GRAIN.base
+        + SHELL_GRAIN.gain * bd.n3(wx * SHELL_GRAIN.rate, wy * SHELL_GRAIN.rate, 2);
+    // The filament wall: a hard crest with a glow on its lit side only, so it
+    // reads as a wall seen edge-on and not as a band of haze.
+    let d = (wy - (SHELL_FIL.slope * wx + SHELL_FIL.at)) / Math.hypot(1, SHELL_FIL.slope);
+    d += (bd.n4(wx * SHELL_FIL.rate, wy * SHELL_FIL.rate, 2) - 0.5) * SHELL_FIL.wobble;
+    const ext = clamp(1 - Math.abs(wx + SHELL_FIL.mid) / SHELL_FIL.reach, 0, 1);
+    out.fil = ext * (clamp(1 - Math.abs(d) / SHELL_FIL.crest, 0, 1)
+        + SHELL_FIL.glow * clamp(1 - Math.abs(d + SHELL_FIL.off) / SHELL_FIL.wide, 0, 1));
+    // The columns and the bank. They lean together, which is one noise read
+    // rather than two and is also what makes them look like one weather.
+    const sway = (bd.n2(wy * SHELL_SWAY.rate + SHELL_SWAY.off, SHELL_SWAY.row, 2) - 0.5)
+        * SHELL_SWAY.amp;
+    let sil = 0;
+    for (const c of SHELL_COLUMNS) {
+        const t = wy - c.t;
+        if (t <= c.lo || t >= c.hi) {
+            continue;
+        }
+        const hw = c.hw * (1 - (t + c.drop) / c.taper) * clamp((t + c.sh) / c.sh2, 0, 1);
+        const e = Math.abs(wx - c.u - sway * c.sway) / Math.max(c.min, hw)
+            + (bd[c.noise](wx * c.rate + c.off, wy * c.rate, 2) - 0.5) * SHELL_ROUGH;
+        if (e < 1) {
+            sil = 1;
+            break;
+        }
+    }
+    if (wy > SHELL_BANK.at
+        + (bd.n4(wx * SHELL_BANK.rate + SHELL_BANK.off, SHELL_BANK.row, 2) - 0.5)
+            * SHELL_BANK.amp) {
+        sil = 1;
+    }
+    if (sil) {
+        sil = bd.n3(wx * SHELL_SIL_CUT.rate + SHELL_SIL_CUT.off, wy * SHELL_SIL_CUT.rate, 2)
+            > SHELL_SIL_CUT.cut ? 2 : 1;
+    }
+    out.v = Math.max(0, v);
+    out.r = r;
+    out.sil = sil;
+}
+
+/**
+ * How far the echo front has travelled, in logical px from the shell's centre.
+ * Pure in the frame counter: no countdown is stored, so pause freezes it, slow
+ * motion slows it, and two clients in a co-op match watch the same flash cross
+ * the same gas without a byte on the bus.
+ */
+function shellFront(t) {
+    const f = (((t % SHELL_PERIOD) + SHELL_PERIOD) % SHELL_PERIOD) * SHELL_RATE;
+    return f > SHELL_REACH ? 0 : f;
+}
+
+/**
+ * The rung a value lands on. This is `_bakeField`'s own quantise written out
+ * again, on purpose, for the two places that compute their bake AND their
+ * per-frame pass from one table: a cell the live pass does not change has to
+ * come out at exactly the colour the plate already holds, or the region it
+ * repaints shows as a seam. Keep it in step with the quantise in
+ * `_bakeField`, which is the only copy that matters.
+ */
+function artRung(bd, v, cx, cy, cap) {
+    const bay = (BAYER[(cy & 3) * 4 + (cx & 3)] / 16 - 0.46) * DITHER;
+    return clamp(Math.round(v * (bd.rgb.length - 1) + bay), 0, cap);
+}
+
+/**
+ * The stream, as a polyline in logical px, and the box that bounds it.
+ *
+ * P0 is the donor's surface on the line to the companion -- the inner Lagrange
+ * side. P2 is short of the companion and below it, where the incoming material
+ * meets the sheet. P1 leads the orbit by a fifth of the separation along the
+ * perpendicular, and that displacement is the whole of why the stream misses
+ * the companion instead of pointing at it.
+ */
+function binaryStream(bd) {
+    const d = bd.donor;
+    const c = bd.comp;
+    const sep = Math.hypot(c.x - d.x, c.y - d.y);
+    const ux = (c.x - d.x) / sep;
+    const uy = (c.y - d.y) / sep;
+    const p0 = [d.x + ux * BIN_DONOR_R, d.y + uy * BIN_DONOR_R];
+    const p2 = [c.x + BIN_STREAM_END[0], c.y + BIN_STREAM_END[1]];
+    const p1 = [(p0[0] + p2[0]) / 2 - uy * BIN_STREAM_LEAD * sep,
+        (p0[1] + p2[1]) / 2 + ux * BIN_STREAM_LEAD * sep];
+    const pts = new Float64Array((BIN_STREAM_N + 1) * 3);
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    for (let i = 0; i <= BIN_STREAM_N; i++) {
+        const t = i / BIN_STREAM_N;
+        const a = (1 - t) * (1 - t);
+        const b = 2 * (1 - t) * t;
+        const k = t * t;
+        const x = a * p0[0] + b * p1[0] + k * p2[0];
+        const y = a * p0[1] + b * p1[1] + k * p2[1];
+        pts[i * 3] = x;
+        pts[i * 3 + 1] = y;
+        pts[i * 3 + 2] = t;
+        if (x < x0) { x0 = x; }
+        if (x > x1) { x1 = x; }
+        if (y < y0) { y0 = y; }
+        if (y > y1) { y1 = y; }
+    }
+    return { pts, p2, box: [x0 - BIN_STREAM_PAD, y0 - BIN_STREAM_PAD,
+        x1 + BIN_STREAM_PAD, y1 + BIN_STREAM_PAD] };
+}
+
+/**
+ * The place at one point of the plane, into `out`: ten scalars, of which the
+ * live pass needs eight. Everything here is a function of position alone --
+ * the phases live in `live` -- which is what lets a place whose whole subject
+ * is material in motion still bake all of its geometry.
+ */
+function binarySample(bd, x, y, out) {
+    const d = bd.donor;
+    const c = bd.comp;
+    const dd = Math.hypot(x - d.x, y - d.y);
+    const cd = Math.hypot(x - c.x, y - c.y);
+    // Core plus halo, each with an 8-fold ray burst windowed close in. The
+    // `atan2` is the expensive part and the window is what bounds it.
+    let warm = Math.exp(-(dd / BIN_DONOR.core) * (dd / BIN_DONOR.core)) * BIN_DONOR.peak;
+    let halo = BIN_DONOR.halo / (1 + (dd / BIN_DONOR.hr) * (dd / BIN_DONOR.hr));
+    if (dd < BIN_DONOR_RAY[2] * 3) {
+        const w = Math.exp(-(dd / BIN_DONOR_RAY[2]) * (dd / BIN_DONOR_RAY[2]));
+        const s = Math.max(0, Math.sin(BIN_RAYS * Math.atan2(y - d.y, x - d.x) + BIN_DONOR_RAY[1]));
+        halo *= 1 + BIN_DONOR_RAY[0] * s * s * s * w;
+    }
+    warm += halo;
+    let cool = Math.exp(-(cd / BIN_COMP.core) * (cd / BIN_COMP.core)) * BIN_COMP.peak;
+    let chalo = BIN_COMP.halo / (1 + (cd / BIN_COMP.hr) * (cd / BIN_COMP.hr));
+    if (cd < BIN_COMP_RAY[2] * 3) {
+        const w = Math.exp(-(cd / BIN_COMP_RAY[2]) * (cd / BIN_COMP_RAY[2]));
+        const s = Math.max(0, Math.sin(BIN_RAYS * Math.atan2(y - c.y, x - c.x) + BIN_COMP_RAY[1]));
+        chalo *= 1 + BIN_COMP_RAY[0] * s * s * s * w;
+    }
+    cool += chalo;
+    // The shared plane. The radius is measured after the squash, so `R` is a
+    // distance in the sheet rather than on the screen.
+    const rx = x - bd.plane.x;
+    const ry = y - bd.plane.y;
+    const pu = rx * bd.plane.ct + ry * bd.plane.st;
+    const pv = (-rx * bd.plane.st + ry * bd.plane.ct) / BIN_PLANE.squash;
+    const R = Math.hypot(pu, pv);
+    const t0 = (R - BIN_RING[0]) / BIN_RING[1];
+    const t1 = (R - BIN_HAZE[0]) / BIN_HAZE[1];
+    const prof = Math.exp(-t0 * t0) * BIN_RING[2] + Math.exp(-t1 * t1) * BIN_HAZE[2];
+    out.dp = prof;
+    if (prof > BIN_PROF_MIN) {
+        out.dphi = Math.atan2(pv, pu);
+        out.dln = Math.log(Math.max(R, BIN_LN_MIN));
+    } else {
+        out.dp = 0;
+        out.dphi = 0;
+        out.dln = 0;
+    }
+    // Which star lights this pixel: 1 at the gold one, 0 at the blue one, and
+    // the changeover runs down the middle of the frame. That is the warm half
+    // and the cool half the whole composition is built on.
+    out.lit = (cd * cd) / (cd * cd + dd * dd + 1);
+    out.sw = 0;
+    out.st = 0;
+    const bx = bd.stream.box;
+    if (x > bx[0] && x < bx[2] && y > bx[1] && y < bx[3]) {
+        const pts = bd.stream.pts;
+        let best = Infinity;
+        let bt = 0;
+        for (let i = 0; i < pts.length; i += 3) {
+            const ex = x - pts[i];
+            const ey = y - pts[i + 1];
+            const q = ex * ex + ey * ey;
+            if (q < best) {
+                best = q;
+                bt = pts[i + 2];
+            }
+        }
+        const wdt = BIN_STREAM_W[0] - BIN_STREAM_W[1] * bt;
+        const u = Math.sqrt(best) / wdt;
+        out.sw = Math.exp(-u * u) * BIN_STREAM_A;
+        out.st = bt;
+    }
+    const hx = x - bd.stream.p2[0];
+    const hy = y - bd.stream.p2[1];
+    out.hs = Math.abs(hx) < BIN_HOT_PAD && Math.abs(hy) < BIN_HOT_PAD
+        ? Math.exp(-(hx * hx + hy * hy) / (BIN_HOT * BIN_HOT))
+        : 0;
+    out.warm = warm;
+    out.cool = cool;
+}
+
+/**
+ * One art pixel's pair of ramp values at a given set of phases, into `out`.
+ * The live pass and the bake both go through here, so there is one expression
+ * of the mix rather than two that have to be kept level with each other.
+ */
+function binaryMix(s, arm, flow, flick, breathe, out) {
+    const vd = s.dp * arm;
+    const vs = s.sw * flow;
+    const hv = s.hs * flick;
+    out.w = (s.warm * breathe + vd * s.lit * BIN_MIX.disc[0]
+        + vs * (1 - s.st) * BIN_MIX.stream + hv * BIN_MIX.hot[0]) * BIN_MIX.master;
+    out.c = (s.cool + vd * (1 - s.lit) * BIN_MIX.disc[1]
+        + vs * s.st * BIN_MIX.stream + hv * BIN_MIX.hot[1]) * BIN_MIX.master;
+}
+
+/**
+ * The rung and ramp one art pixel takes, given its two ramp values. Returned
+ * as `rung * 2 + isCool`, so the whole decision is one integer a caller can
+ * compare -- which is what the active-cell test needs.
+ */
+function binaryPick(bd, w, c, cx, cy) {
+    const tot = Math.min(1, w + c);
+    const j = (BAYER[((cy + BIN_SEAM_TAP[0]) & 3) * 4 + ((cx + BIN_SEAM_TAP[1]) & 3)] / 16 - 0.5)
+        * BIN_SEAM * tot;
+    const cool = c - w > j;
+    return artRung(bd, tot, cx, cy, cool ? bd.rgbAlt.length - 1 : BIN_GOLD_CAP) * 2
+        + (cool ? 1 : 0);
+}
+
+/**
+ * Whether an art pixel can ever change, over every phase the place reaches.
+ *
+ * The four periodic terms are independent sines, so their extremes are taken
+ * independently: that is a superset of the states the place actually visits,
+ * which costs a few cells that never move and can never miss one that does.
+ * Everything it excludes is a pixel the plate holds correctly forever -- and
+ * that is what turns a painter which re-quantises its whole arena every frame
+ * into one that touches a fifth of it.
+ */
+function binaryActive(bd, s, cx, cy) {
+    const lo = { w: 0, c: 0 };
+    const hi = { w: 0, c: 0 };
+    const fLo = 1 - BIN_FLICK_A * (BIN_FLICK[0][2] + BIN_FLICK[1][2]);
+    const fHi = 1 + BIN_FLICK_A * (BIN_FLICK[0][2] + BIN_FLICK[1][2]);
+    binaryMix(s, BIN_ARM[0], BIN_FLOW.base - BIN_FLOW.amp, fLo, 1 - BIN_BREATHE[1], lo);
+    binaryMix(s, BIN_ARM[0] + BIN_ARM[1], BIN_FLOW.base + BIN_FLOW.amp, fHi,
+        1 + BIN_BREATHE[1], hi);
+    // The two corners the ramp choice can flip between as well as the two the
+    // rung can: `w` high with `c` low is a different pick from both extremes.
+    return binaryPick(bd, lo.w, lo.c, cx, cy) !== binaryPick(bd, hi.w, hi.c, cx, cy)
+        || binaryPick(bd, hi.w, lo.c, cx, cy) !== binaryPick(bd, lo.w, hi.c, cx, cy)
+        || binaryPick(bd, lo.w, lo.c, cx, cy) !== binaryPick(bd, hi.w, lo.c, cx, cy);
+}
+
 const PAINTERS = {
     // Nothing at all: the engine star field is the whole sky. Still the
     // fallback for an entry whose `kind` does not resolve.
@@ -4809,25 +6083,203 @@ const PAINTERS = {
     },
 
     // Two stars locked together, with the gas bridge between them.
-    binary: {
-        paint(bd, g) {
-            const { a, b } = bd.p;
-            g.save();
-            g.globalCompositeOperation = "lighter";
-            const grd = g.createLinearGradient(bd.W * 0.22, -bd.H * 0.1, bd.W * 0.8, bd.H * 0.16);
-            grd.addColorStop(0, rgba(a, 0.22));
-            grd.addColorStop(0.5, rgba("#ffffff", 0.10));
-            grd.addColorStop(1, rgba(b, 0.22));
-            g.fillStyle = grd;
-            g.save();
-            g.translate(bd.W * 0.5, bd.H * 0.03);
-            g.rotate(0.16);
-            g.fillRect(-bd.W * 0.34, -34, bd.W * 0.68, 68);
-            g.restore();
-            g.restore();
-            sun(g, bd.W * 0.22, -bd.H * 0.1, 30, a);
-            sun(g, bd.W * 0.8, bd.H * 0.16, 20, b);
-            speckle(g, bd, 60, "#ffffff", 0.3);
+    /**
+     * BINARY SUNS. The fifteenth Direction A conversion, and the one where the
+     * study's recommendation costs the place a line of its own description.
+     *
+     * The companion was `#ff6b8a` -- literally one of the three colours the
+     * enemies fire in -- painted as a soft radial blob 40 px across, sitting
+     * still on black while real cores crossed it. It is blue-white now. The
+     * study argues the swap on physics as well (mass transfer runs from the
+     * evolved, swollen, cool star to the compact hot one, so a gold giant with
+     * a blue-white companion is the pairing that produces the stream the place
+     * is named for), and on composition: a warm half and a cool half meeting
+     * at the stream is a structure two warm blobs cannot have. The cost is
+     * real and worth stating -- at 130 px a red blob reads as a second sun and
+     * a blue-white point reads as a star and a spotlight -- and it is why the
+     * `desc` is rewritten in the same entry as the art.
+     *
+     * The other half of the fix is that nothing is clipped any more. The gold
+     * giant's old centre sat 54 px above the top edge, so half of what the
+     * place is called after was never in the frame; both stars are inside the
+     * arena now, at a size that survives the 130 px thumbnail.
+     *
+     * The sheet is ONE shared plane centred between the stars, not a ring
+     * around one of them: the radius is measured after the squash, so it reads
+     * as a tilted sheet running off every edge of the box. Which ramp a pixel
+     * takes is `d_blue^2 / (d_blue^2 + d_gold^2)`, and the changeover is
+     * dithered rather than drawn -- the two ramps otherwise meet on a hard
+     * vertical seam down the middle of the frame.
+     */
+    pixelBinary: {
+        init(bd) {
+            bd.aw = Math.max(1, Math.ceil(bd.w / ART_PIX));
+            bd.ah = Math.max(1, Math.ceil(bd.h / ART_PIX));
+            bd.donor = { x: bd.W * BIN_DONOR.cx, y: bd.H * BIN_DONOR.cy };
+            bd.comp = { x: bd.W * BIN_COMP.cx, y: bd.H * BIN_COMP.cy };
+            bd.plane = {
+                x: bd.W * BIN_PLANE.cx, y: bd.H * BIN_PLANE.cy,
+                ct: Math.cos(BIN_PLANE.tilt), st: Math.sin(BIN_PLANE.tilt),
+            };
+            bd.stream = binaryStream(bd);
+            bd.stars = starList(bd, BIN_STAR_SEED, BIN_STARS, BIN_STAR_A);
+            bd.sample = { warm: 0, cool: 0, dp: 0, dphi: 0, dln: 0, lit: 0, sw: 0, st: 0, hs: 0 };
+            bd.mixIn = { warm: 0, cool: 0, dp: 0, dphi: 0, dln: 0, lit: 0, sw: 0, st: 0, hs: 0 };
+            bd.mix = { w: 0, c: 0 };
+            // The cells `live` has to revisit, and the eight scalars each of
+            // them needs, packed to the list rather than kept per art pixel:
+            // ten Float32Arrays over the whole box would be 7.4 MB for a
+            // place that moves in a fifth of it.
+            bd.act = [];
+            bd.acc = [];
+        },
+        /**
+         * A point light is put out by whatever the sheet has in front of it.
+         * Recomputed rather than tabled: it is 520 samples against the 184,688
+         * the bake takes, and tabling it would cost more memory than the whole
+         * live pass uses.
+         */
+        occlude(bd, x, y) {
+            const s = bd.sample;
+            binarySample(bd, x, y, s);
+            return Math.min(1, BIN_OCCLUDE * (s.warm + s.cool + s.dp * 0.8 + s.sw));
+        },
+        /**
+         * The bake does its own quantise and returns the rung, because `live`
+         * has to reproduce it exactly for every cell it does NOT touch. It
+         * also decides, per pixel, whether the pixel can ever change -- and
+         * the cells that cannot are the plate, forever.
+         */
+        field(bd, x, y) {
+            const cx = clamp(Math.floor((x - bd.x0) / ART_PIX), 0, bd.aw - 1);
+            const cy = clamp(Math.floor((y - bd.y0) / ART_PIX), 0, bd.ah - 1);
+            const s = bd.sample;
+            binarySample(bd, x, y, s);
+            binaryMix(s, BIN_ARM[0] + BIN_ARM[1] * 0.5, BIN_FLOW.base, 1, 1, bd.mix);
+            const pick = binaryPick(bd, bd.mix.w, bd.mix.c, cx, cy);
+            if (binaryActive(bd, s, cx, cy)) {
+                bd.act.push(cy * bd.aw + cx);
+                bd.acc.push(s.warm, s.cool, s.dp, s.dphi, s.dln, s.lit, s.sw, s.st, s.hs);
+            }
+            return { flat: pick >> 1, rgb: pick & 1 ? bd.rgbAlt : bd.rgb };
+        },
+        /**
+         * Runs after the point lights go down, which is the only reason it is
+         * here: a star standing on a cell `live` repaints would be erased by
+         * it every frame, so the ones that do are copied into the overlay.
+         */
+        hard(bd) {
+            const n = bd.act.length;
+            const act = new Int32Array(bd.act);
+            const acc = new Float32Array(bd.acc);
+            bd.act = act;
+            bd.acc = acc;
+            const mask = new Uint8Array(bd.aw * bd.ah);
+            let x0 = bd.aw;
+            let y0 = bd.ah;
+            let x1 = -1;
+            let y1 = -1;
+            for (let i = 0; i < n; i++) {
+                const k = act[i];
+                mask[k] = 1;
+                const cx = k % bd.aw;
+                const cy = (k - cx) / bd.aw;
+                if (cx < x0) { x0 = cx; }
+                if (cx > x1) { x1 = cx; }
+                if (cy < y0) { y0 = cy; }
+                if (cy > y1) { y1 = cy; }
+            }
+            const cv = document.createElement("canvas");
+            cv.width = bd.aw;
+            cv.height = bd.ah;
+            const g = cv.getContext("2d");
+            const img = g.createImageData(bd.aw, bd.ah);
+            bd.surf = { cv, g, img, data: img.data, x0, y0, x1, y1 };
+            // The same decision `_bakeField` just made about each star, redone
+            // so the ones over the sheet can be put back on top of the overlay.
+            const ramp = rampRGB(starRamp(bd));
+            const pix = [];
+            for (const s of bd.stars) {
+                const a = s.a * (1 - PAINTERS.pixelBinary.occlude(bd, s.x, s.y));
+                if (a < 0.1) {
+                    continue;
+                }
+                const q = Math.round(clamp(a, 0, 1) * 3) / 3;
+                const col = q > 0.66 ? ramp[2] : q > 0.33 ? ramp[1] : ramp[0];
+                const sx = Math.floor((s.x - bd.x0) / ART_PIX);
+                const sy = Math.floor((s.y - bd.y0) / ART_PIX);
+                const w = s.big ? 2 : 1;
+                for (let r = sy; r < sy + w; r++) {
+                    for (let c = sx; c < sx + w; c++) {
+                        if (c < 0 || c >= bd.aw || r < 0 || r >= bd.ah || !mask[r * bd.aw + c]) {
+                            continue;
+                        }
+                        pix.push(r * bd.aw + c, col[0], col[1], col[2]);
+                    }
+                }
+            }
+            bd.starPix = new Int32Array(pix);
+        },
+        /**
+         * Four sines and a ramp choice per active art pixel, into an
+         * art-resolution overlay uploaded once. The place's subject is
+         * material in motion and the cheapest honest version of that is a
+         * phase term over a baked distance field: the stream's geometry, the
+         * sheet's arms and the hot spot's kernel are all baked, and only their
+         * brightness moves.
+         */
+        live(bd, g) {
+            const s = bd.surf;
+            const f = bd.t;
+            const flick = 1 + BIN_FLICK_A
+                * (BIN_FLICK[0][2] * Math.sin(f * BIN_FLICK[0][0] + BIN_FLICK[0][1])
+                    + BIN_FLICK[1][2] * Math.sin(f * BIN_FLICK[1][0] + BIN_FLICK[1][1]));
+            const breathe = 1 + BIN_BREATHE[1] * Math.sin(f * BIN_BREATHE[0]);
+            const spin = BIN_SPIN * f;
+            const act = bd.act;
+            const acc = bd.acc;
+            const m = bd.mixIn;
+            const mix = bd.mix;
+            const data = s.data;
+            const aw = bd.aw;
+            for (let i = 0; i < act.length; i++) {
+                const o = i * 9;
+                m.warm = acc[o];
+                m.cool = acc[o + 1];
+                m.dp = acc[o + 2];
+                m.lit = acc[o + 5];
+                m.sw = acc[o + 6];
+                m.st = acc[o + 7];
+                m.hs = acc[o + 8];
+                const sa = Math.sin(BIN_ARMS * (acc[o + 3] - spin) + BIN_PITCH * acc[o + 4]);
+                const arm = BIN_ARM[0] + BIN_ARM[1] * (sa > 0 ? sa * sa : 0);
+                const flow = BIN_FLOW.base + BIN_FLOW.amp
+                    * Math.sin(6.2832 * (m.st * BIN_FLOW.waves - f * BIN_FLOW.rate));
+                binaryMix(m, arm, flow, flick, breathe, mix);
+                const k = act[i];
+                const cx = k % aw;
+                const pick = binaryPick(bd, mix.w, mix.c, cx, (k - cx) / aw);
+                const col = (pick & 1 ? bd.rgbAlt : bd.rgb)[pick >> 1];
+                const p = k * 4;
+                data[p] = col[0];
+                data[p + 1] = col[1];
+                data[p + 2] = col[2];
+                data[p + 3] = 255;
+            }
+            const sp = bd.starPix;
+            for (let i = 0; i < sp.length; i += 4) {
+                const p = sp[i] * 4;
+                data[p] = sp[i + 1];
+                data[p + 1] = sp[i + 2];
+                data[p + 2] = sp[i + 3];
+                data[p + 3] = 255;
+            }
+            if (s.x1 < s.x0) {
+                return;
+            }
+            s.g.putImageData(s.img, 0, 0, s.x0, s.y0, s.x1 - s.x0 + 1, s.y1 - s.y0 + 1);
+            g.imageSmoothingEnabled = false;
+            g.drawImage(s.cv, bd.x0, bd.y0, bd.w, bd.h);
         },
     },
 
@@ -5488,31 +6940,135 @@ const PAINTERS = {
         },
     },
 
-    // A moon right below: craters and a hard horizon, no atmosphere.
-    moon: {
-        paint(bd, g) {
-            const top = bd.H * 0.62;
-            g.fillStyle = bd.p.base;
-            g.fillRect(bd.x0, top, bd.w, bd.y0 + bd.h - top);
-            for (let i = 0; i < 120; i++) {
-                const x = bd.x0 + bd.rng() * bd.w;
-                const y = top + bd.rng() * (bd.y0 + bd.h - top);
-                const r = 6 + bd.rng() * 46;
-                g.fillStyle = rgba(bd.p.hi, 0.1 + bd.rng() * 0.12);
-                g.beginPath();
-                g.arc(x, y, r, 0, 6.2832);
-                g.fill();
-                g.fillStyle = "rgba(0,0,0,0.18)";
-                g.beginPath();
-                g.arc(x - r * 0.2, y - r * 0.2, r * 0.8, 0, 6.2832);
-                g.fill();
+    /**
+     * LOW MOON ORBIT. Airless, so nothing here is soft: no haze over the
+     * distance, no glow around the impacts, and a horizon that is a decision
+     * per art pixel rather than a line anybody draws.
+     *
+     * One camera and one light hold the whole place together. A pixel `dy` art
+     * rows under the line looks at depth `z = f * h / dy`, so a crater of
+     * screen half-width `a` is exactly `a * dy / f` tall -- and that single
+     * rule is what makes 350 craters read as one ground plane receding rather
+     * than as ellipses of assorted flatness. The light never changes direction
+     * either, so a far rim, a near wall and a boulder's shadow all agree about
+     * where the sun is.
+     *
+     * The event is a rock arriving. There is no air, so it has no trail and no
+     * fire: it is painted in rung 0, the colour of the sky, and the only way
+     * it is ever seen is the baked stars it puts out on the way down. What
+     * happens at the ground is local and brief -- six frames of flash on lit
+     * ground, ejecta that all land, and a scar that stays for 2400 frames and
+     * fades a rung at a time.
+     */
+    pixelMoon: {
+        init(bd) {
+            bd.aw = Math.max(1, Math.ceil(bd.w / ART_PIX));
+            bd.ah = Math.max(1, Math.ceil(bd.h / ART_PIX));
+            bd.jag = mkNoise(MOON_JAG_SEED);
+            bd.hr = (bd.H * MOON_HORIZON - bd.y0) / ART_PIX;
+            bd.yh = new Float32Array(bd.aw);
+            for (let c = 0; c < bd.aw; c++) {
+                bd.yh[c] = moonHorizon(bd, c);
             }
-            const grd = g.createLinearGradient(0, top - 60, 0, top + 40);
-            grd.addColorStop(0, rgba(bd.p.hi, 0));
-            grd.addColorStop(1, rgba(bd.p.hi, 0.3));
-            g.fillStyle = grd;
-            g.fillRect(bd.x0, top - 60, bd.w, 100);
-            speckle(g, bd, 70, "#ffffff", 0.35);
+            moonSurface(bd);
+            bd.stars = starList(bd, MOON_STAR_SEED, MOON_STARS, MOON_STAR_A);
+            bd.scars = {};
+        },
+        /**
+         * No star stands in the ground, and none in the six art rows over the
+         * line either: the plain's own top rung is brighter than the whole
+         * star ramp, so a point light there reads as a speck on the ground
+         * rather than as a star behind it.
+         */
+        occlude(bd, x, y) {
+            const c = clamp(Math.floor((x - bd.x0) / ART_PIX), 0, bd.aw - 1);
+            return y >= bd.y0 + (bd.yh[c] - MOON_STAR_GAP) * ART_PIX ? 1 : 0;
+        },
+        field(bd, x, y) {
+            const i = clamp(Math.floor((y - bd.y0) / ART_PIX), 0, bd.ah - 1) * bd.aw
+                + clamp(Math.floor((x - bd.x0) / ART_PIX), 0, bd.aw - 1);
+            const r = bd.fixed[i];
+            // Sky, razor rim and boulders are pinned rungs with the dither
+            // bypassed. Everything else is the open plain, which is the only
+            // thing here the dither is allowed to touch.
+            return r === MOON_FREE ? { v: bd.tone[i] } : { flat: r };
+        },
+        /**
+         * The impact, and nothing else. Measured over 600 frames and counting
+         * the plate blit `Backdrop.draw` makes: **25 rasterising calls at the
+         * worst overlap and 9.1 on average**. The painter this replaces had no
+         * live layer at all, so every item has to pay for itself -- the scars
+         * because they postdate the bake, the stars because occlusion is the
+         * only way the rock is ever seen, and the flash and the ejecta because
+         * they move.
+         */
+        live(bd, g) {
+            const ramp = bd.p.ramp;
+            const land = bd.p.landRamp;
+            const flash = bd.p.flashRamp;
+            g.imageSmoothingEnabled = false;
+            for (const e of moonEvents(bd)) {
+                const a = e.age;
+                if (a >= 3) {
+                    // Four steps of 600 frames down `landRamp`, 7 to 4, and
+                    // then the event is over: `moonEvents` drops it at 2400.
+                    const rung = Math.max(4, 7 - Math.floor(a / MOON_STEP));
+                    g.drawImage(moonScar(bd, e, rung),
+                        bd.x0 + (Math.round(e.ix) - MOON_SCAR.cx) * ART_PIX,
+                        bd.y0 + (Math.round(e.iy) - MOON_SCAR.cy) * ART_PIX,
+                        MOON_SCAR.w * ART_PIX, MOON_SCAR.h * ART_PIX);
+                }
+                if (a > -MOON_FALL && a <= 0) {
+                    // The rock. Rung 0 on rung 0, so it is drawn nowhere: what
+                    // is drawn is the sky over the stars it is in front of.
+                    const p = 1 - -a / MOON_FALL;
+                    const rx = e.ix - MOON_ROCK_DRIFT * (1 - p);
+                    const ry = e.iy - (e.iy + MOON_ROCK_TOP) * (1 - p * p);
+                    g.fillStyle = ramp[0];
+                    for (const s of bd.stars) {
+                        const sc = Math.floor((s.x - bd.x0) / ART_PIX);
+                        const sr = Math.floor((s.y - bd.y0) / ART_PIX);
+                        const w = s.big ? 2 : 1;
+                        if (sc > rx - MOON_ROCK_R && sc < rx + MOON_ROCK_R + w
+                            && sr > ry - MOON_ROCK_R && sr < ry + MOON_ROCK_R + w) {
+                            moonRect(bd, g, sc, sr, w, w);
+                        }
+                    }
+                }
+                if (a >= 0 && a < MOON_FLASH_R.length) {
+                    // Six frames, 15x12 logical px at its peak. It lands on
+                    // lit ground, so it never has the dark surround a
+                    // bullet-sized bright thing needs to be mistaken for one.
+                    const k = Math.floor(a);
+                    const rr = MOON_FLASH_R[k];
+                    g.fillStyle = flash[k < MOON_FLASH_HOT ? 0 : 1];
+                    moonRect(bd, g, e.ix - rr, e.iy - rr * 0.5, rr * 2, Math.max(1, rr));
+                    g.fillStyle = flash[1];
+                    moonRect(bd, g, e.ix - rr - 1, e.iy - rr * 0.5 - 1, rr * 2 + 2, 1);
+                }
+                if (a >= 2 && a < MOON_EJECTA_LIFE) {
+                    // Ballistic under a gravity low enough to hang for 177
+                    // frames, and every grain two art pixels -- over the 1-4
+                    // logical px an enemy core is. They all land.
+                    const t = a - 2;
+                    for (let i = 0; i < MOON_EJECTA; i++) {
+                        const ang = -Math.PI / 2
+                            + (hash2(e.k, i * 7 + 1, MOON_EVENT_SEED) - 0.5) * MOON_CONE;
+                        const sp = MOON_EJECTA_V[0]
+                            + hash2(e.k, i * 17 + 2, MOON_EVENT_SEED) * MOON_EJECTA_V[1];
+                        const y = e.iy + Math.sin(ang) * sp * t + 0.5 * MOON_GRAV * t * t;
+                        if (y > e.iy + 0.5) {
+                            continue;
+                        }
+                        g.fillStyle = i % 4 === 0
+                            ? land[3]
+                            : land[Math.min(land.length - 1, 5 + (i % 2))];
+                        moonRect(bd, g,
+                            e.ix + Math.cos(ang) * sp * t * MOON_EJECTA_SPREAD, y,
+                            MOON_EJECTA_PX, MOON_EJECTA_PX);
+                    }
+                }
+            }
         },
     },
 
@@ -6307,6 +7863,204 @@ const PAINTERS = {
             }
         },
     },
+
+    /**
+     * PLANETARY NEBULA. A dying star, the shell it exhaled, and a light echo
+     * crossing the gas -- one object seen from outside, which is the thing the
+     * catalogue did not have. Every other cloud in it is weather you fly
+     * through; this one has a centre you can point at, an edge where it stops,
+     * and a flash that crosses it on a clock.
+     *
+     * It is radial rather than layered, and that is a different function
+     * (`shellSample`) rather than a parameterisation of `gasDensity`.
+     * Parameterising the layered one would have made this place a
+     * configuration of the violet nebula, which is the relationship it exists
+     * in order not to have -- and it would have put the violet nebula's own
+     * measured output at risk for nothing. What is shared is the lattice, the
+     * dither, the ramp machinery and the star system, which is the sharing
+     * that was wanted.
+     *
+     * The composition is built for the camera that ends the game. At normal
+     * zoom you are inside the rim and read a curve; when the camera pulls back
+     * for a colossus the curve closes into a ring, the cavity becomes the
+     * darkest large area in the frame, and the hull is silhouetted against it
+     * with the dust columns standing to either side rather than behind it.
+     */
+    pixelShell: {
+        init(bd) {
+            bd.aw = Math.max(1, Math.ceil(bd.w / ART_PIX));
+            bd.ah = Math.max(1, Math.ceil(bd.h / ART_PIX));
+            bd.n1 = mkNoise(SHELL_SEEDS[0]);
+            bd.n2 = mkNoise(SHELL_SEEDS[1]);
+            bd.n3 = mkNoise(SHELL_SEEDS[2]);
+            bd.n4 = mkNoise(SHELL_SEEDS[3]);
+            bd.n5 = mkNoise(SHELL_SEEDS[4]);
+            bd.cx = bd.W * 0.5;
+            bd.cy = bd.H * 0.5;
+            const last = bd.rgb.length - 1;
+            bd.cap = Math.min(bd.p.topRung === undefined ? last : bd.p.topRung, last);
+            const n = bd.aw * bd.ah;
+            // The tables `live` and `occlude` read back, filled by the bake as
+            // it walks. `base` and `gas` are bytes on `SHELL_Q` rather than
+            // floats: a cell's live rung is then computed from exactly the
+            // value its baked rung came from, so a cell the echo leaves alone
+            // can never be repainted one step off the plate.
+            bd.base = new Uint8Array(n);
+            bd.gasQ = new Uint8Array(n);
+            bd.rad = new Float32Array(n);
+            bd.rung = new Uint8Array(n);
+            bd.sample = { v: 0, fil: 0, r: 0, sil: 0 };
+            bd.stars = starList(bd, SHELL_STAR_SEED, SHELL_STARS, 0.24);
+            bd.twinkle = twinkleList(bd, SHELL_TWINKLE_SEED, 12);
+            const cv = document.createElement("canvas");
+            cv.width = bd.aw;
+            cv.height = bd.ah;
+            const g = cv.getContext("2d");
+            const img = g.createImageData(bd.aw, bd.ah);
+            // The echo is an overlay, not a repaint: transparent everywhere it
+            // changes nothing, so the plate under it is the bake itself.
+            bd.echo = { cv, g, img, data: img.data, px0: 0, py0: 0, px1: -1, py1: -1 };
+        },
+        occlude(bd, x, y) {
+            const i = clamp(Math.floor((y - bd.y0) / ART_PIX), 0, bd.ah - 1) * bd.aw
+                + clamp(Math.floor((x - bd.x0) / ART_PIX), 0, bd.aw - 1);
+            return bd.rung[i] >= SHELL_SIL
+                ? 1
+                : Math.min(1, (bd.gasQ[i] / SHELL_Q) * SHELL_OCCLUDE);
+        },
+        /**
+         * The one departure from the contract that costs anything: `field`
+         * fills four per-cell tables on its way past, so `live` can band-limit
+         * the echo without evaluating five noises again. It also does its own
+         * quantise and returns the rung rather than the value, which is what
+         * makes the plate and the tables one thing instead of two that have to
+         * agree.
+         */
+        field(bd, x, y) {
+            const cx = clamp(Math.floor((x - bd.x0) / ART_PIX), 0, bd.aw - 1);
+            const cy = clamp(Math.floor((y - bd.y0) / ART_PIX), 0, bd.ah - 1);
+            const i = cy * bd.aw + cx;
+            const s = bd.sample;
+            shellSample(bd, x - bd.cx, y - bd.cy, s);
+            bd.rad[i] = s.r;
+            if (s.sil) {
+                // A column or the bank: `landRamp`, and it never enters the
+                // dither, so its ragged edge is a full step at every pixel.
+                bd.rung[i] = SHELL_SIL + s.sil - 1;
+                return { flat: s.sil - 1, rgb: bd.rgbAlt };
+            }
+            bd.gasQ[i] = clamp(Math.round(s.v * SHELL_Q), 0, 255);
+            // The core is read back off the stored radius rather than the
+            // exact one, so the pulse in `live` starts from the value the bake
+            // actually used.
+            const core = Math.exp(-Math.pow(bd.rad[i] / SHELL_CORE_W, 2));
+            bd.base[i] = clamp(Math.round((bd.gasQ[i] / SHELL_Q
+                + SHELL_FIL_A * s.fil + SHELL_CORE_A * core) * SHELL_Q), 0, 255);
+            bd.rung[i] = artRung(bd, bd.base[i] / SHELL_Q, cx, cy, bd.cap);
+            return { flat: bd.rung[i] };
+        },
+        update: breathe,
+        /**
+         * Three things, and each had to be here: the echo band, because its
+         * brightness depends on the frame; the central source's pulse, same;
+         * and the twinkle, which is the file's own baseline.
+         *
+         * The pass walks a rect rather than the lattice. The map from screen
+         * to shell space never expands a distance, so a cell whose shell
+         * radius is R is at most R from the centre on screen -- one bound
+         * covers the whole annulus, and for the 277 dark frames of the cycle
+         * it shrinks to the cavity. What it writes is an art-pixel overlay
+         * with a dirty rect: one upload and one blit, whatever the front is
+         * doing.
+         */
+        live(bd, g) {
+            const s = bd.echo;
+            const aw = bd.aw;
+            const front = shellFront(bd.t);
+            const pulse = SHELL_PULSE[0] * Math.sin((bd.t * 6.2832) / SHELL_PULSE[1]);
+            const reach = front > 0 ? front + SHELL_BAND + SHELL_WARP_MAX : SHELL_CORE_R;
+            const rp = reach / ART_PIX;
+            const ccx = (bd.cx + SHELL_C[0] - bd.x0) / ART_PIX;
+            const ccy = (bd.cy + SHELL_C[1] - bd.y0) / ART_PIX;
+            const bx0 = clamp(Math.floor(ccx - rp), 0, aw - 1);
+            const bx1 = clamp(Math.ceil(ccx + rp), 0, aw - 1);
+            const by0 = clamp(Math.floor(ccy - rp), 0, bd.ah - 1);
+            const by1 = clamp(Math.ceil(ccy + rp), 0, bd.ah - 1);
+            // What the last frame wrote has to stop showing before this one
+            // decides what it writes.
+            if (s.px1 >= s.px0) {
+                for (let cy = s.py0; cy <= s.py1; cy++) {
+                    s.data.fill(0, (cy * aw + s.px0) * 4, (cy * aw + s.px1 + 1) * 4);
+                }
+            }
+            let dx0 = aw;
+            let dy0 = bd.ah;
+            let dx1 = -1;
+            let dy1 = -1;
+            for (let cy = by0; cy <= by1; cy++) {
+                const row = cy * aw;
+                for (let cx = bx0; cx <= bx1; cx++) {
+                    const i = row + cx;
+                    if (bd.rung[i] >= SHELL_SIL) {
+                        continue;
+                    }
+                    const r = bd.rad[i];
+                    const dr = r - front;
+                    const lit = front > 0 && dr > -SHELL_BAND && dr < SHELL_BAND;
+                    const hot = r < SHELL_CORE_R;
+                    if (!lit && !hot) {
+                        continue;
+                    }
+                    let v = bd.base[i] / SHELL_Q;
+                    if (hot) {
+                        v += SHELL_CORE_A * Math.exp(-Math.pow(r / SHELL_CORE_W, 2)) * pulse;
+                    }
+                    if (lit) {
+                        // Only gas that already has structure brightens, so the
+                        // front reveals the shells in sequence rather than
+                        // washing over the field.
+                        const t = dr / SHELL_SIGMA;
+                        v += SHELL_ECHO_A * Math.exp(-t * t)
+                            * Math.min(1, (bd.gasQ[i] / SHELL_Q) * SHELL_GATE);
+                    }
+                    const k = artRung(bd, v, cx, cy, bd.cap);
+                    if (k === bd.rung[i]) {
+                        continue;
+                    }
+                    const col = bd.rgb[k];
+                    const o = i * 4;
+                    s.data[o] = col[0];
+                    s.data[o + 1] = col[1];
+                    s.data[o + 2] = col[2];
+                    s.data[o + 3] = 255;
+                    if (cx < dx0) { dx0 = cx; }
+                    if (cx > dx1) { dx1 = cx; }
+                    if (cy < dy0) { dy0 = cy; }
+                    if (cy > dy1) { dy1 = cy; }
+                }
+            }
+            let ux0 = dx0;
+            let uy0 = dy0;
+            let ux1 = dx1;
+            let uy1 = dy1;
+            if (s.px1 >= s.px0) {
+                ux0 = Math.min(ux0, s.px0);
+                uy0 = Math.min(uy0, s.py0);
+                ux1 = Math.max(ux1, s.px1);
+                uy1 = Math.max(uy1, s.py1);
+            }
+            if (ux1 >= ux0 && uy1 >= uy0) {
+                s.g.putImageData(s.img, 0, 0, ux0, uy0, ux1 - ux0 + 1, uy1 - uy0 + 1);
+                g.imageSmoothingEnabled = false;
+                g.drawImage(s.cv, bd.x0, bd.y0, bd.w, bd.h);
+            }
+            s.px0 = dx0;
+            s.py0 = dy0;
+            s.px1 = dx1;
+            s.py1 = dy1;
+            twinkles(bd, g);
+        },
+    },
 };
 
 /**
@@ -6671,8 +8425,20 @@ export const BACKGROUNDS = [
         desc: "Charged particles hitting a magnetosphere. Curtains of green and cyan lean and swing across the whole sky, their rays flaring and dying twice a second, and the stars burn straight through them.",
     },
     {
-        id: "moon", name: "LOW MOON ORBIT", tint: "#d6d2c8", kind: "moon",
-        p: { base: "#1b1c26", hi: "#c8c4b8" },
+        id: "moon", name: "LOW MOON ORBIT", tint: "#d6d2c8", kind: "pixelMoon",
+        // The study's own four ramps, taken as they stand: it measured its
+        // point lights (top rung luminance 146 against the detector's 158) and
+        // its flash instead of asserting them. `flashRamp` is the one thing it
+        // asks for that did not exist -- and it is not a contract change, only
+        // a key in this entry's own `p`, the way MOLTEN WORLD carries a
+        // `flowRamp` and AURORA a `dustRamp`.
+        p: {
+            veil: 14, topRung: 6,
+            ramp: ["#0a0b10", "#16202a", "#24323d", "#354853", "#47606b", "#5c7a85", "#7896a0", "#9db9c0"],
+            landRamp: ["#1b1c26", "#2b2c34", "#3e4048", "#54555d", "#6d6e74", "#8b8b8f", "#a9a8a4", "#c8c4b8"],
+            starRamp: ["#39434b", "#57666e", "#84959c"],
+            flashRamp: ["#c9d6d6", "#93a5a8"],
+        },
         desc: "Low over an airless moon: craters below and a hard horizon, with no atmosphere to soften the edge.",
     },
     {
@@ -6686,9 +8452,30 @@ export const BACKGROUNDS = [
         desc: "Green haze over a canopy, with spores rising through the cloud bands.",
     },
     {
-        id: "binary", name: "BINARY SUNS", tint: "#ffd66b", kind: "binary",
-        p: { a: "#ffd66b", b: "#ff6b8a" },
-        desc: "Two stars locked together, a gold one above and a small red one below, with the gas bridge streaming between them.",
+        id: "binary", name: "BINARY SUNS", tint: "#ffd66b", kind: "pixelBinary",
+        // Two ramps, and this is the documented two-ramp mechanism rather than
+        // one ramp widened: no rung is spent bridging gold to blue. The gold
+        // one stops at 6 -- a 9 px block of its rung 7 measures mean R over
+        // 1.12x mean B on a dark surround, the same failure COMET TRAIL's core
+        // took -- and the cool one keeps all eight, being nowhere near the
+        // palette the enemies fire in. `topRung` is the cool cap; the gold cap
+        // is per sample, because one number cannot hold two ramps.
+        p: {
+            veil: 13, topRung: 7,
+            ramp: ["#0a0a10", "#241a12", "#45301a", "#6b4720", "#966228", "#bd8236", "#dda94c", "#ffd66b"],
+            landRamp: ["#0a0a10", "#121a2a", "#1c2c48", "#2a4570", "#3d639b", "#5a86c4", "#86ade0", "#c6dcf8"],
+            // The study's own cool blue-grey, two steps down. Its hue is right
+            // for the reason every star ramp here is chosen -- a warm point
+            // light is a bullet -- but #a9bcd6 and #e8f1ff measure luminance
+            // 0.73 and 0.94 against the detector's 0.62, and the ~115 of the
+            // 520 that land inside the arena were 3-6 px near-white blocks on
+            // black. Every rung under the threshold instead. Measured at veil
+            // 13: 129 small bright features to 0, and with the ramp blacked
+            // out entirely the place already read 0 -- so the stars were all
+            // of it, and none of the art was.
+            starRamp: ["#4c5870", "#6a7a96", "#879ab8"],
+        },
+        desc: "A swollen gold star pouring gas onto a small blue-white companion, where it winds into a spinning disc that burns brightest where the stream lands.",
     },
     {
         id: "station", name: "ORBITAL STATION", tint: "#9fd4ff", kind: "station",
@@ -6729,6 +8516,47 @@ export const BACKGROUNDS = [
         id: "wormhole", name: "WORMHOLE", tint: "#c9a4ff", kind: "wormhole",
         p: { c1: "#c9a4ff", c2: "#5ee1ff" },
         desc: "The mouth of a tunnel, straight ahead. Rings of light rush out of it, each one turning against the one before it.",
+    },
+    {
+        id: "nebula_shell", name: "PLANETARY NEBULA", tint: "#7bffb0", kind: "pixelShell",
+        // The whole ramp holds hue 150-165 and never enters the 0-40 band the
+        // enemies fire in, so hue is not what the cap is for here. `topRung` 6
+        // is the study's own gas cap and rung 7 goes unspent: the sheet
+        // reserves #c8fff0 for the central source, but its own painter caps
+        // every cell at 6 and never reaches it, and a 9 px block of luminance
+        // 0.95 is precisely the small bright feature the measurement forbids.
+        //
+        // Rung 6 is #5cdc9c and not the study's #7bffb0. That one hex is the
+        // only thing in the palette that had to move, and it is brightness
+        // rather than hue: #7bffb0 is linear luminance 0.789 against an enemy
+        // core's 0.547, and the echo's job is to promote a long arc of the rim
+        // to the top gas rung at once. Measured over one 720-frame cycle, the
+        // share of the arena brighter than an enemy core peaked at **9.08%**,
+        // against 0.00% for every other place in the catalogue and 1.58% for
+        // LAVA WORLD's flow, which is the hottest thing in it. Dropping the
+        // echo's own amplitude does not reach it -- 0.15 instead of 0.45 still
+        // peaks at 3.49% -- because the ramp's last step is a leap (0.331 to
+        // 0.789) rather than a step, so anything that touches rung 6 at all
+        // lands there. #5cdc9c is 0.559, the same luminance AURORA's own top
+        // used rung already ships at, and it takes both the quiet field and
+        // the crossing to **0.00%** while leaving the ring its brightest arc.
+        p: {
+            veil: 9, topRung: 6,
+            ramp: ["#041310", "#07241c", "#0a3a2c", "#0f5a42", "#18815c", "#2bb07f", "#5cdc9c", "#c8fff0"],
+            // Two rungs, and the painter uses both: the third is the sheet's
+            // published palette, kept so the entry reads as the study wrote it.
+            landRamp: ["#02090c", "#04121a", "#08222a"],
+            // The study's own cyan-blue, held two steps down. Its hue was
+            // chosen for the right reason -- a warm star reads as a bullet --
+            // but its top rung is #eafcff at luminance 0.97, and 24 of the 190
+            // baked stars then came out as 3 px near-white blocks on black
+            // sky, which is the other half of what a bullet looks like. Every
+            // rung is under the detector's own 0.62 instead, so the count
+            // stops depending on how the brightness is shared out. Measured:
+            // 28 small bright features to 0, at every veil from 0 to 12.
+            starRamp: ["#275a6a", "#43808f", "#66a3b4"],
+        },
+        desc: "A dying star's exhaled shell, lit from the inside out: concentric rings of ionised oxygen, dust columns standing against them, and a flash of light crossing the gas every few seconds.",
     },
 ];
 
