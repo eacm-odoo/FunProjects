@@ -1147,6 +1147,210 @@
  * docked at the hub, another leaving. The bitterness is the game's, not the
  * art's -- the lights are on, somebody is home, and they fire on you anyway.
  *
+ * -------------------------------------------------------------------------
+ * SUPERNOVA, Direction A (2026-08-31)
+ * -------------------------------------------------------------------------
+ * The place the file's own veil comment named as one of the offenders. It was
+ * three concentric rings expanding at 900 px a cycle out of a flickering core,
+ * in the enemy-fire hues -- an entry whose `desc` ended by apologising for it.
+ * The study replaces the reading rather than recolouring it: a shell thrown
+ * outward and lopsided, its centre just outside the arena's lower-left corner,
+ * so no complete arc is ever in the frame. 34 filament strands, 12 spokes and
+ * an edge-on sheet layer are decided per art pixel as a HARD THRESHOLD -- open
+ * arcs, no two sharing a centre, ragged at every scale down to the art pixel,
+ * and with zero radial rate. The only smooth arc with a radial velocity left
+ * on screen is the boss's attack, which is what makes the two unconfusable.
+ *
+ * Nothing moves. The one live term is a light echo: a Gaussian front sliding
+ * outward along the shock at 0.45 px a frame, lifting the DUST it crosses by a
+ * quarter of the ramp and touching neither the filaments nor the stars. What
+ * travels is which dust is lit. Two fronts half a period apart so the layer is
+ * never idle, both pure in the frame counter, so there is no `update`.
+ *
+ * The palette went cool on the study's recommendation, checked here against
+ * the thing it could not check: the neighbours. DESERT WORLD (#e8c07a) is in
+ * front, CRYSTAL FIELD after it and ECLIPSE and GALACTIC CORE three places
+ * later, so waves 61-78 do not flatten into one teal stretch. The tint moves
+ * with it, #ff8f5e to #3fb9a6.
+ *
+ * Departures from the study, and why:
+ *   1. `live` writes an OVERLAY, not the baked plate. The study's own port
+ *      note names re-quantising the plate in place as its departure; here the
+ *      plate stays the unlit truth and the lane is cleared and repainted, so a
+ *      pixel the front has left cannot keep a rung it picked up -- which the
+ *      in-place version can, for any pixel that flips within the envelope's
+ *      tail and is then never revisited. Costs one `drawImage` a frame; the
+ *      place runs at 2 rasterising calls against the old painter's 21.
+ *   2. Three numbers RE-SOLVED against this file's noise generator, which is
+ *      not the study's. `SN_DUST.span` (0.30 -> 0.21): the study's cut needs
+ *      the field to reach 0.86 and this one tops out at 0.842, so the dust
+ *      plateau the sheet describes was unreachable and the haze never left
+ *      rung 0. `SN_SIL` (0.40/0.52 -> 0.30/0.50): the top rung reached 0.6% of
+ *      the arena against the "few per cent" the sheet measures. `SN_STAR_A`
+ *      (the shared 0.24 -> 0.06): `_bakeField` buckets a star by
+ *      `round(a * 3) / 3`, so 0.24 puts half the field on the top rung where
+ *      the study's is 12%.
+ *   3. The star ramp's top is #8fa0a6, not the study's #dfe6ff. That one is
+ *      luminance 220 and it FAILS this catalogue's own small-bright-feature
+ *      detector -- 13 of them in the arena, which is 13 more than any
+ *      converted place is allowed. The study only ever tested its stars for
+ *      hue. Every other place's top star sits at 152-165; this is 157.
+ *   4. The drift is not quantised to the lattice. The study asks for the
+ *      offset to be rounded so the dither is never resampled; the engine
+ *      drifts all 28 places together on one sine and the other 22 quantised
+ *      places already live with it, so a per-place exception here would be a
+ *      bigger defect than the one it fixes. Same reasoning as departure 3 of
+ *      the places 1-5 study.
+ *   5. The sheet's own published cycle -- 1780 frames, a 1.8-unit swing in
+ *      arena mean -- is not reproducible from the constants it ships: at rate
+ *      0.45 and pad 2.2 x 240 the period cannot fall below 2347 whatever the
+ *      dust does. Sixth study whose headline its own code rejects. The period
+ *      here is derived the way its code derives it (3700 frames, 61 s) and the
+ *      place is placed against the catalogue instead, which is measurable.
+ *   6. Prose against code, twice more: the sheet says 14 spokes and a 200 px
+ *      echo envelope, its code ships 12 and 240. The code is what its measured
+ *      figures were taken on, so the code wins.
+ *
+ * Measured on the composed 680x540 arena at frame 1500, and over a whole
+ * 3700-frame echo cycle: **0 small bright features** at veil 0 and at veil 11,
+ * **0.000% of the arena warm above luminance 140 and 0.000% above 40** --
+ * which is the palette result, against RINGED GIANT's 31.8% and BINARY SUNS'
+ * 12.0% on the same meter. Arena mean 24.3 unveiled, 22.0 veiled, which puts
+ * the place between INNER SYSTEM and MOLTEN WORLD rather than at either end.
+ * Frame-to-frame change in arena mean luminance: 0.052 of 255 on average and
+ * 0.104 at peak, i.e. 0.04% a frame, against a place that used to flicker a
+ * 380 px core at 3.9 Hz. The live pass visits 45k art pixels a frame out of
+ * 180k and repaints far fewer. See `tools/neon_strike_bench/probe_supernova.mjs`
+ * and `probe_family.mjs`, the latter being the whole catalogue on one meter.
+ *
+ * -------------------------------------------------------------------------
+ * ECLIPSE, Direction A (2026-08-31)
+ * -------------------------------------------------------------------------
+ * The last user of the shared soft `planet` painter, so that painter, its
+ * `surface()` helper and `sun()` are deleted with it -- nothing else called
+ * any of the three.
+ *
+ * The study's answer to "which moment" is that they are the same moment at
+ * different times, so the place PLAYS the eclipse instead of freezing it: the
+ * star crosses behind the disc over one pass, putting first contact, the
+ * diamond ring, totality, the second diamond ring and last contact in it.
+ * Totality is the middle 56% of the pass -- solved numerically from the chord
+ * here, not taken on trust, and it comes out at exactly the sheet's 0.56.
+ *
+ * Nothing bakes. Every rung the place lights is a function of where the star
+ * is, and past 1.95 R the haze is under a thousandth of one, so the plate is
+ * flat rung 0 plus the star field and the whole of the art is one annulus
+ * re-baked into an overlay every tenth frame. Inside the disc: nothing, and
+ * `occlude` returns 1 across it -- a silhouette that let stars through would
+ * read as glass.
+ *
+ * Departures from the study, and why:
+ *   1. The pass starts at p = 0.60, not at first contact. The study assumes a
+ *      free-running frame counter; here `bd.t` is zero every time the block
+ *      begins, and three waves is 1800-3000 frames of a 10800 frame pass -- so
+ *      starting at 0 would have shown the player the entry partial, every
+ *      time, and never the totality the glossary line describes. 0.60 opens
+ *      inside totality, brings the second diamond ring in at frame 1944 and
+ *      the exit partial after it, and puts `backdropThumb`'s frame 1500 in
+ *      late totality, which is what the catalogue card should show.
+ *   2. Over the ring's solid bands the streamer takes the BRIGHTER of the two
+ *      rather than adding to it. Added -- which is what the study ships -- it
+ *      puts a per-cell brightness variation on exactly the bands that are
+ *      snapped to exact rungs to keep the dither off them, and just inside the
+ *      contacts, where a streamer is still short enough to sit entirely inside
+ *      the ring, that variation breaks the bright arc into cell-sized chips:
+ *      four small bright features measured at p = 0.235. The study's own
+ *      thirteen sample points step over that window.
+ *   3. The star field's top rung is #989dae, not the study's #dfe6ff. Same
+ *      call as SUPERNOVA's: that one is luminance 230 and fails this
+ *      catalogue's detector. The study only ever tested its stars for hue --
+ *      correctly, since a warm point light here would be the eclipsed star
+ *      itself, which is behind the disc.
+ *   4. The drift is not quantised to the lattice, for the same reason as
+ *      SUPERNOVA's departure 4: one sine drifts all 28 places together.
+ *   5. `live` re-bakes on `floor(t / 10) * 10` rather than on `f % 10 === 0`.
+ *      The engine's clock is scaled -- slow motion, hitstop -- so `bd.t` is
+ *      not an integer, and a modulo test would almost never fire. Quantising
+ *      the PHASE instead keeps what is on screen a pure function of the
+ *      counter, which is what two clients in a co-op match need.
+ *   6. The glossary line gains the study's own optional clause, "once it lines
+ *      up", because the transit ships: the entry now shows a partial phase 44%
+ *      of the time and the line has to cover it.
+ *
+ * Measured on the composed 680x540 arena at thirteen points across the pass:
+ * **0 small bright features at ten of them and 1 at the other three**, and
+ * that one is the brightest 90 px of the limb arc curving inside a 40 px box
+ * -- the subject of the place, not a speck. **0.000% of the arena warm above
+ * luminance 140 at every phase.** Arena mean 12.5 of 255 at totality against
+ * the sheet's 11.9, which makes this the darkest place in the catalogue after
+ * SHIP GRAVEYARD, CRYSTAL FIELD and DEEP SPACE -- and is why the veil is 0.
+ * 2 rasterising calls a frame, on a re-bake frame and between them alike.
+ * See `tools/neon_strike_bench/probe_eclipse.mjs`.
+ *
+ * -------------------------------------------------------------------------
+ * WORMHOLE, Direction A (2026-08-31)
+ * -------------------------------------------------------------------------
+ * The place that measured WORST on the small-bright-feature detector of all
+ * 28: sixteen. It was concentric rings rushing outward from a bright centre at
+ * 5.05 features a second -- ripples on a pond, in the shape and the cadence of
+ * the boss's shockwave.
+ *
+ * The study inverts all three things that make a ring on screen read as
+ * something that will hit you. The mouth is a PLANE at a squash, mapped per
+ * art pixel, and depth is the log of the plane radius -- so equal steps in
+ * depth are equal steps in `u = ln r` and the perspective compression is one
+ * constant, 0.46 in u, a radius ratio of 1.58 a turn. The features move INWARD
+ * and shrink, their spacing tightens ahead of them, and they arrive at 1.2 a
+ * second onto a 26 px region instead of sweeping outward across 680 px of play
+ * field. Nothing pulses: the light is one continuous crest sliding along the
+ * rib phase, so every art pixel is always somewhere on the crest and the eye
+ * sees a spiral winding into the core rather than a ring arriving.
+ *
+ * Departures from the study, and why:
+ *   1. The walls stop at rung 5, not the study's 6. Rung 6 is #9ad6f2 at
+ *      luminance 203, brighter than anything else this catalogue paints on a
+ *      dark field, and the dither scatters single top-rung art pixels through
+ *      the throat -- three of them measured as small bright features, and 3 px
+ *      of pale cyan on dark is a bullet. Cyan and white belong to the core
+ *      now, which is also what the study's own palette note says the ramp is
+ *      for: violet at the mouth's rim, cold and then hot toward the middle.
+ *      The study measured this place for hue and for frame-to-frame change,
+ *      both of which it passes, and never for luminance on a dark surround.
+ *   2. The star field's top rung is #979ead, not #dfe9ff -- luminance 232, and
+ *      the same call as SUPERNOVA's and ECLIPSE's.
+ *   3. Its departure 3 does not exist here. It asks for a per-zoom re-bake
+ *      because lambda, the core radius and the vignette knee are functions of
+ *      the camera; in this file the painter draws over the whole box the
+ *      camera can REACH, once, in logical coordinates, and the colossus camera
+ *      just crops less of it. So there is no invalidation and no cache. What
+ *      is inherited instead is the cost: the ribs are a third tighter on
+ *      screen while the camera is pulled back, the same as every other place.
+ *   4. Its departure 2 shrinks. Three baked scalars per art pixel over the
+ *      whole box would be 2.2 MB; the vignette cannot reach a rung past 2.42
+ *      sigmas, so the live list is the ELLIPSE and not the box -- 79k art
+ *      pixels of 185k -- and the phases are baked already folded (`vg * wall`,
+ *      the striation phase, the rib phase) so it is five arrays over 79k, 1.6
+ *      MB, and the frame does two table lookups and eight flops on each.
+ *   5. The drift is not quantised to the lattice. Same reason as the other two
+ *      ports in this pass.
+ *
+ * Measured on the composed 680x540 arena at veil 6: **0 small bright features,
+ * down from 16.** Mean frame-to-frame luminance change 0.156 of 100 against
+ * the sheet's 0.19 and peak 0.227 against its 0.28, both on the arena with the
+ * scrim on -- the sheet's own numbers, reproduced. Peak contrast 86.1 against
+ * its 91.6, the difference being departure 1. Arena mean 17.1 of 255. 2
+ * rasterising calls a frame against the old painter's 14 stroked ellipses and
+ * their transforms, and the live pass touches a fixed 404 x 250 art-pixel
+ * rectangle. See `tools/neon_strike_bench/probe_wormhole.mjs`.
+ *
+ * One thing worth an owner's eye rather than a meter: GALACTIC CORE is the
+ * entry immediately before this one, and a two-armed spiral crowding toward a
+ * bright middle is not a thousand miles from a galaxy seen face on. They are
+ * far apart in hue (gold against violet), in edge (soft blobs against hard
+ * quantised ribs) and in structure (arms spreading out against ribs crowding
+ * in), and the two `desc` lines say different things -- but waves 76-81 do put
+ * them back to back.
+ *
  */
 
 // The static layer is soft gradient art, so half resolution is free quality.
@@ -1155,10 +1359,12 @@ const LAYER_SCALE = 0.5;
 // baked box is this much taller on each side so the edge never shows.
 const DRIFT = 14;
 // Veil between the backdrop and the play field, for the places still painted
-// the old way. Twelve of the 28 are still on it, and about half of those
-// (supernova, graveyard, crystal...) paint in the same warm reds and the same
-// 1-3 px motes the enemy bullets use, adding up in `lighter` until a bullet is
-// indistinguishable from scenery. One flat number fixes those and flattens the
+// the old way. SEVEN of the 28 are still on it -- it was twelve before
+// SUPERNOVA, ECLIPSE and WORMHOLE were converted, and those three took the
+// worst of the offenders with them -- and the ones left (graveyard, crystal,
+// galaxy...) paint in the same warm reds and the same 1-3 px motes the enemy
+// bullets use, adding up in `lighter` until a bullet is indistinguishable from
+// scenery. One flat number fixes those and flattens the
 // rest, which is why a Direction A place carries its own `p.veil` instead --
 // see `bgScrim`. The place this was invented for is no longer one of them, and
 // what it measured on the way out is worth keeping: MOLTEN WORLD's warm-feature
@@ -2341,6 +2547,269 @@ const STATION_STAR_A = 0.24;
 // as a speck of noise in the dust rather than as a star behind it.
 const STATION_STAR_LIT = 30;
 
+/* -- SUPERNOVA ------------------------------------------------------------ */
+
+// The remnant's centre, just outside the arena's lower-left corner. The shell
+// is mostly outside the play field: what reaches it is the upper-left quadrant
+// and no complete arc ever crosses the frame, which is the whole reason this
+// place cannot be read as the boss shockwave. `cx` is a fraction of the
+// arena's width and the rest of its height -- the split INNER SYSTEM and LOW
+// MOON ORBIT already use, because only the short side is a fixed size.
+const SN_C = { cx: 0.0809, cy: 1.0148 };
+const SN_R = 0.8796;
+// The shell is a tenth flatter than it is wide.
+const SN_ELL = 1.1;
+// Where the shock ploughs into denser medium: up and to the right of the
+// centre, which lands in the arena's left half. Filament brightness, dust
+// density, the Halpha band and the echo's direction of travel are all measured
+// from this bearing, and that is why the bright region is off-centre instead of
+// the middle being bright. `gain` is base, span and the cosine's power.
+const SN_SHOCK = -0.95;
+const SN_GAIN = [0.55, 0.85, 1.5];
+
+// 34 filament strands, 22 of them clustered on the rim and 12 inside it. No two
+// share a centre and none of the arcs closes: `arc` is the half-width in
+// radians (5-26 degrees), `off` scatters the centre as a fraction of R, `amp`
+// is the radial noise on the angle and `th` the Gaussian half-thickness in
+// LOGICAL px -- that one is absolute because it is measured against the 3 px
+// lattice and not against the shell.
+const SN_STRANDS = 34;
+const SN_RIM_N = 22;
+const SN_STRAND_SEED = 64066;
+const SN_RIM_STRAND = {
+    rad: [0.9, 0.17], off: [0.1095, 0.08], th: [1.7, 2.4],
+    arc: [0.09, 0.36], amp: [0.0337, 0.0674], br: [0.82, 0.18], spread: 1.3,
+};
+const SN_IN_STRAND = {
+    rad: [0.46, 0.44], off: [0.2421, 0.1768], th: [2.2, 3.2],
+    arc: [0.12, 0.3], amp: [0.0505, 0.0926], br: [0.45, 0.4], spread: 1.55,
+};
+// Lopsided by construction: r(theta) = R * (1 + 0.20 sin(theta + ph) + 0.09
+// sin(2 theta - ph)), before the noise term.
+const SN_STRAND_LOBE = [0.2, 0.09];
+const SN_STRAND_NOISE = 9;
+// The radial filaments. The same silhouette test elongated along r, with the
+// angle wobbling as the radius climbs so a spoke is not a drawn line.
+const SN_SPOKE_SEED = 65066;
+const SN_SPOKE = {
+    n: 12, spread: 1.3, r0: [0.3, 0.3], r1: [0.88, 0.4], th: [1.7, 2.8],
+    br: [0.55, 0.45], wob: [0.022, 0.13], fade: [70, 110], pad: 40,
+};
+// The breakup: two low-frequency fields that vary a strand's brightness along
+// its length and a knot field that beads it, so no strand runs solid for more
+// than about 8 degrees of arc. `[scale, cut, gain]` for the knot.
+const SN_BREAK_A = 0.026;
+const SN_BREAK_B = 0.03;
+const SN_KNOT = [0.055, 0.36, 2.7];
+const SN_FIL_MIX = [0.22, 1.02, 0.26, 0.9];
+const SN_SPOKE_MIX = [0.3, 1, 0.3, 0.85];
+// Fine sheets seen edge-on: ridged noise confined to the shell annulus, at
+// `at` of R with width `w`, cut at `cut` over `span`.
+const SN_FINE = { at: 0.97, w: 0.16, scale: 0.021, cut: 0.74, span: 0.2, a: 0.7 };
+// The silhouette is DECIDED here, not stroked: over `cut` a pixel is filament
+// and takes `floor` plus `gain` of the smoothstep, under it there is no
+// filament at all. That hard threshold is what makes the boundary ragged at
+// every scale down to the art pixel, which no expanding ring is.
+// `cut` and `span` re-solved here too, and for the same reason: on the study's
+// 0.40 / 0.52 the top rung reached 0.6% of the arena against the "few per cent"
+// the sheet measures, because this file's noise is narrower in the tails and
+// the strand's two breakup factors multiply. 0.30 / 0.50 keeps the shaping --
+// floor 0.26, gain 0.60 -- and doubles the area the filaments actually light.
+const SN_SIL = { cut: 0.3, span: 0.5, floor: 0.26, gain: 0.6 };
+// The dust. A smooth density ramp rather than a hard cut -- the dither carries
+// the gradient instead of filling a rung -- biased onto the shock's side,
+// emptied out of the interior cavity over `cavity` px, and mottled so the
+// region has no edge. `peak` puts the unlit haze between rungs 0 and 1, which
+// is what leaves the echo somewhere to go.
+// `span` is 0.21 and not the study's 0.30: its cut needs the noise to reach
+// 0.86 before the dust is at full density, and THIS FILE'S generator tops out
+// at 0.842 over the box, so the plateau the sheet describes -- "the unlit haze
+// sits between rungs 0 and 1" -- was unreachable by construction and the dust
+// peaked at 0.058, entirely on rung 0. Solved back onto the sheet's own claim.
+// `cut` and `gamma` are the study's, which is what keeps the plateau small.
+const SN_DUST = {
+    scale: 0.0078, cut: 0.56, span: 0.21, gamma: 1.5, bias: [0.34, 0.66, 1.2],
+    cavity: [0.5, 240], mottle: [0.03, 0.4, 0.6], peak: 0.105, min: 0.003,
+};
+// Halpha knots, immediately behind the shock front and nowhere else. They are
+// the second ramp, capped five rungs under the cool one: the brightest warm
+// thing in this sky is darker than the dust plateau's own colour, so nothing
+// warm here can be mistaken for fire.
+const SN_HA = { at: 0.88, w: 42, gamma: 2, scale: 0.042, cut: 0.56, gain: 3.4 };
+const SN_HA_TOP = 3;
+// The light echo, and it is the only thing in the place that moves. A Gaussian
+// brightness front `w` px wide at 1/e travels outward along the shock at `rate`
+// logical px a frame and adds `gain` of ramp range to the dust it is crossing:
+// what changes is WHICH DUST IS LIT, never where anything is. Two fronts half a
+// period apart, phased so one is always inside the arena. `win` is how far from
+// a front a pixel is still visited and `pad` the share of `w` the cycle is
+// padded by at each end, so a front is outside the paint box when it wraps and
+// the cycle has no seam.
+const SN_ECHO = { rate: 0.45, w: 240, gain: 0.26, win: 430, pad: 2.2, phase: 0.28 };
+// The envelope as a table. `live` evaluates it once per visited art pixel and
+// there are tens of thousands of those a frame; two `Math.exp` there cost more
+// than the rest of the loop put together, and the curve is one shape read at
+// one scale. Same trick and same resolution as `powTable`.
+const SN_ENV_N = 256;
+// How much of a point light the filaments and the dust put out.
+const SN_OCCLUDE = [1.4, 0.8, 0.52];
+const SN_STARS = 780;
+const SN_STAR_SEED = 0x5f04;
+// 0.06, not the catalogue's usual 0.24: `_bakeField` buckets a star by
+// `round(a * 3) / 3`, so the shared 0.24 puts HALF of them on the top rung and
+// none at all on the bottom one. The study's own field is 12% top, 40% middle,
+// 48% bottom, and this is the value that reproduces it -- 8% of the list falls
+// under the 0.1 cut-off and is dropped, which is where 780 becomes about 720.
+const SN_STAR_A = 0.06;
+
+/* -- ECLIPSE -------------------------------------------------------------- */
+
+// Composition carried over from the entry unchanged: the disc already had the
+// top two thirds of the arena, which is the point of it.
+const ECL_C = { cx: 0.5, cy: 0.1, r: 0.42 };
+// The circumference cut into angular cells. Each carries its own streamer
+// amplitude and length and its own limb terrain, so a cell is CONSTANT across
+// its whole angular width and every streamer's flanks are hard steps in the
+// ramp rather than a dithered fringe.
+const ECL_CELLS = 192;
+const ECL_SEED = 0x3c11f5;
+// Limb terrain, +-0.006 R (+-1.7 logical px of valleys and ridges) from two
+// seeded sines. It is what makes the silhouette's edge a decision per art
+// pixel rather than a drawn circle, and it is where Baily's beads come from.
+const ECL_TERR = [0.006, 0.6, 11, 0.4, 23];
+// The ring: three SOLID bands at 6 / 6 / 8 logical px and these weights, as
+// edges in `u = rn - E`. Not an exponential falloff -- a band thinner than two
+// art pixels breaks into diagonal crumbs wherever the limb runs at 45 degrees
+// to the lattice, which is most of it.
+const ECL_RING = [0.021, 0.042, 0.07];
+const ECL_RING_V = [1, 0.62, 0.3];
+// Its angular gain: base, the share the corona's visibility adds, and the arc
+// on the star's side during the partial phases with its width in radians. An
+// even 360 degree ring in totality, a bright arc on one flank outside it.
+const ECL_GAIN = { base: 0.3, cv: 0.7, arc: 1.05, w: 0.42, cap: 1.3 };
+// Streamers. 28% of cells are dimmed and shortened to give the comb its gaps,
+// and the plumes are grouped by two low-frequency sines so they cluster
+// instead of speckling. `cv` scales their LENGTH, never their brightness: a
+// half-bright ray dithers into thousands of bullet-sized crumbs, and that one
+// change is worth 34 warm features at the contact by the study's own count.
+const ECL_STREAM = {
+    amp: [0.24, 0.76], len: [0.1, 0.42], mix: [0.5, 0.3, 0.2], lmix: [0.55, 0.25, 0.2],
+    dim: 0.28, dimA: 0.45, dimL: 0.5, exp: 1.5, a: 0.9, cap: 6,
+    drift: 1800, wob: 0.2,
+};
+// The haze filling the gaps between the plumes.
+const ECL_HAZE = [0.1, 0.1, 0.25, 0.75];
+// The star, once it has cleared the limb: three concentric solid bands plus an
+// AXIS-ALIGNED cross, all on exact rung values, sized by emergence rather than
+// dimmed by it. The core has a one-art-pixel floor so the last light before
+// totality is a hard bead and not a fade-out, and there are no diagonal
+// spikes: a 1-2 px diagonal is not 4-connected on the lattice and measures as
+// a chain of separate bullet-sized features -- 14 of them, in the version that
+// had them.
+const ECL_STAR = {
+    core: [0.012, 0.052], mid: 0.082, out: 0.125, reach: 0.5,
+    spike: 0.46, w: [0.011, 0.02],
+};
+// The transit. `p` runs 0..1 over `period` frames: first contact, the diamond
+// ring, totality, the second diamond ring, last contact. The star travels a
+// straight chord between these two limb angles, extended `margin` R past each
+// contact, so both contacts happen on limb that is inside the arena.
+const ECL_TRANSIT = { period: 10800, in: 2.36, out: 0.79, margin: 0.55 };
+// Where the pass STARTS when the place is entered. The study assumes a free
+// running frame counter; here `bd.t` is zero every time the wave block begins,
+// so a pass that started at first contact would show the player the entry
+// partial and nothing else -- three waves is 1800-3000 frames of a 10800 frame
+// pass. 0.60 opens the block inside totality, which is what the glossary line
+// describes, and brings the second diamond ring and last contact into it.
+const ECL_START = 0.6;
+// How much of `dist` the corona comes up over: 0 to 1 in 14 logical px of star
+// travel, about 1.2 s.
+const ECL_CV = 0.05;
+const ECL_CONTACT = 0.995;
+// Baily's beads: only at the contacts, only within this arc of the star's
+// bearing, only through a limb valley, and never more than three at once.
+const ECL_BEAD = {
+    win: 0.045, span: 7, valley: -0.0025, period: [170, 18, 5],
+    dur: 28, phase: 37, size: 2, max: 3,
+};
+// The annulus `live` re-bakes, in R. It never grows: the star's flare is
+// 0.46 R long and the star never gets further out than 1.45 R.
+const ECL_ANNULUS = [0.98, 1.95];
+// ...and how often. 81k art pixels every tenth frame is 8.1k a frame
+// amortised, against a baseline of zero: that is the transit, and it cannot be
+// had for free.
+const ECL_STEP = 10;
+const ECL_STARS = 150;
+const ECL_STAR_SEED = 0xec11;
+const ECL_STAR_A = 0.06;
+
+/* -- WORMHOLE ------------------------------------------------------------- */
+
+// The vanishing point, inherited unchanged: halfway across, 32% down. The
+// mouth is a PLANE at a squash, not an oval drawn on glass -- every art pixel
+// is mapped into plane coordinates and the radius is measured in the plane, so
+// there is no canvas rotate, no canvas scale and no stroked arc anywhere.
+const WORM_VP = { x: 0.5, y: 0.32 };
+const WORM_SQUASH = 0.62;
+// Depth is the log of the plane radius: a rib at depth d projects to a screen
+// radius proportional to 1/d, so equal steps in depth are equal steps in
+// `u = ln r` and the perspective compression is a single constant. 0.46 in u
+// is a radius ratio of 1.58 per turn, which crowds the ribs toward the
+// vanishing point the way a throat crowds.
+const WORM_LAMBDA = 0.46;
+const WORM_RMIN = 7;
+// The ladder is never perfectly periodic: each band takes a seeded jitter.
+const WORM_JIT = { n: 64, amp: 0.52, seed: 9137 };
+// Two arms. The depth phase carries the angular term, which is what makes the
+// ribs a spiral rather than a stack of rings.
+const WORM_ARMS = 2;
+const WORM_WALL_EXP = 1.6;
+// Vignette and core, both measured in SCREEN pixels rather than world units,
+// so the hot centre keeps its size and the frame keeps its contrast wherever
+// the camera is. `[sigma, exponent]` and `[r, weight, r, weight]`.
+const WORM_VIG = [250, 2];
+const WORM_CORE = [26, 1, 70, 0.28];
+// Over this the pixel is inside the core and is allowed the top rung. The
+// walls stop at 6.
+const WORM_CORE_CAP = 0.35;
+// The rung the WALLS stop at. The study says 6, and 6 is #9ad6f2 at luminance
+// 203 -- brighter than anything else this catalogue paints on a dark field.
+// Left at 6 the dither scatters single top-rung art pixels through the throat
+// and three of them measure as small bright features: 3 px of pale cyan on
+// dark is a bullet. The study only ever tested this place for hue and for
+// frame-to-frame change, both of which it passes. Cyan and white are the
+// core's now, which is also what the palette note says the ramp is FOR.
+const WORM_WALL_TOP = 5;
+// How far out the vignette still reaches a rung, in sigmas: past 2.42 the
+// brightest the walls can be is under half a dither step, so the live pass
+// never visits it and the plate's own rung 0 is already the right answer.
+const WORM_REACH = 2.42;
+// The mix: the wall's own share, the swirl's base and amplitude inside it, the
+// travelling light's share, and the ceiling the sum is held under so the walls
+// can never reach the core's rungs.
+const WORM_MIX = { wall: 0.34, swirlBase: 0.7, swirl: 0.3, light: 0.74, cap: 0.82 };
+// The striation: three lobes around the angle, sheared along the depth.
+const WORM_SWIRL = [3, 2.4];
+// The two live terms, and they are the only two. Alternate rib bands shear in
+// opposite directions at `om` rad a frame -- one revolution in 5.2 s, so the
+// event is neighbouring ribs sliding against each other and it is legible at a
+// glance. Rotation is an OFFSET ADDED TO THE BAKED ANGULAR COORDINATE, not a
+// transform applied to pixels, so there is no atlas and nothing lands on a
+// half pixel. The light is one continuous crest sliding along the rib phase at
+// `rate` periods a frame: no on/off duty cycle, so every art pixel is always
+// somewhere on the crest and what the eye sees is a spiral winding into the
+// core rather than a ring arriving -- 1.2 features a second against the old
+// painter's 5.05, travelling INWARD onto a 26 px region instead of outward
+// across 680 px of play field.
+const WORM_OM = 0.02;
+const WORM_RATE = 0.02;
+const WORM_LIGHT_EXP = 2.2;
+// Both live terms are one curve read at one scale, so both are tables.
+const WORM_TAB_N = 256;
+const WORM_STARS = 830;
+const WORM_STAR_SEED = 0x2f77;
+const WORM_STAR_A = 0.06;
+
 const FIELD_DARK = { v: 0 };
 // The arena the glossary thumbnails are composed in. Painters place things in
 // logical pixels, so a still has to be taken at the size they were written for
@@ -2396,27 +2865,6 @@ function blob(g, x, y, r, color, alpha) {
     g.beginPath();
     g.arc(x, y, r, 0, 6.2832);
     g.fill();
-}
-
-/** A star with a glow and a thin cross flare. */
-function sun(g, x, y, r, color, alpha = 1) {
-    g.save();
-    g.globalCompositeOperation = "lighter";
-    blob(g, x, y, r * 6, color, 0.3 * alpha);
-    blob(g, x, y, r * 2.2, color, 0.55 * alpha);
-    g.fillStyle = rgba("#ffffff", 0.92 * alpha);
-    g.beginPath();
-    g.arc(x, y, r, 0, 6.2832);
-    g.fill();
-    g.strokeStyle = rgba(color, 0.35 * alpha);
-    g.lineWidth = 2;
-    g.beginPath();
-    g.moveTo(x - r * 5, y);
-    g.lineTo(x + r * 5, y);
-    g.moveTo(x, y - r * 4);
-    g.lineTo(x, y + r * 4);
-    g.stroke();
-    g.restore();
 }
 
 /** Speckle of faint far-away stars, for the layers that want their own. */
@@ -5852,6 +6300,679 @@ function stationHub(bd, s) {
     stationRect(s, sx - 2, sy, 2, 2, bd.lit.beacon);
 }
 
+/**
+ * The first index of a sorted Float32Array whose value is not below `v`. The
+ * echo's index is sorted along its direction of travel, so a front's window is
+ * two of these rather than a walk over the whole place.
+ */
+function lowerBound(arr, v) {
+    let a = 0;
+    let b = arr.length;
+    while (a < b) {
+        const m = (a + b) >> 1;
+        if (arr[m] < v) {
+            a = m + 1;
+        } else {
+            b = m;
+        }
+    }
+    return a;
+}
+
+/**
+ * The signed difference between two angles, in (-PI, PI]. Every one of
+ * SUPERNOVA's terms is measured as a bearing from the shock, and a bare
+ * subtraction puts a seam down the place wherever atan2 wraps.
+ */
+function angDiff(a, b) {
+    let d = a - b;
+    while (d > Math.PI) {
+        d -= 6.2832;
+    }
+    while (d < -Math.PI) {
+        d += 6.2832;
+    }
+    return d;
+}
+
+/**
+ * Ridged noise on `mkNoise`, 0..1: `oct` octaves of `1 - |2n - 1|`. MOLTEN
+ * WORLD folds one line of the field into a skyline; this folds the plane, which
+ * is what turns a smooth cloud into sheets seen edge-on.
+ */
+function ridgedN(n, x, y, oct) {
+    let v = 0;
+    let a = 0.5;
+    let f = 1;
+    let t = 0;
+    for (let i = 0; i < oct; i++) {
+        v += a * (1 - Math.abs(2 * n(x * f, y * f, 1) - 1));
+        t += a;
+        f *= 2.07;
+        a *= 0.5;
+    }
+    return v / t;
+}
+
+/**
+ * The 34 filament strands. Twenty-two cluster on the rim at 0.90-1.07 of the
+ * shell radius and twelve sit inside it at 0.46-0.90; no two share a centre,
+ * every arc is open, and the lobe term makes each one lopsided before the noise
+ * is added. That is the whole argument that this place cannot be read as the
+ * boss's attack: the attack is one closed concentric circle with a radial
+ * velocity, and nothing here has any of the three.
+ */
+function supernovaStrands(bd) {
+    const rng = mulberry32(SN_STRAND_SEED);
+    const out = [];
+    for (let k = 0; k < SN_STRANDS; k++) {
+        const s = k < SN_RIM_N ? SN_RIM_STRAND : SN_IN_STRAND;
+        out.push({
+            rad: bd.sn.r * (s.rad[0] + s.rad[1] * rng()),
+            ox: (rng() * 2 - 1) * s.off[0] * bd.sn.r,
+            oy: (rng() * 2 - 1) * s.off[1] * bd.sn.r,
+            th: s.th[0] + rng() * s.th[1],
+            a0: SN_SHOCK + (rng() * 2 - 1) * s.spread,
+            arc: s.arc[0] + rng() * s.arc[1],
+            amp: (s.amp[0] + rng() * s.amp[1]) * bd.sn.r,
+            ph: rng() * 6.2832,
+            br: s.br[0] + rng() * s.br[1],
+            nz: k * 7,
+        });
+    }
+    return out;
+}
+
+/** The radial filaments: the same silhouette test, elongated along r. */
+function supernovaSpokes(bd) {
+    const rng = mulberry32(SN_SPOKE_SEED);
+    const out = [];
+    for (let k = 0; k < SN_SPOKE.n; k++) {
+        out.push({
+            a: SN_SHOCK + (rng() * 2 - 1) * SN_SPOKE.spread,
+            r0: bd.sn.r * (SN_SPOKE.r0[0] + SN_SPOKE.r0[1] * rng()),
+            r1: bd.sn.r * (SN_SPOKE.r1[0] + SN_SPOKE.r1[1] * rng()),
+            th: SN_SPOKE.th[0] + rng() * SN_SPOKE.th[1],
+            ph: rng() * 6.2832,
+            br: SN_SPOKE.br[0] + rng() * SN_SPOKE.br[1],
+            nz: 40 + k * 3,
+        });
+    }
+    return out;
+}
+
+/**
+ * The place at one art pixel, into `bd.sn`'s four scalar fields: the filament
+ * silhouette, the dust, the Halpha knots and the coordinate along the echo's
+ * direction of travel. The three the echo needs are kept because a live pass
+ * that re-quantises a baked pixel has to compute it from exactly the value its
+ * baked rung came from, or the lane it repaints shows as a seam.
+ */
+function supernovaSample(bd, i, x, y) {
+    const P = bd.sn;
+    P.u[i] = (x - P.cx) * P.dx + (y - P.cy) * P.dy;
+    const gdx = x - P.cx;
+    const gdy = (y - P.cy) * SN_ELL;
+    const gd = Math.sqrt(gdx * gdx + gdy * gdy);
+    const ga = Math.atan2(gdy, gdx);
+    const face = Math.max(0, Math.cos(angDiff(ga, SN_SHOCK)));
+    const shock = SN_GAIN[0] + SN_GAIN[1] * Math.pow(face, SN_GAIN[2]);
+    // The breakup is sampled once per art pixel rather than once per strand:
+    // thirty times the cost for no visible gain, because the strands that
+    // overlap here are all reading the same field anyway.
+    const bkA = P.n.bkA(x * SN_BREAK_A, y * SN_BREAK_A, 3);
+    const bkB = P.n.bkB(x * SN_BREAK_B + 40, y * SN_BREAK_B - 40, 3);
+    const knot = clamp((P.n.knot(x * SN_KNOT[0] - 9, y * SN_KNOT[0] + 6, 3) - SN_KNOT[1]) * SN_KNOT[2], 0, 1);
+
+    let best = 0;
+    for (const st of P.strands) {
+        const dx = x - (P.cx + st.ox);
+        const dy = (y - (P.cy + st.oy)) * SN_ELL;
+        const a = Math.atan2(dy, dx);
+        const w = smoothstep(1 - Math.abs(angDiff(a, st.a0)) / st.arc, 0, 1);
+        if (w <= 0) {
+            continue;
+        }
+        const rr = st.rad * (1 + SN_STRAND_LOBE[0] * Math.sin(a + st.ph) + SN_STRAND_LOBE[1] * Math.sin(2 * a - st.ph))
+            + st.amp * (P.n.str(a * SN_STRAND_NOISE + st.ph, st.nz, 3) - 0.5) * 2;
+        const dr = (Math.sqrt(dx * dx + dy * dy) - rr) / st.th;
+        const core = Math.exp(-dr * dr);
+        if (core < 0.02) {
+            continue;
+        }
+        const v = core * w * st.br * (SN_FIL_MIX[0] + SN_FIL_MIX[1] * bkA)
+            * (SN_FIL_MIX[2] + SN_FIL_MIX[3] * knot) * shock;
+        if (v > best) {
+            best = v;
+        }
+    }
+    for (const sp of P.spokes) {
+        if (gd < sp.r0 - SN_SPOKE.pad || gd > sp.r1 + SN_SPOKE.pad) {
+            continue;
+        }
+        const wob = (P.n.str(gd * SN_SPOKE.wob[0] + sp.ph, sp.nz, 1) - 0.5) * SN_SPOKE.wob[1];
+        const da = angDiff(ga, sp.a + wob) * gd;
+        const core = Math.exp(-(da * da) / (sp.th * sp.th));
+        if (core < 0.02) {
+            continue;
+        }
+        const rw = smoothstep(gd, sp.r0, sp.r0 + SN_SPOKE.fade[0])
+            * smoothstep(sp.r1 - gd, 0, SN_SPOKE.fade[1]);
+        const v = core * rw * sp.br * (SN_SPOKE_MIX[0] + SN_SPOKE_MIX[1] * bkB)
+            * (SN_SPOKE_MIX[2] + SN_SPOKE_MIX[3] * knot) * shock;
+        if (v > best) {
+            best = v;
+        }
+    }
+    // Fine sheets seen edge-on, confined to the shell annulus.
+    const an = (gd - P.r * SN_FINE.at) / (P.r * SN_FINE.w);
+    const fine = smoothstep(ridgedN(P.n.fine, x * SN_FINE.scale + 7, y * SN_FINE.scale - 13, 4),
+        SN_FINE.cut, SN_FINE.cut + SN_FINE.span) * Math.exp(-an * an) * shock * SN_FINE.a;
+    if (fine > best) {
+        best = fine;
+    }
+    P.fil[i] = best > SN_SIL.cut
+        ? SN_SIL.floor + SN_SIL.gain * smoothstep(best, SN_SIL.cut, SN_SIL.cut + SN_SIL.span)
+        : 0;
+
+    let dv = P.n.dust(x * SN_DUST.scale + 19, y * SN_DUST.scale - 7, 5);
+    dv = Math.pow(clamp((dv - SN_DUST.cut) / SN_DUST.span, 0, 1), SN_DUST.gamma)
+        * (SN_DUST.bias[0] + SN_DUST.bias[1] * Math.pow(face, SN_DUST.bias[2]));
+    dv *= clamp((gd - P.r * SN_DUST.cavity[0]) / SN_DUST.cavity[1], 0, 1);
+    dv *= SN_DUST.mottle[1] + SN_DUST.mottle[2]
+        * P.n.mottle(x * SN_DUST.mottle[0] - 3, y * SN_DUST.mottle[0] + 11, 3);
+    P.dust[i] = dv * SN_DUST.peak;
+
+    const hb = (gd - P.r * SN_HA.at) / SN_HA.w;
+    P.ha[i] = clamp(Math.exp(-hb * hb) * Math.pow(face, SN_HA.gamma)
+        * clamp((P.n.ha(x * SN_HA.scale - 5, y * SN_HA.scale + 3, 3) - SN_HA.cut) * SN_HA.gain, 0, 1), 0, 1);
+}
+
+/**
+ * The pixels the echo can actually change, sorted along its direction of
+ * travel, plus the cycle derived from the range of that coordinate over the
+ * dust the arena can see.
+ *
+ * A dust pixel joins only if its rung really flips somewhere in the gain range,
+ * and only if the plate still holds the colour the field asked for -- a star
+ * landed on it otherwise, and a lane of light that put stars out as it passed
+ * would be the one thing that gives the trick away. Everything else is proved
+ * static and is never visited again, which is what takes the live pass from
+ * 180k art pixels to a few thousand.
+ */
+function supernovaIndex(bd) {
+    const P = bd.sn;
+    const plate = bd.layer.getContext("2d").getImageData(0, 0, P.aw, P.ah).data;
+    const n = P.aw * P.ah;
+    const keep = [];
+    // The cycle is derived from the dust the ARENA sees, not the paint box: a
+    // front spends the rest of its travel outside the frame, and padding by the
+    // envelope's own width at each end is what leaves the wrap with no seam.
+    let uLo = Infinity;
+    let uHi = -Infinity;
+    for (let i = 0; i < n; i++) {
+        if (P.dust[i] <= SN_DUST.min) {
+            continue;
+        }
+        const iy = (i / P.aw) | 0;
+        const ix = i - iy * P.aw;
+        if (ix >= P.ax0 && ix <= P.ax1 && iy >= P.ay0 && iy <= P.ay1) {
+            if (P.u[i] < uLo) {
+                uLo = P.u[i];
+            }
+            if (P.u[i] > uHi) {
+                uHi = P.u[i];
+            }
+        }
+        const base = supernovaPack(bd, i, ix, iy, 0);
+        if (base === supernovaPack(bd, i, ix, iy, SN_ECHO.gain)) {
+            continue;
+        }
+        const o = i * 4;
+        if (((plate[o] << 16) | (plate[o + 1] << 8) | plate[o + 2]) !== base) {
+            continue;
+        }
+        keep.push(i);
+    }
+    keep.sort((a, b) => P.u[a] - P.u[b]);
+    const m = keep.length;
+    P.at = Int32Array.from(keep);
+    P.eu = new Float32Array(m);
+    P.fi = new Float32Array(m);
+    P.du = new Float32Array(m);
+    P.hq = new Int8Array(m);
+    P.bs = new Int32Array(m);
+    for (let k = 0; k < m; k++) {
+        const i = keep[k];
+        const iy = (i / P.aw) | 0;
+        const ix = i - iy * P.aw;
+        P.eu[k] = P.u[i];
+        P.fi[k] = P.fil[i];
+        P.du[k] = P.dust[i];
+        P.hq[k] = P.ha[i] > 0 ? artRung(bd, P.ha[i], ix, iy, SN_HA_TOP) : 0;
+        P.bs[k] = supernovaPack(bd, i, ix, iy, 0);
+    }
+    const pad = SN_ECHO.pad * SN_ECHO.w;
+    const span = uHi > uLo ? uHi - uLo + 2 * pad : 2 * pad;
+    P.echo = { s0: uLo - pad, period: Math.max(1, Math.round(span / SN_ECHO.rate)) };
+    // The scalar fields have done their job: the live pass reads the compact
+    // arrays, so 2.9 MB of them goes back rather than staying for the run.
+    P.fil = null;
+    P.dust = null;
+    P.ha = null;
+    P.u = null;
+}
+
+/**
+ * `exp(-t*t)` over the window the echo is evaluated on, as a table indexed by
+ * how far a pixel is from the front as a share of the window.
+ */
+function supernovaEnvelope() {
+    const reach = SN_ECHO.win / SN_ECHO.w;
+    const out = new Float32Array(SN_ENV_N + 2);
+    for (let i = 0; i <= SN_ENV_N + 1; i++) {
+        const t = (i / SN_ENV_N) * reach;
+        out[i] = Math.exp(-t * t);
+    }
+    return out;
+}
+
+/** The colour an art pixel takes at a given added echo brightness, packed. */
+function supernovaPack(bd, i, ix, iy, gain) {
+    const P = bd.sn;
+    const d = P.dust[i] + gain;
+    const q = artRung(bd, P.fil[i] > d ? P.fil[i] : d, ix, iy, P.top);
+    let c = bd.rgb[q];
+    if (P.ha[i] > 0) {
+        const qs = artRung(bd, P.ha[i], ix, iy, SN_HA_TOP);
+        if (qs > 0 && P.secLum[qs] > P.priLum[q]) {
+            c = bd.rgbAlt[qs];
+        }
+    }
+    return (c[0] << 16) | (c[1] << 8) | c[2];
+}
+
+/**
+ * The 192 angular cells: a streamer amplitude and length each, a phase for the
+ * slow drift, and the limb's own terrain. Two low-frequency sines group the
+ * plumes so they cluster into combs instead of speckling, and 28% of the cells
+ * are dimmed and shortened, which is where the comb gets its gaps.
+ */
+function eclipseCells() {
+    const rng = mulberry32(ECL_SEED);
+    const s1 = rng() * 6.2832;
+    const s2 = rng() * 6.2832;
+    const s3 = rng() * 6.2832;
+    const s4 = rng() * 6.2832;
+    const S = ECL_STREAM;
+    const amp = new Float32Array(ECL_CELLS);
+    const len = new Float32Array(ECL_CELLS);
+    const ph = new Float32Array(ECL_CELLS);
+    const terr = new Float32Array(ECL_CELLS);
+    for (let i = 0; i < ECL_CELLS; i++) {
+        const a = (i / ECL_CELLS) * 6.2832;
+        const g = 0.5 + 0.5 * Math.sin(a * 3 + s1);
+        const h = 0.5 + 0.5 * Math.sin(a * 7 + s2);
+        let av = S.amp[0] + S.amp[1] * (S.mix[0] * g + S.mix[1] * h + S.mix[2] * rng());
+        let lv = S.len[0] + S.len[1] * (S.lmix[0] * g + S.lmix[1] * h + S.lmix[2] * rng());
+        if (rng() < S.dim) {
+            av *= S.dimA;
+            lv *= S.dimL;
+        }
+        amp[i] = av;
+        len[i] = lv;
+        ph[i] = rng() * 6.2832;
+        terr[i] = ECL_TERR[0] * (ECL_TERR[1] * Math.sin(a * ECL_TERR[2] + s3)
+            + ECL_TERR[3] * Math.sin(a * ECL_TERR[4] + s4));
+    }
+    // The beads come out of the five deepest valleys, each on its own period.
+    const order = Array.from({ length: ECL_CELLS }, (unused, i) => i).sort((a, b) => terr[a] - terr[b]);
+    const beads = [];
+    for (let k = 0; k < 5; k++) {
+        beads.push({ ai: order[k * 7] });
+    }
+    return { amp, len, ph, terr, beads };
+}
+
+/**
+ * Where the star is, as a pure function of the frame counter. `p` runs the
+ * whole pass; `dist` is the star's centre from the disc's in R; `cv` is how
+ * far the corona has come up and `em` how far the star has cleared the limb.
+ * Everything else in the place reads these five numbers and none of them is
+ * evaluated per pixel.
+ */
+function eclipsePhase(bd, f) {
+    const T = ECL_TRANSIT;
+    const E = bd.ecl.chord;
+    const p = (((f / T.period + ECL_START) % 1) + 1) % 1;
+    const t = -T.margin + (E.len + 2 * T.margin) * p;
+    const nx = E.ix + E.ux * t;
+    const ny = E.iy + E.uy * t;
+    const dist = Math.sqrt(nx * nx + ny * ny);
+    let sth = Math.atan2(ny, nx);
+    if (sth < 0) {
+        sth += 6.2832;
+    }
+    return {
+        p, dist, sth,
+        sx: bd.ecl.cx + nx * bd.ecl.r,
+        sy: bd.ecl.cy + ny * bd.ecl.r,
+        cv: clamp((ECL_CONTACT - dist) / ECL_CV, 0, 1),
+        em: clamp((dist - ECL_CONTACT) / ECL_CV, 0, 1),
+    };
+}
+
+/**
+ * The place at one art pixel, given the transit. Returns the value and leaves
+ * the rung cap it needs in `bd.ecl.cap`: 6 for the corona and the streamers, 7
+ * for the limb band and for the star, which are the two things allowed to
+ * reach the top of the ramp.
+ *
+ * The limb is decided here and never drawn. Inside `E` the pixel returns 0 and
+ * lands on rung 0 with no dither term able to lift it; the pixel immediately
+ * outside returns at least 0.92 from the chromospheric ring and lands on rung
+ * 7. The edge is one art pixel wide with a seven-rung jump across it, which is
+ * the hardest edge this ramp can express.
+ */
+function eclipseValue(bd, x, y, tp, f) {
+    const P = bd.ecl;
+    const dx = x - P.cx;
+    const dy = y - P.cy;
+    const rn = Math.sqrt(dx * dx + dy * dy) / P.r;
+    let th = Math.atan2(dy, dx);
+    if (th < 0) {
+        th += 6.2832;
+    }
+    const ai = Math.floor((th / 6.2832) * ECL_CELLS) % ECL_CELLS;
+    P.cap = ECL_STREAM.cap;
+    const E = 1 + P.cell.terr[ai];
+    if (rn <= E) {
+        return 0;
+    }
+    const u = rn - E;
+    let dth = Math.abs(th - tp.sth);
+    if (dth > Math.PI) {
+        dth = 6.2832 - dth;
+    }
+    const w = dth / ECL_GAIN.w;
+    const gain = Math.min(ECL_GAIN.cap, ECL_GAIN.base + ECL_GAIN.cv * tp.cv
+        + ECL_GAIN.arc * (1 - tp.cv) * Math.exp(-w * w));
+    const prof = u < ECL_RING[0] ? ECL_RING_V[0]
+        : u < ECL_RING[1] ? ECL_RING_V[1]
+            : u < ECL_RING[2] ? ECL_RING_V[2] : 0;
+    let v = gain * prof;
+    if (tp.cv > 0.02) {
+        const S = ECL_STREAM;
+        const L = P.cell.len[ai] * (1 + S.wob * Math.sin((6.2832 * f) / S.drift + P.cell.ph[ai])) * tp.cv;
+        if (u < L) {
+            const sv = P.cell.amp[ai] * Math.pow(1 - u / L, S.exp) * S.a;
+            // Over the ring's solid bands the streamer TAKES THE BRIGHTER of
+            // the two rather than adding to it. Added, it puts a per-cell
+            // brightness variation on exactly the bands that are snapped to
+            // exact rungs to keep the dither off them -- and just inside the
+            // contacts, where the streamers are still short enough to sit
+            // entirely inside the ring, that variation breaks the bright arc
+            // into cell-sized chips: four of them measured as small bright
+            // features at p = 0.235, which is four more than this catalogue
+            // allows. Outside the bands it adds, which is where it is a plume.
+            if (u < ECL_RING[2]) {
+                if (sv > v) {
+                    v = sv;
+                }
+            } else {
+                v += sv;
+            }
+        }
+    }
+    v += ECL_HAZE[0] * Math.exp(-u / ECL_HAZE[1]) * (ECL_HAZE[2] + ECL_HAZE[3] * tp.cv);
+    if (tp.em > 0) {
+        const S = ECL_STAR;
+        const e = tp.em;
+        const sx = (x - tp.sx) / P.r;
+        const sy = (y - tp.sy) / P.r;
+        const ds = Math.sqrt(sx * sx + sy * sy);
+        let sv = 0;
+        if (ds < Math.max(S.core[0], S.core[1] * e)) {
+            sv = 1;
+        } else if (ds < S.mid * e) {
+            sv = 6 / 7;
+        } else if (ds < S.out * e) {
+            sv = 5 / 7;
+        } else if (ds < S.reach) {
+            // Two arms, at 0 and 90 degrees. A diagonal is not 4-connected on
+            // the lattice, so it measures as a staircase of separate features.
+            const len = S.spike * e;
+            for (let k = 0; k < 2; k++) {
+                const along = k ? Math.abs(sy) : Math.abs(sx);
+                if (along > len) {
+                    continue;
+                }
+                const t = 1 - along / len;
+                if (Math.abs(k ? sx : sy) < S.w[0] + S.w[1] * t * t) {
+                    sv = 6 / 7;
+                    break;
+                }
+            }
+        }
+        if (sv > 0) {
+            P.cap = 7;
+            return sv;
+        }
+    }
+    if (v > 1) {
+        v = 1;
+    }
+    // The limb band is snapped to exact rung values, which deliberately makes
+    // the ordered dither a no-op there. The dither still runs on the outer
+    // corona and the haze, where it earns its keep; a dithered fringe on the
+    // limb breaks into single art pixels that measure exactly like enemy fire,
+    // and by the study's count that is worth about 30 of them.
+    if (u < ECL_RING[2]) {
+        P.cap = 7;
+        return Math.floor(v * 7 + 0.5) / 7;
+    }
+    return v;
+}
+
+/**
+ * Baily's beads: the last of the star showing through a valley on the limb, at
+ * the contacts only. Each site has its own period so they never blink
+ * together, and three at once is a hard cap.
+ */
+function eclipseBeads(bd, f, tp, out) {
+    out.length = 0;
+    if (Math.abs(tp.dist - 1) > ECL_BEAD.win) {
+        return out;
+    }
+    const P = bd.ecl;
+    const c0 = Math.round((tp.sth / 6.2832) * ECL_CELLS);
+    for (let d = -ECL_BEAD.span; d <= ECL_BEAD.span; d++) {
+        const ai = (((c0 + d) % ECL_CELLS) + ECL_CELLS) % ECL_CELLS;
+        if (P.cell.terr[ai] > ECL_BEAD.valley) {
+            continue;
+        }
+        const per = ECL_BEAD.period[0] + (ai % ECL_BEAD.period[2]) * ECL_BEAD.period[1];
+        if ((f + ai * ECL_BEAD.phase) % per >= ECL_BEAD.dur) {
+            continue;
+        }
+        const a = ((ai + 0.5) / ECL_CELLS) * 6.2832;
+        const rr = P.r * (1 + P.cell.terr[ai]);
+        out.push(P.cx + Math.cos(a) * rr, P.cy + Math.sin(a) * rr);
+        if (out.length >= ECL_BEAD.max * 2) {
+            break;
+        }
+    }
+    return out;
+}
+/**
+ * Re-bake the annulus for one instant of the transit, into the overlay the
+ * plate is seen through. Everything at rung 0 is left transparent, so the sky
+ * under it is the plate's own; and a rung of 1 or 2 over a baked star is left
+ * transparent too, which is how a star reads through the dim outer corona
+ * without the star field having to know anything about the transit.
+ */
+function eclipseBake(bd, f) {
+    const P = bd.ecl;
+    if (!P.starMask) {
+        // One readback, once: which plate pixels are point lights and not sky.
+        const plate = bd.layer.getContext("2d").getImageData(0, 0, P.aw, P.ah).data;
+        const sky = bd.rgb[0];
+        P.starMask = new Uint8Array(P.aw * P.ah);
+        for (let i = 0; i < P.starMask.length; i++) {
+            const o = i * 4;
+            if (plate[o] !== sky[0] || plate[o + 1] !== sky[1] || plate[o + 2] !== sky[2]) {
+                P.starMask[i] = 1;
+            }
+        }
+    }
+    const tp = eclipsePhase(bd, f);
+    const d = P.data;
+    const inner = P.r * ECL_ANNULUS[0];
+    const outer = P.r * ECL_ANNULUS[1];
+    const i2 = inner * inner;
+    const o2 = outer * outer;
+    for (let py = P.y0; py <= P.y1; py++) {
+        const row = py * P.aw;
+        d.fill(0, (row + P.x0) * 4, (row + P.x1 + 1) * 4);
+        const dy = bd.y0 + (py + 0.5) * ART_PIX - P.cy;
+        for (let px = P.x0; px <= P.x1; px++) {
+            const x = bd.x0 + (px + 0.5) * ART_PIX;
+            const dx = x - P.cx;
+            const dd = dx * dx + dy * dy;
+            if (dd < i2 || dd > o2) {
+                continue;
+            }
+            const v = eclipseValue(bd, x, dy + P.cy, tp, f);
+            if (v <= 0) {
+                continue;
+            }
+            // The study quantises `v * cap` rather than `v * 7`, so a streamer
+            // at full value lands on the cap and not one rung over it. Scaled
+            // back onto the shared quantiser, which is the copy that has to
+            // stay in step with `_bakeField`.
+            const cap = P.cap;
+            const q = artRung(bd, (v * cap) / 7, px, py, cap);
+            const i = row + px;
+            if (q === 0 || (q <= 2 && P.starMask[i])) {
+                continue;
+            }
+            const c = bd.rgb[q];
+            const o = i * 4;
+            d[o] = c[0];
+            d[o + 1] = c[1];
+            d[o + 2] = c[2];
+            d[o + 3] = 255;
+        }
+    }
+    P.g.putImageData(P.img, 0, 0, P.x0, P.y0, P.x1 - P.x0 + 1, P.y1 - P.y0 + 1);
+}
+
+/**
+ * `0.5 + 0.5 cos(2 pi f)` and that curve raised to the light's exponent, as
+ * tables indexed by the fractional part. `live` reads both once per visited art
+ * pixel and there are 78k of those a frame; a `Math.cos` and a `Math.pow` there
+ * cost more than everything else in the loop together.
+ */
+function wormTables() {
+    const cos = new Float32Array(WORM_TAB_N + 2);
+    const light = new Float32Array(WORM_TAB_N + 2);
+    for (let i = 0; i <= WORM_TAB_N + 1; i++) {
+        const c = 0.5 + 0.5 * Math.cos((i / WORM_TAB_N) * 6.2832);
+        cos[i] = c;
+        light[i] = Math.pow(c, WORM_LIGHT_EXP);
+    }
+    return { cos, light };
+}
+
+/**
+ * The throat, baked once per art pixel that the vignette can still reach: the
+ * wall profile against the vignette, the core, and the two phases the live
+ * terms slide along. Everything that is a function of position and nothing
+ * that is a function of the frame.
+ *
+ * The list is flat and in row-major order rather than a rectangle, because the
+ * region is an ellipse: outside 2.42 sigmas the walls cannot reach half a
+ * dither step and the plate's rung 0 is already the right answer, which is
+ * most of the paint box.
+ */
+function wormBake(bd) {
+    const P = bd.worm;
+    const rng = mulberry32(WORM_JIT.seed);
+    const jit = new Float32Array(WORM_JIT.n);
+    for (let i = 0; i < WORM_JIT.n; i++) {
+        jit[i] = (rng() - 0.5) * WORM_JIT.amp;
+    }
+    const reach = WORM_VIG[0] * WORM_REACH;
+    // The dirty rectangle is fixed -- the vignette does not move -- so there
+    // is no per-frame bounds pass and no union with the last frame's.
+    P.x0 = P.aw;
+    P.y0 = P.ah;
+    P.x1 = -1;
+    P.y1 = -1;
+    const at = [];
+    const A = [];
+    const core = [];
+    const phf = [];
+    const sw0 = [];
+    const par = [];
+    for (let py = 0; py < P.ah; py++) {
+        const y = bd.y0 + (py + 0.5) * ART_PIX;
+        const dy = (y - P.vy) / WORM_SQUASH;
+        if (Math.abs(dy) > reach) {
+            continue;
+        }
+        const half = Math.sqrt(reach * reach - dy * dy);
+        const x0 = Math.max(0, Math.ceil((P.vx - half - bd.x0) / ART_PIX - 0.5));
+        const x1 = Math.min(P.aw - 1, Math.floor((P.vx + half - bd.x0) / ART_PIX - 0.5));
+        if (x1 < x0) {
+            continue;
+        }
+        if (x0 < P.x0) {
+            P.x0 = x0;
+        }
+        if (x1 > P.x1) {
+            P.x1 = x1;
+        }
+        if (py < P.y0) {
+            P.y0 = py;
+        }
+        if (py > P.y1) {
+            P.y1 = py;
+        }
+        for (let px = x0; px <= x1; px++) {
+            const dx = bd.x0 + (px + 0.5) * ART_PIX - P.vx;
+            const r = Math.max(Math.sqrt(dx * dx + dy * dy), WORM_RMIN);
+            const u = Math.log(r);
+            const bf = u / WORM_LAMBDA;
+            const band = Math.floor(bf);
+            const th = Math.atan2(dy, dx);
+            const ph = bf + jit[((band % WORM_JIT.n) + WORM_JIT.n) % WORM_JIT.n] + (WORM_ARMS * th) / 6.2832;
+            const f = ph - Math.floor(ph);
+            const ss = Math.sqrt(dx * dx + dy * dy);
+            const vg = Math.exp(-Math.pow(ss / WORM_VIG[0], WORM_VIG[1]));
+            const wall = Math.pow(0.5 + 0.5 * Math.cos(f * 6.2832), WORM_WALL_EXP);
+            const cr = WORM_CORE[1] * Math.exp(-Math.pow(ss / WORM_CORE[0], 2))
+                + WORM_CORE[3] * Math.exp(-Math.pow(ss / WORM_CORE[2], 2));
+            at.push(py * P.aw + px);
+            A.push(vg * wall);
+            core.push(cr);
+            phf.push(f);
+            // The striation's whole argument is that `3 th + 2.4 u` shifts
+            // rigidly with the shear, so it is baked as a phase and the frame
+            // only has to add to it.
+            const s = (WORM_SWIRL[0] * th + WORM_SWIRL[1] * u) / 6.2832;
+            sw0.push(s - Math.floor(s));
+            par.push(((Math.floor(ph) % 2) + 2) % 2);
+        }
+    }
+    P.at = Int32Array.from(at);
+    P.A = Float32Array.from(A);
+    P.core = Float32Array.from(core);
+    P.phf = Float32Array.from(phf);
+    P.sw0 = Float32Array.from(sw0);
+    P.par = Uint8Array.from(par);
+}
+
 const PAINTERS = {
     // Nothing at all: the engine star field is the whole sky. Still the
     // fallback for an entry whose `kind` does not resolve.
@@ -6421,35 +7542,133 @@ const PAINTERS = {
         },
     },
 
-    // Tunnel of light: concentric rings turning at different speeds.
-    wormhole: {
+    /**
+     * WORMHOLE. A mouth with DEPTH, and the light winds inward down it.
+     *
+     * What shipped before was rings rushing outward from a bright centre --
+     * ripples on a pond, at 5.05 features a second, in the shape and the
+     * cadence of the boss's shockwave. This inverts all three things that make
+     * a ring on screen read as something that will hit you: the features move
+     * inward and SHRINK, their spacing tightens ahead of them instead of
+     * opening, and they arrive at 1.2 a second. What is left in common with an
+     * attack is "ring-shaped", which the asteroids and the shields share too.
+     *
+     * Nothing in the structure moves and nothing pulses. The ribs are a
+     * two-armed spiral baked into a phase, and the light is one continuous
+     * crest sliding along that phase -- no duty cycle, so every art pixel is
+     * always somewhere on the crest and the eye sees a spiral winding into the
+     * core rather than a ring arriving. Both live terms are pure in the frame
+     * counter, so there is no `update`.
+     */
+    pixelWormhole: {
         init(bd) {
-            bd.cx = bd.W * 0.5;
-            bd.cy = bd.H * 0.32;
+            const aw = Math.max(1, Math.ceil(bd.w / ART_PIX));
+            const ah = Math.max(1, Math.ceil(bd.h / ART_PIX));
+            const cv = document.createElement("canvas");
+            cv.width = aw;
+            cv.height = ah;
+            const g = cv.getContext("2d");
+            const img = g.createImageData(aw, ah);
+            bd.worm = {
+                aw, ah, cv, g, img, data: img.data,
+                vx: bd.W * WORM_VP.x,
+                vy: bd.H * WORM_VP.y,
+                tab: wormTables(),
+                starMask: null,
+            };
+            wormBake(bd);
+            bd.stars = starList(bd, WORM_STAR_SEED, WORM_STARS, WORM_STAR_A);
         },
+        /**
+         * Nothing bakes into the plate. Every rung the throat lights is one of
+         * the two live terms away, and past the vignette's reach there is
+         * nothing at all -- so the plate is the void and the star field, and
+         * the live layer is the place.
+         */
+        field() {
+            return FIELD_DARK;
+        },
+        /** A point light only goes down where the plate behind it is dark. */
+        occlude(bd, x, y) {
+            const P = bd.worm;
+            const dx = x - P.vx;
+            const dy = (y - P.vy) / WORM_SQUASH;
+            const ss = Math.sqrt(dx * dx + dy * dy);
+            const cr = WORM_CORE[1] * Math.exp(-Math.pow(ss / WORM_CORE[0], 2))
+                + WORM_CORE[3] * Math.exp(-Math.pow(ss / WORM_CORE[2], 2));
+            return cr > WORM_CORE_CAP ? 1 : 0;
+        },
+        /**
+         * The shear and the crest, and only those. Both are offsets added to a
+         * baked phase -- the rotation never touches a pixel, so there is no
+         * rotation atlas and nothing lands on a half pixel, which is the
+         * contract's baked-steps route made unnecessary rather than skipped.
+         * A rung of 2 or under leaves the pixel transparent so the star behind
+         * it burns through the wall, which is the same paint order the study
+         * gets by drawing the star field last.
+         */
         live(bd, g) {
-            g.save();
-            g.globalCompositeOperation = "lighter";
-            g.translate(bd.cx, bd.cy);
-            for (let i = 0; i < 14; i++) {
-                const ph = (bd.t * 0.006 + i / 14) % 1;
-                const r = 40 + ph * 620;
-                g.save();
-                g.rotate(bd.t * 0.002 * (i % 2 ? 1 : -1) + i);
-                g.scale(1, 0.7);
-                g.strokeStyle = rgba(i % 2 ? bd.p.c1 : bd.p.c2, 0.34 * (1 - ph));
-                g.lineWidth = 3 + ph * 10;
-                g.beginPath();
-                g.arc(0, 0, r, 0, 6.2832);
-                g.stroke();
-                g.restore();
+            const P = bd.worm;
+            const aw = P.aw;
+            if (!P.starMask) {
+                // One readback, once: which plate pixels are point lights.
+                const plate = bd.layer.getContext("2d").getImageData(0, 0, aw, P.ah).data;
+                const sky = bd.rgb[0];
+                P.starMask = new Uint8Array(aw * P.ah);
+                for (let i = 0; i < P.starMask.length; i++) {
+                    const o = i * 4;
+                    if (plate[o] !== sky[0] || plate[o + 1] !== sky[1] || plate[o + 2] !== sky[2]) {
+                        P.starMask[i] = 1;
+                    }
+                }
             }
-            blob(g, 0, 0, 90, bd.p.c1, 0.5);
-            g.restore();
+            const shear = (WORM_SWIRL[0] * WORM_OM * bd.t) / 6.2832;
+            const lp = WORM_RATE * bd.t;
+            const base = WORM_MIX.wall * WORM_MIX.swirlBase;
+            const amp = WORM_MIX.wall * WORM_MIX.swirl;
+            const d = P.data;
+            const at = P.at;
+            const A = P.A;
+            const core = P.core;
+            const phf = P.phf;
+            const sw0 = P.sw0;
+            const par = P.par;
+            const mask = P.starMask;
+            const cosT = P.tab.cos;
+            const litT = P.tab.light;
+            const rgb = bd.rgb;
+            const n = at.length;
+            for (let k = 0; k < n; k++) {
+                let s = par[k] ? sw0[k] + shear : sw0[k] - shear;
+                s -= Math.floor(s);
+                let lf = phf[k] - lp;
+                lf -= Math.floor(lf);
+                let v = A[k] * (base + amp * powLook(cosT, s) + WORM_MIX.light * powLook(litT, lf));
+                if (v > WORM_MIX.cap) {
+                    v = WORM_MIX.cap;
+                }
+                const cr = core[k];
+                v += cr;
+                const i = at[k];
+                const iy = (i / aw) | 0;
+                const q = artRung(bd, v, i - iy * aw, iy, cr > WORM_CORE_CAP ? 7 : WORM_WALL_TOP);
+                const o = i * 4;
+                if (q === 0 || (q <= 2 && mask[i])) {
+                    d[o + 3] = 0;
+                    continue;
+                }
+                const c = rgb[q];
+                d[o] = c[0];
+                d[o + 1] = c[1];
+                d[o + 2] = c[2];
+                d[o + 3] = 255;
+            }
+            P.g.putImageData(P.img, 0, 0, P.x0, P.y0, P.x1 - P.x0 + 1, P.y1 - P.y0 + 1);
+            g.imageSmoothingEnabled = false;
+            g.drawImage(P.cv, bd.x0, bd.y0, bd.w, bd.h);
         },
     },
 
-    // Two stars locked together, with the gas bridge between them.
     /**
      * BINARY SUNS. The fifteenth Direction A conversion, and the one where the
      * study's recommendation costs the place a line of its own description.
@@ -7189,42 +8408,197 @@ const PAINTERS = {
         },
     },
 
-    // A star tearing itself apart: shock rings expanding out of the remnant.
-    supernova: {
+    /**
+     * SUPERNOVA. A shell thrown outward and lopsided, ploughing into a dense
+     * cloud on one flank. It is a QUANTISED PLACE and a still one: thirty-four
+     * filament strands, twelve spokes and a sheet layer are decided per art
+     * pixel inside `field` as a hard threshold rather than stroked, the dust is
+     * a smooth density the dither carries, and the middle is a cavity with
+     * nothing in it at all.
+     *
+     * Nothing here moves. The one live term is a LIGHT ECHO -- a Gaussian
+     * brightness front sliding outward along the shock, lifting the dust it
+     * crosses by a quarter of the ramp and touching neither the filaments nor
+     * the stars. What travels is which dust is lit; no thing on screen has a
+     * position that changes. That is the whole answer to the place the entry
+     * used to apologise for: the expanding concentric ring, which the boss owns
+     * and this place is now the only thing in the frame that is not.
+     */
+    pixelSupernova: {
         init(bd) {
-            bd.cx = bd.W * 0.5;
-            bd.cy = bd.H * 0.1;
+            const aw = Math.max(1, Math.ceil(bd.w / ART_PIX));
+            const ah = Math.max(1, Math.ceil(bd.h / ART_PIX));
+            const cv = document.createElement("canvas");
+            cv.width = aw;
+            cv.height = ah;
+            const g = cv.getContext("2d");
+            const img = g.createImageData(aw, ah);
+            const last = bd.rgb.length - 1;
+            const n = aw * ah;
+            bd.sn = {
+                aw, ah, cv, g, img, data: img.data,
+                cx: bd.W * SN_C.cx,
+                cy: bd.H * SN_C.cy,
+                r: bd.H * SN_R,
+                dx: Math.cos(SN_SHOCK),
+                dy: Math.sin(SN_SHOCK),
+                top: Math.min(bd.p.topRung === undefined ? last : bd.p.topRung, last),
+                priLum: Float32Array.from(bd.rgb, lum),
+                secLum: Float32Array.from(bd.rgbAlt, lum),
+                env: supernovaEnvelope(),
+                n: {
+                    bkA: mkNoise(0x9e51), bkB: mkNoise(0x2f0d), knot: mkNoise(0x41b3),
+                    str: mkNoise(0x7717), fine: mkNoise(0x2903), dust: mkNoise(0x0331),
+                    mottle: mkNoise(0x0617), ha: mkNoise(0x0055),
+                },
+                fil: new Float32Array(n),
+                dust: new Float32Array(n),
+                ha: new Float32Array(n),
+                u: new Float32Array(n),
+                ax0: clamp(Math.floor(-bd.x0 / ART_PIX), 0, aw - 1),
+                ax1: clamp(Math.floor((bd.W - bd.x0) / ART_PIX), 0, aw - 1),
+                ay0: clamp(Math.floor(-bd.y0 / ART_PIX), 0, ah - 1),
+                ay1: clamp(Math.floor((bd.H - bd.y0) / ART_PIX), 0, ah - 1),
+                // The lit lane's bounding box, so the next frame knows exactly
+                // what to put back to the plate's own colour.
+                rect: [aw, ah, -1, -1],
+                at: null,
+            };
+            bd.sn.strands = supernovaStrands(bd);
+            bd.sn.spokes = supernovaSpokes(bd);
+            bd.stars = starList(bd, SN_STAR_SEED, SN_STARS, SN_STAR_A);
         },
-        paint(bd, g) {
-            g.globalCompositeOperation = "lighter";
-            for (let i = 0; i < 16; i++) {
-                blob(
-                    g,
-                    bd.cx + (bd.rng() - 0.5) * bd.W * 1.2,
-                    bd.cy + (bd.rng() - 0.5) * bd.H,
-                    80 + bd.rng() * 200,
-                    bd.rng() < 0.5 ? bd.p.c1 : bd.p.c2,
-                    0.05 + bd.rng() * 0.06
-                );
+        field(bd, x, y) {
+            const P = bd.sn;
+            const ix = Math.floor((x - bd.x0) / ART_PIX);
+            const iy = Math.floor((y - bd.y0) / ART_PIX);
+            const i = iy * P.aw + ix;
+            supernovaSample(bd, i, x, y);
+            const d = P.dust[i];
+            const pv = P.fil[i] > d ? P.fil[i] : d;
+            // The Halpha knots take the second ramp, but only where they would
+            // actually be brighter than the cool rung underneath them: capped
+            // three rungs up against a cool ramp capped at five, the warmest
+            // thing in this sky is darker than its own dust plateau.
+            if (P.ha[i] > 0) {
+                const qs = artRung(bd, P.ha[i], ix, iy, SN_HA_TOP);
+                if (qs > 0 && P.secLum[qs] > P.priLum[artRung(bd, pv, ix, iy, P.top)]) {
+                    return { v: P.ha[i], rgb: bd.rgbAlt, cap: SN_HA_TOP };
+                }
             }
-            g.globalCompositeOperation = "source-over";
+            return { v: pv };
         },
+        /** Filaments hide a star; the dust barely does, because it is haze. */
+        occlude(bd, x, y) {
+            const P = bd.sn;
+            const ix = clamp(Math.floor((x - bd.x0) / ART_PIX), 0, P.aw - 1);
+            const iy = clamp(Math.floor((y - bd.y0) / ART_PIX), 0, P.ah - 1);
+            const i = iy * P.aw + ix;
+            return clamp(SN_OCCLUDE[0] * P.fil[i] + SN_OCCLUDE[1] * (P.dust[i] / SN_OCCLUDE[2]), 0, 1);
+        },
+        /**
+         * The echo, and only the echo: a binary-search slice of the pre-sorted
+         * index either side of each front, re-quantised at the added
+         * brightness, and only the pixels whose rung actually changed are
+         * written. The lane goes into an overlay rather than into the plate, so
+         * the plate stays the unlit truth and a pixel the front has left is put
+         * back by clearing it instead of by repainting it -- which is what
+         * stops a rung sticking on for the rest of the run.
+         *
+         * There is no `update`: the front's position is a pure function of the
+         * frame counter, so pause freezes it, slow motion slows it,
+         * `backdropThumb` jumps straight to 1500, and two clients in a co-op
+         * match watch the same gas light up without a byte on the bus.
+         */
         live(bd, g) {
-            g.save();
-            g.globalCompositeOperation = "lighter";
-            for (let i = 0; i < 3; i++) {
-                const ph = ((bd.t * 0.0022 + i / 3) % 1);
-                const r = 30 + ph * 900;
-                g.strokeStyle = rgba(i % 2 ? bd.p.c2 : bd.p.c1, 0.4 * (1 - ph) * (1 - ph));
-                g.lineWidth = 6 + ph * 26;
-                g.beginPath();
-                g.arc(bd.cx, bd.cy, r, 0, 6.2832);
-                g.stroke();
+            const P = bd.sn;
+            if (!P.at) {
+                supernovaIndex(bd);
             }
-            const f = 0.8 + Math.sin(bd.t * 0.17) * 0.12 + Math.sin(bd.t * 0.41) * 0.08;
-            blob(g, bd.cx, bd.cy, 190, bd.p.c1, 0.3 * f);
-            blob(g, bd.cx, bd.cy, 70, "#ffffff", 0.5 * f);
-            g.restore();
+            const E = P.echo;
+            const per = E.period;
+            const off = SN_ECHO.phase * per;
+            const sA = E.s0 + SN_ECHO.rate * ((((bd.t + off) % per) + per) % per);
+            const sB = E.s0 + SN_ECHO.rate * ((((bd.t + off + per / 2) % per) + per) % per);
+            const d = P.data;
+            const r = P.rect;
+            const aw = P.aw;
+            for (let y = r[1]; y <= r[3]; y++) {
+                d.fill(0, (y * aw + r[0]) * 4, (y * aw + r[2] + 1) * 4);
+            }
+            const at = P.at;
+            const eu = P.eu;
+            const fi = P.fi;
+            const du = P.du;
+            const hq = P.hq;
+            const bs = P.bs;
+            const rgb = bd.rgb;
+            const alt = bd.rgbAlt;
+            const priL = P.priLum;
+            const secL = P.secLum;
+            const env = P.env;
+            const top = P.top;
+            const last = rgb.length - 1;
+            let x0 = aw;
+            let y0 = P.ah;
+            let x1 = -1;
+            let y1 = -1;
+            for (let pass = 0; pass < 2; pass++) {
+                const s = pass ? sB : sA;
+                const hi = lowerBound(eu, s + SN_ECHO.win);
+                for (let k = lowerBound(eu, s - SN_ECHO.win); k < hi; k++) {
+                    // The envelope falls with distance, so the nearer front is
+                    // always the brighter one and one lookup answers both.
+                    const da = Math.abs(eu[k] - sA);
+                    const db = Math.abs(eu[k] - sB);
+                    const dv = du[k] + SN_ECHO.gain * powLook(env, (da < db ? da : db) / SN_ECHO.win);
+                    const i = at[k];
+                    const iy = (i / aw) | 0;
+                    const ix = i - iy * aw;
+                    const bay = (BAYER[(iy & 3) * 4 + (ix & 3)] / 16 - 0.46) * DITHER;
+                    let q = Math.round((fi[k] > dv ? fi[k] : dv) * last + bay);
+                    if (q < 0) {
+                        q = 0;
+                    } else if (q > top) {
+                        q = top;
+                    }
+                    const qs = hq[k];
+                    const c = qs > 0 && secL[qs] > priL[q] ? alt[qs] : rgb[q];
+                    if (((c[0] << 16) | (c[1] << 8) | c[2]) === bs[k]) {
+                        continue;
+                    }
+                    const o = i * 4;
+                    d[o] = c[0];
+                    d[o + 1] = c[1];
+                    d[o + 2] = c[2];
+                    d[o + 3] = 255;
+                    if (ix < x0) {
+                        x0 = ix;
+                    }
+                    if (ix > x1) {
+                        x1 = ix;
+                    }
+                    if (iy < y0) {
+                        y0 = iy;
+                    }
+                    if (iy > y1) {
+                        y1 = iy;
+                    }
+                }
+            }
+            const ux0 = Math.min(r[0], x0);
+            const uy0 = Math.min(r[1], y0);
+            const ux1 = Math.max(r[2], x1);
+            const uy1 = Math.max(r[3], y1);
+            if (ux1 >= ux0 && uy1 >= uy0) {
+                P.g.putImageData(P.img, 0, 0, ux0, uy0, ux1 - ux0 + 1, uy1 - uy0 + 1);
+            }
+            r[0] = x0;
+            r[1] = y0;
+            r[2] = x1;
+            r[3] = y1;
+            g.imageSmoothingEnabled = false;
+            g.drawImage(P.cv, bd.x0, bd.y0, bd.w, bd.h);
         },
     },
 
@@ -7255,55 +8629,103 @@ const PAINTERS = {
     },
 
     /**
-     * A world going past: the planet limb fills one side of the sky. `style`
-     * picks the surface treatment, and the terminator always comes from the
-     * same direction as the light in `p.lit`.
+     * ECLIPSE. A dead world with the star behind it -- and the whole event,
+     * slowly, rather than one frame of it: first contact, the diamond ring,
+     * totality, the second diamond ring and last contact in one 180 s pass.
+     * Totality is the middle 56% of it, so the frame the glossary line
+     * describes is still what the player sees for most of the block.
      *
-     * ECLIPSE is the only place left on it, and the ring machinery is gone with
-     * RINGED GIANT: three of the four things that place needed -- the ring-plane
-     * basis, the cylindrical shadow solve, the clump roll -- are dead weight in
-     * a ringless world, and the fourth replaces the banding helper this shares
-     * with the marble. Extending it in place would have been a painter that is
-     * half rings behind a `rings: true` flag.
+     * The disc is the cheapest readable field in the catalogue and that is its
+     * job: rung 0 flat over the top two thirds of the arena, `occlude`
+     * returning 1 across it so not one baked star shows through -- a
+     * silhouette that let stars through would read as glass. Every rung spent
+     * inside it is a rung spent against 1-4 px bullets.
+     *
+     * Everything lit is in one annulus outside the limb, so the plate holds
+     * nothing but sky and stars and the whole of the art is the live layer:
+     * the annulus is re-baked into an overlay every tenth frame and blitted
+     * over the plate. It has to be live, because it is all a function of where
+     * the star is.
      */
-    planet: {
-        paint(bd, g) {
-            const p = bd.p;
-            const cx = p.cx * bd.W;
-            const cy = p.cy * bd.H;
-            const r = p.r * bd.W;
-            if (p.star) {
-                sun(g, cx + p.lit * r * 2.6, cy - r * 1.4, 18, p.star);
+    pixelEclipse: {
+        init(bd) {
+            const aw = Math.max(1, Math.ceil(bd.w / ART_PIX));
+            const ah = Math.max(1, Math.ceil(bd.h / ART_PIX));
+            const cv = document.createElement("canvas");
+            cv.width = aw;
+            cv.height = ah;
+            const g = cv.getContext("2d");
+            const img = g.createImageData(aw, ah);
+            const ix = Math.cos(ECL_TRANSIT.in);
+            const iy = Math.sin(ECL_TRANSIT.in);
+            const dx = Math.cos(ECL_TRANSIT.out) - ix;
+            const dy = Math.sin(ECL_TRANSIT.out) - iy;
+            const len = Math.sqrt(dx * dx + dy * dy);
+            const r = bd.W * ECL_C.r;
+            const cx = bd.W * ECL_C.cx;
+            const cy = bd.H * ECL_C.cy;
+            const reach = r * ECL_ANNULUS[1];
+            bd.ecl = {
+                aw, ah, cv, g, img, data: img.data, cx, cy, r,
+                cell: eclipseCells(),
+                chord: { ix, iy, ux: dx / len, uy: dy / len, len },
+                // The dirty rectangle is fixed: the annulus never grows,
+                // because the star's flare is 0.46 R long and the star never
+                // gets further out than 1.45 R. So there is no per-frame
+                // bounds pass and no union with the last frame's rect.
+                x0: clamp(Math.floor((cx - reach - bd.x0) / ART_PIX), 0, aw - 1),
+                x1: clamp(Math.ceil((cx + reach - bd.x0) / ART_PIX), 0, aw - 1),
+                y0: clamp(Math.floor((cy - reach - bd.y0) / ART_PIX), 0, ah - 1),
+                y1: clamp(Math.ceil((cy + reach - bd.y0) / ART_PIX), 0, ah - 1),
+                cap: 7, fq: null, starMask: null, beads: [],
+            };
+            bd.stars = starList(bd, ECL_STAR_SEED, ECL_STARS, ECL_STAR_A);
+        },
+        /**
+         * Nothing bakes. Every rung the place lights depends on where the star
+         * is, and outside the annulus the haze is under a thousandth of one --
+         * so the plate is the sky, flat, and the point lights on top of it.
+         */
+        field() {
+            return FIELD_DARK;
+        },
+        /** Opaque, and the transit never changes that. */
+        occlude(bd, x, y) {
+            const P = bd.ecl;
+            const dx = x - P.cx;
+            const dy = y - P.cy;
+            const rn = Math.sqrt(dx * dx + dy * dy) / P.r;
+            let th = Math.atan2(dy, dx);
+            if (th < 0) {
+                th += 6.2832;
             }
-            // Body.
-            g.save();
-            g.beginPath();
-            g.arc(cx, cy, r, 0, 6.2832);
-            g.clip();
-            const grd = g.createRadialGradient(cx + p.lit * r * 0.4, cy - r * 0.35, r * 0.1, cx, cy, r);
-            grd.addColorStop(0, p.hi);
-            grd.addColorStop(1, p.base);
-            g.fillStyle = grd;
-            g.fillRect(cx - r, cy - r, r * 2, r * 2);
-            surface(g, bd, cx, cy, r, p);
-            // Terminator: the unlit side goes to nothing.
-            const sh = g.createLinearGradient(cx + p.lit * r, cy, cx - p.lit * r, cy);
-            sh.addColorStop(0, "rgba(2,3,8,0)");
-            sh.addColorStop(0.55, "rgba(2,3,8,0.55)");
-            sh.addColorStop(1, "rgba(2,3,8,0.95)");
-            g.fillStyle = sh;
-            g.fillRect(cx - r, cy - r, r * 2, r * 2);
-            g.restore();
-            // Atmosphere rim.
-            g.save();
-            g.globalCompositeOperation = "lighter";
-            g.strokeStyle = rgba(p.atmo || p.hi, 0.5);
-            g.lineWidth = 6;
-            g.beginPath();
-            g.arc(cx, cy, r + 2, -1.2 + (p.lit < 0 ? Math.PI : 0), 1.5 + (p.lit < 0 ? Math.PI : 0));
-            g.stroke();
-            g.restore();
-            speckle(g, bd, 50, "#ffffff", 0.3);
+            return rn <= 1 + P.cell.terr[Math.floor((th / 6.2832) * ECL_CELLS) % ECL_CELLS] ? 1 : 0;
+        },
+        /**
+         * One re-bake of the annulus every tenth frame, one blit, and up to
+         * three lattice-snapped beads. The phase is quantised to the same tenth
+         * frame, so what is on screen is a pure function of `floor(t / 10) * 10`
+         * and two clients in a co-op match are never looking at different
+         * eclipses -- and there is no `update`, so `backdropThumb` jumps
+         * straight to 1500 and pause freezes the star where it is.
+         */
+        live(bd, g) {
+            const P = bd.ecl;
+            const fq = Math.floor(bd.t / ECL_STEP) * ECL_STEP;
+            if (P.fq !== fq) {
+                P.fq = fq;
+                eclipseBake(bd, fq);
+            }
+            g.imageSmoothingEnabled = false;
+            g.drawImage(P.cv, bd.x0, bd.y0, bd.w, bd.h);
+            const beads = eclipseBeads(bd, fq, eclipsePhase(bd, fq), P.beads);
+            if (beads.length) {
+                const s = ART_PIX * ECL_BEAD.size;
+                g.fillStyle = bd.p.ramp[bd.p.ramp.length - 1];
+                for (let i = 0; i < beads.length; i += 2) {
+                    g.fillRect(snapTo(bd.x0, beads[i]), snapTo(bd.y0, beads[i + 1]), s, s);
+                }
+            }
         },
     },
 
@@ -8547,34 +9969,6 @@ function discValue(bd, x, y) {
     return clamp(band * (0.3 + 0.85 * inner) * tex, 0, 1);
 }
 
-/** Surface detail inside an already-clipped planet disc. */
-function surface(g, bd, cx, cy, r, p) {
-    if (p.style === "rock") {
-        for (let i = 0; i < 60; i++) {
-            const a = bd.rng() * 6.2832;
-            const d = bd.rng() * r;
-            g.fillStyle = rgba("#000000", 0.06 + bd.rng() * 0.14);
-            g.beginPath();
-            g.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d, 3 + bd.rng() * 22, 0, 6.2832);
-            g.fill();
-        }
-    } else {
-        // "marble": continents / ice caps as soft irregular masses.
-        for (let i = 0; i < 26; i++) {
-            const a = bd.rng() * 6.2832;
-            const d = bd.rng() * r * 0.95;
-            g.fillStyle = rgba(p.land || p.hi, 0.16 + bd.rng() * 0.3);
-            g.save();
-            g.translate(cx + Math.cos(a) * d, cy + Math.sin(a) * d);
-            g.rotate(bd.rng() * 6.2832);
-            g.beginPath();
-            g.ellipse(0, 0, 14 + bd.rng() * r * 0.35, 8 + bd.rng() * r * 0.18, 0, 0, 6.2832);
-            g.fill();
-            g.restore();
-        }
-    }
-}
-
 /* -------------------------------------------------------------------------- */
 /* The places                                                                  */
 /* -------------------------------------------------------------------------- */
@@ -8943,9 +10337,21 @@ export const BACKGROUNDS = [
         desc: "Sand blowing across an ochre sky, thick enough that you can read the wind in it.",
     },
     {
-        id: "supernova", name: "SUPERNOVA", tint: "#ff8f5e", kind: "supernova",
-        p: { c1: "#ffb45e", c2: "#ff4f7a" },
-        desc: "A star tearing itself apart. Shock rings expand out of the remnant one after another while the core flickers. Another place that shares its colours with enemy fire.",
+        id: "supernova", name: "SUPERNOVA", tint: "#3fb9a6", kind: "pixelSupernova",
+        p: {
+            // O III against the dust, capped at rung 5. The tint was #ff8f5e
+            // and is now rung 6 nudged toward the ramp's middle, so it still
+            // reads on an 11 px catalogue card and no longer sits inside the
+            // enemy-fire family.
+            ramp: ["#06131a", "#0a2430", "#0e3a44", "#12545a", "#1c7a78", "#2aa394", "#58c9b4", "#a8ead8"],
+            // Halpha, and it stops at rung 3: top warm luminance 34, under the
+            // surround threshold the small-bright-feature detector uses.
+            landRamp: ["#160a0c", "#241012", "#33161a", "#451d20", "#5a2528", "#6f2e2f", "#833838", "#a04442"],
+            starRamp: ["#3d4a55", "#6b7c88", "#8fa0a6"],
+            topRung: 5,
+            veil: 11,
+        },
+        desc: "A shell thrown outward and lopsided, ploughing into a dense cloud on one flank. Oxygen filaments stand cyan against the dust; the middle is empty, and a slow light echo lifts one lane of it at a time.",
     },
     {
         id: "crystal", name: "CRYSTAL FIELD", tint: "#a8d8ff", kind: "crystal",
@@ -8958,9 +10364,26 @@ export const BACKGROUNDS = [
         desc: "The night side of a storm world: violet cloud running faster than anywhere else, and lightning that lights the whole sky from behind.",
     },
     {
-        id: "eclipse", name: "ECLIPSE", tint: "#ffd9a0", kind: "planet",
-        p: { cx: 0.5, cy: 0.1, r: 0.42, lit: -1, base: "#0b0d18", hi: "#2a2f4a", atmo: "#ffd9a0", style: "rock", star: "#fff2c4" },
-        desc: "A dead world dead ahead with the star behind it, so what you get is the ring of atmosphere burning around a black disc.",
+        id: "eclipse", name: "ECLIPSE", tint: "#ffd9a0", kind: "pixelEclipse",
+        p: {
+            // Rungs 0-2 are cold -- the field and the deep haze -- and 3-7 are
+            // warm. No rung is mid-grey, so nothing in this backdrop can sit
+            // at bullet luminance without also being clearly large.
+            ramp: ["#04050c", "#0d0a16", "#1d1220", "#3a1e1c", "#63351d", "#94551f", "#c4832f", "#ffd9a0"],
+            // The eclipsed star is behind the disc, so nothing in this sky
+            // needs a warm point light: the star field ends cool.
+            starRamp: ["#3a4460", "#767f9c", "#989dae"],
+            // 7, and it is the ring and the star that reach it; the streamers
+            // stop at 6.
+            topRung: 7,
+            // Zero, and this is the place that earns it. Mean arena luminance
+            // is 12 of 255 -- rung 0 across the disc with the lit material
+            // confined to one annulus -- so there is nothing to knock back,
+            // and anything over about 6 starts eating the streamer tips, which
+            // are the only thing worth looking at.
+            veil: 0,
+        },
+        desc: "A dead world dead ahead with the star behind it, so what you get is the ring of atmosphere burning around a black disc, once it lines up.",
     },
     {
         id: "galaxy", name: "GALACTIC CORE", tint: "#ffd6a8", kind: "galaxy",
@@ -8968,9 +10391,20 @@ export const BACKGROUNDS = [
         desc: "Looking straight into the crowded middle of the galaxy: two arms of stars wound around a core bright enough to read by.",
     },
     {
-        id: "wormhole", name: "WORMHOLE", tint: "#c9a4ff", kind: "wormhole",
-        p: { c1: "#c9a4ff", c2: "#5ee1ff" },
-        desc: "The mouth of a tunnel, straight ahead. Rings of light rush out of it, each one turning against the one before it.",
+        id: "wormhole", name: "WORMHOLE", tint: "#c9a4ff", kind: "pixelWormhole",
+        p: {
+            // Violet to cyan to white, so the tint reads at the mouth's rim
+            // and the throat goes cold and then hot toward the core.
+            ramp: ["#07060f", "#120e26", "#1e1a44", "#2f2a6b", "#4a3f9c", "#6f63c9", "#9ad6f2", "#dff4ff"],
+            starRamp: ["#3a4a7a", "#767f9c", "#979ead"],
+            // 6 for the walls. The top rung is released only inside the core,
+            // which `live` does per pixel: rungs 4-6 cover a large share of the
+            // frame, and a wall that could reach rung 7 would be competing with
+            // the bullets over most of the play field.
+            topRung: 6,
+            veil: 6,
+        },
+        desc: "The mouth of a tunnel, straight ahead. Two ribs of light wind inward, crowding together as they fall away from you.",
     },
     {
         id: "nebula_shell", name: "PLANETARY NEBULA", tint: "#7bffb0", kind: "pixelShell",
