@@ -1045,6 +1045,108 @@
  * than what it replaces on the number that matters: arena mean 0.0158 against
  * the old painter's 0.0248.
  *
+ * -------------------------------------------------------------------------
+ * ORBITAL STATION, Direction A -- the sixteenth conversion (2026-08-31)
+ * -------------------------------------------------------------------------
+ * The first place in the catalogue whose **subject is not baked at all**.
+ * Everything else bakes because everything hard-edged in it is a function of
+ * position; a ring that turns is not, so `field` carries only the dust and the
+ * whole station is rasterised into an art-resolution overlay every frame.
+ *
+ * It also fixes the two things the old entry got wrong about itself. Its own
+ * description said the ring turns, and nothing in the painter turned: it was a
+ * static wheel with 26 additively-composited 3 px pale points blinking around
+ * the rim -- the size, the colour and the surround of a bullet, and the only
+ * motion in the place. Now the ring turns, the hub is despun, and nothing
+ * blinks at all.
+ *
+ * Departures from the study, and why:
+ *   1. **Star occlusion is paint order, and costs nothing.** The study keeps a
+ *      box-sized composite surface and re-blits the baked plane into it every
+ *      frame so the station can cover stars, and lists that as a departure
+ *      with a memory cost. `Backdrop.draw` already blits the plate and then
+ *      calls `live`, so an opaque overlay over it IS the occlusion. Fourth
+ *      time an older port's shape has answered a newer study's ask for free.
+ *   2. **The dirty rectangle is fixed**, and there is no union with the last
+ *      frame's. COMET TRAIL recomputes its bounds every frame because its
+ *      subject travels; the ring's bounds do not move, so 124x66 art px of the
+ *      476x388 box -- 4.4% -- is cleared, painted and uploaded, forever.
+ *   3. **Two canvas calls, not 488.** The study fills each run of plating with
+ *      `fillRect` on the composite. Every part of this station is an
+ *      axis-aligned run, so they are written straight into the ImageData: one
+ *      `putImageData` over the fixed rect and one blit, which with the plate's
+ *      own blit is 3 rasterising calls a frame against the 26 the old painter
+ *      spent and the 488 the study costed itself at.
+ *   4. **`occlude` carries INNER SYSTEM's rule instead.** The study leaves it
+ *      returning 1 everywhere. With the silhouette handled by paint order the
+ *      phase is free for the other reason a star gets dropped: the plate
+ *      behind it is already lit, which here is the dust bias the station sits
+ *      in.
+ *   5. **Every point light came down under the detector's threshold**, which
+ *      is the one real change to the study's art. Its five lights are
+ *      luminance 0.79 / 0.84 / 0.67 / 0.87 / 0.64 against the standing
+ *      detector's 0.62, and its defence of them is the surround clause -- they
+ *      are embedded in an opaque silhouette rather than floating on black.
+ *      That defence is real and it is also **a cliff**: near plating measures
+ *      0.337 against the surround test's 0.30, so any veil over about 11%
+ *      pushes it under and every window in the place becomes a small bright
+ *      feature at once. Measured with the study's own colours: 18 features at
+ *      veil 0, 17 at veil 10 and **36 at veil 15**, at the worst phase of the
+ *      turn. Scaling each light to just under 0.62 on its own hue reads **0 at
+ *      every veil from 0 to 30 and at every phase**, and the defence stops
+ *      depending on a number set elsewhere. The windows still read as lit --
+ *      1.8:1 over the plating they sit in, and warm against blue-grey.
+ *   6. **Far-arc windows are dimmer than near-arc ones.** A window seen across
+ *      the ring is dimmer, which is depth; it is also the only way those
+ *      windows clear the bar, because far plating is two rungs down at 0.170
+ *      and cannot embed a light the way near plating can.
+ *   7. **Window pitch is the sheet's 12 logical px, not the 15 its code
+ *      shipped.** At 15 a 45 px module carries two portholes where the sheet's
+ *      prose promises a run of 3-7; at 12 the arcs carry three and the place
+ *      reads as rows. Where a sheet and its own code disagree, the tie-break
+ *      is what the place is for.
+ *   8. **The star ramp came down**, the seventh of nine studies to need it.
+ *      Its top rung `#dfe9f8` is luminance 0.91 against the detector's 0.62:
+ *      114 features at veil 0 with its ramp, 0 with every rung under the
+ *      threshold. Blacking the ramp out entirely also reads 0, which is the
+ *      control that says none of the art was ever one.
+ *   9. **Drift is the shared `sin(t * 0.0016) * DRIFT`**, not the study's 9 px
+ *      on an 1800-frame sine. Same call, and the same reason, as places 1-15:
+ *      the engine translates the plate and the live layer together, so the
+ *      plane is rigid without the study's blit-offset machinery.
+ *  10. **The noise is `mkNoise`**, not the study's own two bilinear lattices,
+ *      which is the "fold it into the shared generator" every port note asks
+ *      for. Its 24x20 cell size is kept as the sample rate.
+ *
+ * The veil is **10**, and it is the only number here the study's own reasoning
+ * does not survive. It asks for 8 on a `v/54.5` scale, which converts to 15 --
+ * and 15 is on the wrong side of the cliff in departure 5, so the conversion
+ * cannot be taken on its own. Priced both ways: over the whole arena this is
+ * the second darkest place in the catalogue after DEEP SPACE (linear mean
+ * 0.0064, p95 0.0122 against a 4:1 ceiling of 0.098) and clears every bar at
+ * veil 0. What binds is the station's own quadrant, where linear p95 is 0.0954
+ * at veil 0 -- 2.6% under that same ceiling, which is no margin at all. Veil
+ * 10 puts it at 0.0781, 20% under, and costs the windows 0.06 of luminance.
+ *
+ * Measured on the composed 680x540 arena, over a whole 1440-frame revolution
+ * rather than at frame 1500, because this place's event IS the turn: **0 small
+ * bright features at every veil from 0 to 30 and every phase**, 0 by the
+ * study's own pale test (L > 140, saturation under 0.40), and **0.00% of the
+ * arena brighter than an enemy core**. Peak frame-to-frame change in arena
+ * mean is 0.000204 in linear light, 0.037% of an enemy core. 3 rasterising
+ * calls a frame against the old painter's 26. Rotation lands where the sheet
+ * says: 0.25 degrees a frame, and a module clears its own width in 60.
+ * See `tools/neon_strike_bench/probe_station.mjs`.
+ *
+ * One thing the study flagged for the owner rather than settling, and the
+ * answer it got: the description ends *Somebody out here is still home*, and
+ * `STORY.md` says the VESTA is the only ark still flying. Those are not in
+ * conflict -- this is a station of one of the two civilisations, not an ark,
+ * and both of them are very much alive and shooting at you. So it is drawn as
+ * a place that is genuinely inhabited: 18 of 24 modules lit, an intact craft
+ * docked at the hub, another leaving. The bitterness is the game's, not the
+ * art's -- the lights are on, somebody is home, and they fire on you anyway.
+ *
  */
 
 // The static layer is soft gradient art, so half resolution is free quality.
@@ -2182,6 +2284,62 @@ const BIN_STAR_SEED = 0x5115;
 const BIN_STAR_A = 0.3;
 // How much of a point light the sheet in front of it puts out.
 const BIN_OCCLUDE = 0.9;
+
+/* -- ORBITAL STATION ------------------------------------------------------ */
+
+// The ring: a centre in the arena's own fractions, a radius in art pixels, and
+// the squash that turns the circle into the plane it is seen at -- a 342 x 123
+// logical ellipse, still top right where the glossary says it is. 57 art px is
+// 171 logical, down from the entry's old 204: at 204 the ring's right extreme
+// crossed the arena edge, and a module at the extremes fell to 16 px of
+// apparent width, which is where the plating stops reading.
+const STATION_C = { cx: 0.70, cy: 0.20 };
+const STATION_R = 57;
+const STATION_SQUASH = 0.36;
+// 24 modules. 16 read as a wheel with spokes; 32 mush at the extremes, where
+// apparent width is 16 px against 45 across the near and far arcs.
+const STATION_MODULES = 24;
+const STATION_MOD_HW = 7.46;
+const STATION_MOD_H = [5, 1.5];
+// Windows are 2 art px -- 6 logical, the catalogue's floor for reading as mass
+// -- in runs at this pitch, and every fourth module is dark: 18 of 24 lit.
+// 4 art px is the sheet's own 12 logical px. Its code shipped 5, which puts 2
+// windows on a 45 px module where the sheet's prose promises a run of 3-7; at
+// 4 the arcs carry 3 and the place reads as rows rather than portholes.
+const STATION_WIN_PITCH = 4;
+const STATION_WIN_DARK = 4;
+const STATION_NAV_EVERY = 6;
+// The rim truss behind the modules, split by depth: the ring has to read as a
+// ring in the gaps between them, not as 24 bricks in a row.
+const STATION_RIM = 84;
+const STATION_SPOKES = 4;
+// Where a spoke starts and how far short of the rim it stops.
+const STATION_SPOKE_R = [5, 4];
+// One revolution: 0.25 degrees a frame, and a module clears its own width in
+// 60. Under about 700 frames it competes with bullet motion; over about 2500
+// it stops reading as turning at all inside a single wave.
+const STATION_PERIOD = 1440;
+// The shuttle leaving the hub: its cycle, and how far it gets along each axis.
+const STATION_SHUTTLE = { period: 900, x: [6, 46], y: [8, 20] };
+// The dirty rectangle, as art pixels left / right / above / below the centre.
+// It never moves, because the ring's bounds do not: the modules travel inside
+// a fixed ellipse and everything above the bearing is despun. The widest thing
+// in it is the ring itself, and the tallest is a solar array.
+const STATION_BOX = [61, 61, 31, 33];
+// The dust plane the place sits in. The bias is a gaussian on the station's
+// own quadrant, so the ring has a ground to be seen against instead of hanging
+// on flat black; `cut` is what keeps the rest of the box dark.
+const STATION_FIELD = {
+    rate: 0.0168, amp: 0.92, floor: 0.55, gain: 0.75, reach: 5.5, cut: 0.54, lift: 1.05,
+};
+const STATION_SEED = 0x57a7;
+const STATION_STARS = 620;
+const STATION_STAR_SEED = 0xb1a5;
+const STATION_STAR_A = 0.24;
+// A star only goes down where the plate behind it is dark. The station's own
+// quadrant is the one lit part of this sky, and a point light inside it reads
+// as a speck of noise in the dust rather than as a star behind it.
+const STATION_STAR_LIT = 30;
 
 const FIELD_DARK = { v: 0 };
 // The arena the glossary thumbnails are composed in. Painters place things in
@@ -5485,6 +5643,215 @@ function binaryActive(bd, s, cx, cy) {
         || binaryPick(bd, lo.w, lo.c, cx, cy) !== binaryPick(bd, hi.w, lo.c, cx, cy);
 }
 
+/**
+ * The dust plane ORBITAL STATION sits in, as a scalar. Two octaves shaped by a
+ * gaussian on the station's own quadrant: the ring needs a ground, and the
+ * rest of the box needs to stay as dark as the arena the player flies in.
+ */
+function stationSky(bd, x, y) {
+    const f = STATION_FIELD;
+    const dx = (x - bd.cx) / bd.w;
+    const dy = (y - bd.cy) / bd.h;
+    const bias = f.floor + f.gain * Math.exp(-(dx * dx + dy * dy) * f.reach);
+    return Math.max(0, bd.n1(x * f.rate, y * f.rate, 2) * f.amp * bias - f.cut) * f.lift;
+}
+
+/**
+ * One axis-aligned run of art pixels, written straight into the overlay and
+ * clipped to its dirty rectangle. Every part of the station is one of these:
+ * nothing is ever rotated, so colour runs stay on the lattice and the whole
+ * live layer costs one upload and one blit instead of 488 canvas fills.
+ */
+function stationRect(s, x, y, w, h, col) {
+    const cx0 = Math.max(s.x0, Math.round(x));
+    const cy0 = Math.max(s.y0, Math.round(y));
+    const cx1 = Math.min(s.x1, Math.round(x) + Math.max(1, Math.round(w)) - 1);
+    const cy1 = Math.min(s.y1, Math.round(y) + Math.max(1, Math.round(h)) - 1);
+    for (let py = cy0; py <= cy1; py++) {
+        let o = (py * s.aw + cx0) * 4;
+        for (let px = cx0; px <= cx1; px++) {
+            s.data[o] = col[0];
+            s.data[o + 1] = col[1];
+            s.data[o + 2] = col[2];
+            s.data[o + 3] = 255;
+            o += 4;
+        }
+    }
+}
+
+/** A boom or a spoke: a run of `t`-sized squares between two points. */
+function stationLine(s, x0, y0, x1, y1, t, col) {
+    const n = Math.max(2, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / t));
+    for (let i = 0; i <= n; i++) {
+        const k = i / n;
+        stationRect(s, x0 + (x1 - x0) * k - t / 2, y0 + (y1 - y0) * k - t / 2, t, t, col);
+    }
+}
+
+/**
+ * The 24 modules at one rotation.
+ *
+ * Foreshortening is measured in the plane and not on the screen --
+ * `sqrt(sin^2 + squash^2 cos^2)` scales the apparent width -- which is what
+ * makes the ring read as tilted rather than as an oval painted on glass. The
+ * sign of `sin` is the whole of the depth sort: twelve modules cross in front
+ * of the hub and twelve behind it every revolution.
+ */
+function stationModules(bd, rot) {
+    const out = [];
+    for (let i = 0; i < STATION_MODULES; i++) {
+        const th = rot + (i * 6.2832) / STATION_MODULES;
+        const ct = Math.cos(th);
+        const st = Math.sin(th);
+        const k = Math.sqrt(st * st + STATION_SQUASH * STATION_SQUASH * ct * ct);
+        out.push({
+            i,
+            x: bd.acx + STATION_R * ct,
+            y: bd.acy + STATION_R * STATION_SQUASH * st,
+            hw: Math.max(1.2, STATION_MOD_HW * k),
+            h: STATION_MOD_H[0] + STATION_MOD_H[1] * st,
+            near: st > 0,
+        });
+    }
+    return out;
+}
+
+/** One module: plating, ribs, its run of lit windows, and maybe a nav light. */
+function stationModule(bd, s, m) {
+    const land = bd.rgbAlt;
+    const x = m.x;
+    const y = m.y;
+    const hw = m.hw;
+    const h = m.h;
+    const top = y - h / 2;
+    stationRect(s, x - hw, top, hw * 2, h, land[m.near ? 4 : 2]);
+    // The near top edge stops at rung 5. At rung 6 it was one of the two
+    // features in the place that measured pale, and it is 24 of them.
+    stationRect(s, x - hw, top, hw * 2, 1, land[m.near ? 5 : 4]);
+    stationRect(s, x - hw, y + h / 2 - 1, hw * 2, 1, land[m.near ? 2 : 1]);
+    stationRect(s, x - hw, top, 1, h, land[1]);
+    stationRect(s, x + hw - 1, top, 1, h, land[1]);
+    for (let px = -hw + 3; px < hw - 1; px += 4) {
+        stationRect(s, x + px, top + 1, 1, h - 2, land[3]);
+    }
+    // The windows are steady and source-over, never additive and never
+    // blinking: a light that appears and disappears is what a muzzle flash
+    // looks like, and this place has 60 of them.
+    if (m.i % STATION_WIN_DARK !== STATION_WIN_DARK - 1 && hw > 2.6) {
+        // A window on the far arc is seen across the ring and is dimmer for
+        // it, which is depth -- and it is also the only reason those windows
+        // clear the small-bright-feature bar: the far plating is four rungs
+        // down and cannot embed a light the way the near plating does.
+        const hi = m.near ? bd.lit.winHi : bd.lit.farHi;
+        const lo = m.near ? bd.lit.win : bd.lit.far;
+        for (let px = -hw + 2; px < hw - 3; px += STATION_WIN_PITCH) {
+            stationRect(s, x + px, top + 1.5, 2, 2,
+                (m.i + Math.floor(px)) % 3 === 0 ? hi : lo);
+        }
+    }
+    if (m.i % STATION_NAV_EVERY === 0) {
+        stationRect(s, x - 1, y + h / 2 - 2, 2, 2, m.near ? bd.lit.navHi : bd.lit.nav);
+    }
+}
+
+/** The rim truss, on one side of the plane: what fills the gaps between them. */
+function stationRim(bd, s, near) {
+    const land = bd.rgbAlt;
+    for (let i = 0; i < STATION_RIM; i++) {
+        const th = (i * 6.2832) / STATION_RIM;
+        const st = Math.sin(th);
+        if ((st > 0) !== near) {
+            continue;
+        }
+        const rx = bd.acx + STATION_R * Math.cos(th);
+        const ry = bd.acy + STATION_R * STATION_SQUASH * st;
+        if (near) {
+            stationRect(s, rx, ry, 3, 2, land[3]);
+        } else {
+            stationRect(s, rx, ry, 2, 1, land[1]);
+        }
+    }
+}
+
+/** The four spokes, on one side of the plane. They turn with the ring. */
+function stationSpokes(bd, s, rot, near) {
+    const land = bd.rgbAlt;
+    for (let k = 0; k < STATION_SPOKES; k++) {
+        const th = rot + (k * 6.2832) / STATION_SPOKES;
+        const st = Math.sin(th);
+        if ((st > 0) !== near) {
+            continue;
+        }
+        const ct = Math.cos(th);
+        const r0 = STATION_SPOKE_R[0];
+        const r1 = STATION_R - STATION_SPOKE_R[1];
+        stationLine(s,
+            bd.acx + r0 * ct, bd.acy + r0 * STATION_SQUASH * st,
+            bd.acx + r1 * ct, bd.acy + r1 * STATION_SQUASH * st,
+            near ? 2 : 1, land[near ? 4 : 2]);
+    }
+}
+
+/**
+ * The hub, which is the half of the idea the old painter never had: it is
+ * despun, so the arrays, the tower, the beacon and the docked craft hold
+ * perfectly still while the ring turns past them. The bearing under the tower
+ * is the joint that says so, and the spokes come out of it.
+ */
+function stationHub(bd, s) {
+    const land = bd.rgbAlt;
+    const ramp = bd.rgb;
+    const x = bd.acx;
+    const y = bd.acy;
+    // Solar arrays, on booms long enough to carry them clear of the rim.
+    for (const d of [-1, 1]) {
+        stationLine(s, x + d * 7, y - 6, x + d * 38, y - 21, 1, land[3]);
+        const ax = x + d * 38 - (d < 0 ? 12 : 0);
+        const ay = y - 29;
+        stationRect(s, ax, ay, 12, 16, ramp[3]);
+        stationRect(s, ax, ay, 12, 1, land[4]);
+        for (let i = 2; i < 16; i += 3) {
+            stationRect(s, ax, ay + i, 12, 1, ramp[4]);
+        }
+        stationRect(s, ax + 5, ay, 1, 16, land[3]);
+    }
+    // Radiator fins.
+    for (const d of [-1, 1]) {
+        const rx = x + d * 6 - (d < 0 ? 3 : 0);
+        stationRect(s, rx, y + 5, 3, 9, land[2]);
+        stationRect(s, rx, y + 5, 3, 1, land[5]);
+    }
+    // The bearing. Everything above this line is still.
+    stationRect(s, x - 7, y - 1, 14, 4, land[5]);
+    stationRect(s, x - 7, y + 1, 14, 1, land[1]);
+    stationRect(s, x - 8, y - 2, 16, 1, land[3]);
+    // The tower: eight storeys, four of them lit, and a spire.
+    for (let i = 0; i < 8; i++) {
+        const w = 8 - Math.floor(i / 2.6);
+        const yy = y - 5.5 - i * 2.5;
+        stationRect(s, x - w / 2, yy, w, 3, land[4]);
+        stationRect(s, x - w / 2, yy, w, 1, land[5]);
+        if (i % 2 === 0) {
+            stationRect(s, x - w / 2 + 1, yy + 1, 2, 2, bd.lit.win);
+        }
+    }
+    stationRect(s, x - 0.5, y - 23, 1, 11, land[5]);
+    stationRect(s, x - 1, y - 25, 2, 2, bd.lit.beacon);
+    // The docked craft, on the collar's left. It is the clearest read of
+    // "occupied" in the place and the reason the entry's last sentence is
+    // true. Rung 5, not 6: at 6 its highlight was the other pale feature.
+    stationRect(s, x - 17, y + 2, 8, 3, land[5]);
+    stationRect(s, x - 15, y + 3, 2, 2, bd.lit.winHi);
+    stationLine(s, x - 9, y + 3, x - 5, y + 2, 1, land[3]);
+    // ...and one leaving. Pure in the frame counter, like the rotation: no
+    // stored countdown, so it replays from any instant.
+    const k = (bd.t % STATION_SHUTTLE.period) / STATION_SHUTTLE.period;
+    const sx = x + STATION_SHUTTLE.x[0] + k * STATION_SHUTTLE.x[1];
+    const sy = y + STATION_SHUTTLE.y[0] + k * STATION_SHUTTLE.y[1];
+    stationRect(s, sx, sy, 4, 2, land[5]);
+    stationRect(s, sx - 2, sy, 2, 2, bd.lit.beacon);
+}
+
 const PAINTERS = {
     // Nothing at all: the engine star field is the whole sky. Still the
     // fallback for an entry whose `kind` does not resolve.
@@ -7245,53 +7612,122 @@ const PAINTERS = {
         },
     },
 
-    // Somebody still lives out here.
-    station: {
+    /**
+     * ORBITAL STATION. The sixteenth Direction A conversion, and the first
+     * place whose subject is not in the baked layer at all.
+     *
+     * Everything else in the catalogue bakes because everything hard-edged in
+     * it is a function of position. A ring that turns is not: a module's
+     * screen position and its apparent width both come out of its angle in the
+     * plane, so the whole station is rasterised into an art-resolution overlay
+     * every frame and blitted over the plate. `field` carries the dust and
+     * nothing else.
+     *
+     * That also settles the two things the entry used to get wrong. The old
+     * painter drew a static wheel with 26 additively-composited 3 px pale
+     * points blinking around it -- the size, the colour and the surround of a
+     * bullet, and the only motion in a place whose own description says it
+     * turns. Now the ring turns and nothing blinks.
+     *
+     * Nothing is ever rotated. A module is an axis-aligned run of plating
+     * whose position and width are computed from the angle, which keeps every
+     * colour run on the lattice and costs no atlas: 0 bytes against the >= 32
+     * angles a module would need before its travel along the near arc stopped
+     * stuttering.
+     */
+    pixelStation: {
         init(bd) {
-            bd.cx = bd.p.cx * bd.W;
-            bd.cy = bd.p.cy * bd.H;
-            bd.r = bd.p.r * bd.W;
-            bd.lights = [];
-            for (let i = 0; i < 26; i++) {
-                bd.lights.push({ a: bd.rng() * 6.2832, ph: bd.rng() * 6.2832 });
-            }
+            bd.aw = Math.max(1, Math.ceil(bd.w / ART_PIX));
+            bd.ah = Math.max(1, Math.ceil(bd.h / ART_PIX));
+            bd.n1 = mkNoise(STATION_SEED);
+            bd.cx = bd.W * STATION_C.cx;
+            bd.cy = bd.H * STATION_C.cy;
+            // The station is measured in art cells of the box, so its geometry
+            // is on the lattice by construction and needs no `snapTo`.
+            bd.acx = (bd.cx - bd.x0) / ART_PIX;
+            bd.acy = (bd.cy - bd.y0) / ART_PIX;
+            bd.stars = starList(bd, STATION_STAR_SEED, STATION_STARS, STATION_STAR_A);
+            bd.lit = {
+                win: hexRGB(bd.p.lights.win),
+                winHi: hexRGB(bd.p.lights.winHi),
+                far: hexRGB(bd.p.lights.far),
+                farHi: hexRGB(bd.p.lights.farHi),
+                nav: hexRGB(bd.p.lights.nav),
+                navHi: hexRGB(bd.p.lights.navHi),
+                beacon: hexRGB(bd.p.lights.beacon),
+            };
+            const cv = document.createElement("canvas");
+            cv.width = bd.aw;
+            cv.height = bd.ah;
+            const g = cv.getContext("2d");
+            const img = g.createImageData(bd.aw, bd.ah);
+            // The dirty rectangle is fixed. The ring's bounds do not move, so
+            // there is no union with last frame's rect to keep and no
+            // per-frame bounds pass -- a better case than COMET TRAIL, whose
+            // idiom this is.
+            bd.surf = {
+                cv, g, img, data: img.data, aw: bd.aw,
+                x0: clamp(Math.floor(bd.acx - STATION_BOX[0]), 0, bd.aw - 1),
+                x1: clamp(Math.ceil(bd.acx + STATION_BOX[1]), 0, bd.aw - 1),
+                y0: clamp(Math.floor(bd.acy - STATION_BOX[2]), 0, bd.ah - 1),
+                y1: clamp(Math.ceil(bd.acy + STATION_BOX[3]), 0, bd.ah - 1),
+            };
         },
-        paint(bd, g) {
-            speckle(g, bd, 80, "#ffffff", 0.3);
-            g.save();
-            g.translate(bd.cx, bd.cy);
-            g.scale(1, 0.36);
-            g.strokeStyle = rgba(bd.p.base, 0.85);
-            g.lineWidth = bd.r * 0.16;
-            g.beginPath();
-            g.arc(0, 0, bd.r, 0, 6.2832);
-            g.stroke();
-            g.strokeStyle = rgba(bd.p.base, 0.5);
-            g.lineWidth = bd.r * 0.05;
-            for (let i = 0; i < 6; i++) {
-                const a = (i / 6) * 6.2832;
-                g.beginPath();
-                g.moveTo(0, 0);
-                g.lineTo(Math.cos(a) * bd.r, Math.sin(a) * bd.r);
-                g.stroke();
-            }
-            g.restore();
-            g.fillStyle = rgba(bd.p.base, 0.9);
-            g.beginPath();
-            g.arc(bd.cx, bd.cy, bd.r * 0.16, 0, 6.2832);
-            g.fill();
+        /**
+         * The station's own occlusion needs no phase at all: it is opaque, it
+         * is drawn over the plate every frame, and paint order is the answer.
+         * So `occlude` carries the other rule instead, INNER SYSTEM's -- a
+         * point light only goes down where the plate behind it is dark.
+         */
+        occlude(bd, x, y) {
+            const last = bd.rgb.length - 1;
+            const cap = Math.min(bd.p.topRung === undefined ? last : bd.p.topRung, last);
+            const v = stationSky(bd, x, y);
+            return lum(bd.rgb[clamp(Math.round(v * last), 0, cap)]) >= STATION_STAR_LIT ? 1 : 0;
         },
+        field(bd, x, y) {
+            const v = stationSky(bd, x, y);
+            return v > 0 ? { v: clamp(v, 0, 1) } : FIELD_DARK;
+        },
+        /**
+         * One clear of the fixed rect, ~490 runs of art pixels into it, one
+         * upload and one blit. There is no `update`: the rotation and the
+         * shuttle are pure functions of the frame counter, so `backdropThumb`
+         * takes the place straight to frame 1500 and two clients in a co-op
+         * match watch the same module cross the same star.
+         *
+         * Reading the engine's scaled clock is also what makes pause freeze
+         * the ring, slow motion slow it and stun stutter it. That is right: a
+         * ring slowing down with the game still looks like a ring.
+         */
         live(bd, g) {
-            g.save();
-            g.globalCompositeOperation = "lighter";
-            for (const l of bd.lights) {
-                const x = bd.cx + Math.cos(l.a) * bd.r;
-                const y = bd.cy + Math.sin(l.a) * bd.r * 0.36;
-                const f = 0.35 + Math.abs(Math.sin(bd.t * 0.03 + l.ph)) * 0.65;
-                g.fillStyle = rgba(bd.p.hi, f);
-                g.fillRect(x - 1.5, y - 1.5, 3, 3);
+            const s = bd.surf;
+            const rot = (6.2832 * (bd.t % STATION_PERIOD)) / STATION_PERIOD;
+            for (let y = s.y0; y <= s.y1; y++) {
+                s.data.fill(0, (y * s.aw + s.x0) * 4, (y * s.aw + s.x1 + 1) * 4);
             }
-            g.restore();
+            const mods = stationModules(bd, rot);
+            // Far side, then the hub, then the near side. Twelve modules and
+            // two spokes are behind the tower at any instant and twelve and
+            // two are in front of it, which is the entire depth sort.
+            stationRim(bd, s, false);
+            for (const m of mods) {
+                if (!m.near) {
+                    stationModule(bd, s, m);
+                }
+            }
+            stationSpokes(bd, s, rot, false);
+            stationHub(bd, s);
+            stationSpokes(bd, s, rot, true);
+            stationRim(bd, s, true);
+            for (const m of mods) {
+                if (m.near) {
+                    stationModule(bd, s, m);
+                }
+            }
+            s.g.putImageData(s.img, 0, 0, s.x0, s.y0, s.x1 - s.x0 + 1, s.y1 - s.y0 + 1);
+            g.imageSmoothingEnabled = false;
+            g.drawImage(s.cv, bd.x0, bd.y0, bd.w, bd.h);
         },
     },
 
@@ -8478,9 +8914,28 @@ export const BACKGROUNDS = [
         desc: "A swollen gold star pouring gas onto a small blue-white companion, where it winds into a spinning disc that burns brightest where the stream lands.",
     },
     {
-        id: "station", name: "ORBITAL STATION", tint: "#9fd4ff", kind: "station",
-        p: { cx: 0.72, cy: 0.18, r: 0.3, base: "#2f3a56", hi: "#8fe0ff" },
-        desc: "A ring station still lit, turning slowly at the top right with lights blinking around the rim. Somebody out here is still home.",
+        id: "station", name: "ORBITAL STATION", tint: "#9fd4ff", kind: "pixelStation",
+        p: {
+            veil: 10, topRung: 6,
+            ramp: ["#04060b", "#080d18", "#0d1526", "#131f39", "#1b2c50", "#26406e", "#35578f", "#4a72b0"],
+            // The station's metal. The top two rungs are never used: #a8bcd8
+            // measures luminance 0.73 against the detector's 0.62 and #7b8fb3
+            // is close enough that a lit top edge crossed it. The brightest
+            // cool tone the place paints is rung 5, at 0.43.
+            landRamp: ["#0b0f18", "#151c2b", "#222c42", "#33405c", "#475779", "#5d7096", "#7b8fb3", "#a8bcd8"],
+            starRamp: ["#3f5273", "#5d7396", "#8296bb"],
+            // Every light is 6 logical px, steady, and scaled to sit just
+            // under the small-bright-feature detector's 0.62 on its own hue --
+            // so none of them depends on the surround clause, which the veil
+            // can take away. Far-arc windows are dimmer still: that is depth,
+            // and far plating is two rungs down and cannot embed a light.
+            lights: {
+                win: "#d09253", winHi: "#bf9670",
+                far: "#ac7844", farHi: "#a3805f",
+                nav: "#209cc7", navHi: "#00c4e6", beacon: "#ef8658",
+            },
+        },
+        desc: "A ring station turning slowly at the top right, its windows lit and a craft docked at the still hub at its centre. Somebody out here is still home.",
     },
     {
         id: "desert_world", name: "DESERT WORLD", tint: "#e8c07a", kind: "surface",
