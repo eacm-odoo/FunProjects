@@ -12953,6 +12953,21 @@ function discValue(bd, x, y) {
 /* The places                                                                  */
 /* -------------------------------------------------------------------------- */
 
+/*
+ * The array order *is* the route: entry `i` is flown at waves `i * 3 + 1` to
+ * `i * 3 + 3`, so moving an entry moves where in the voyage it is met. It is
+ * ordered to `STORY.md`, act by act, and the places the canon pins are pinned
+ * here: wave 1 in DEEP SPACE, the thirty-nine dead arks at 13 (SHIP GRAVEYARD),
+ * HIVE's still-lit hull at 16 (ORBITAL STATION), VULCAN's forge at 30 (MOLTEN
+ * WORLD) and NYX at 40 -- NYX *is* the Eclipse, so wave 40 is fought in it.
+ * Between them the route reads as one crossing: the empty dark, the outskirts
+ * of a system, the border, the war, the forge, the Coro's night, the two
+ * civilisations converging, and then the long last leg down to a green world at
+ * waves 82-84, after which the cycle starts again in the dark it opened in.
+ *
+ * So: reorder only with the story in hand, and check what a colossus wave lands
+ * on -- a few entries tune their veil against the hull they are met with.
+ */
 export const BACKGROUNDS = [
     {
         id: "deep", name: "DEEP SPACE", tint: "#8be9ff", kind: "pixelDeep",
@@ -12963,124 +12978,6 @@ export const BACKGROUNDS = [
             ramp: ["#04060c", "#080c16", "#0d1322", "#131b2e", "#1a2340", "#26315a", "#3a4a7a", "#6d80b0"],
         },
         desc: "The sky the star field has all to itself: no gas, no world, nothing painted behind you. Wave 1 is fought in the only place with nothing in it, and the only one that needs no veil between you and it.",
-    },
-    {
-        id: "planet_blue", name: "BLUE MARBLE", tint: "#7fb6ff", kind: "pixelMarble",
-        // `ramp` is the old base/hi/atmo run out to eight rungs, `landRamp` the
-        // old `land`. Retune the place here: the painter reads nothing else.
-        p: {
-            veil: 18,
-            ramp: ["#02050c", "#061426", "#0b2a4a", "#10426e", "#1a5c8c", "#2b86b0", "#57b3cf", "#a8e0ee"],
-            landRamp: ["#04070a", "#0a1410", "#132018", "#1d3020", "#2a4526", "#3d5c2c", "#587a3a", "#86a856"],
-        },
-        desc: "A living world sitting low on the left, close enough to make out continents through the blue rim of its atmosphere. The star is off to one side, so the far half of it falls away into the dark.",
-    },
-    {
-        id: "nebula_violet", name: "VIOLET NEBULA", tint: "#c9a4ff", kind: "pixelNebula",
-        // The old `c1` violet climbing into the old `c2` pink. Capped one rung
-        // under the top: the gas may not reach the colour the enemies fire in.
-        p: {
-            veil: 12, topRung: 6,
-            ramp: ["#0a0714", "#1a0f2e", "#2e1748", "#4b2168", "#6f2f86", "#a4508f", "#d98aae", "#f2c4d6"],
-            // Same reason as EVENT HORIZON, one order of magnitude smaller: a
-            // star taken off the top of this ramp is a pale pink 3 px square,
-            // and ten of them landed in a dust lane where nothing else is lit.
-            // Stars in a nebula are white anyway, and cool ones read as being
-            // behind the gas rather than in it.
-            starRamp: ["#4b4470", "#7a74a4", "#b9b6d8"],
-        },
-        desc: "Violet and pink gas stacked in soft layers, with dark dust lanes cutting across it and stars showing through wherever it thins out. However bright the gas gets, it stops short of the pink the enemies shoot in.",
-    },
-    {
-        id: "belt", name: "ASTEROID BELT", tint: "#c7b8a8", kind: "pixelBelt",
-        // From the old base/hi.
-        p: {
-            veil: 8, topRung: 6,
-            ramp: ["#05050a", "#0e0c12", "#1a161c", "#282029", "#3a2f34", "#544344", "#7a6058", "#a8877a"],
-        },
-        desc: "Rocks as far out as you can see, in two layers: five hundred baked into the haze, a couple of dozen nearer ones drifting down over it. They are scenery and cannot be shot -- the asteroids that can kill you are the near ones the wave spawns, and they come at you five times faster and five times bigger.",
-    },
-    {
-        id: "blackhole", name: "EVENT HORIZON", tint: "#ffb35e", kind: "pixelHorizon",
-        // The old `c1` amber. The old `c2` blue is gone: the disc is one
-        // temperature now, and the ramp is the only place it can get hot.
-        p: {
-            veil: 22,
-            ramp: ["#04030a", "#120a12", "#241017", "#3d1a1c", "#5e2a1c", "#8c4620", "#c07a2a", "#f0c060"],
-            // Stars do not come out of that ramp here: its top three rungs are
-            // the amber the enemies fire in, and a star is a 3 px square on
-            // black, which is also what a bullet is.
-            starRamp: ["#232a38", "#38414f", "#5a6478"],
-        },
-        desc: "A singularity hanging in the top third of the arena, its accretion disc laid out flat around it. The dust is on real orbits: grains spiral in, go bright as they pick up speed and are gone the moment they reach the horizon.",
-    },
-    {
-        id: "gas_giant", name: "GAS GIANT DESCENT", tint: "#ffca8a", kind: "surface",
-        // The GAS GIANT DESCENT study, smooth branch. Rates are logical px per
-        // frame and `flow: -1` turns all of them negative: the deck rises past
-        // the camera because the camera is falling. The ladder 0.16 / 0.30 /
-        // 0.42 / 1.10 steps by about 2.6x, the smallest ratio at which the
-        // shear between two decks reads without the near plane looking loose.
-        p: {
-            veil: 0, flow: -1, bandForm: "belt", bandSpread: [0, 1],
-            sky: ["#0b0605", "#3a1d0f", "#70401d", "#a86c31"],
-            skyStops: [0, 0.45, 0.8, 1],
-            glow: "#d69654",
-            beltColor: "#2a1409", band: "#b3743a",
-            filament: "#d0995e", streak: "#c0703a",
-            decks: [
-                // far: thin, low wave, nearly still.
-                { rate: 0.16, h: [5, 26], gap: [3, 12], wave: [2, 6], alpha: [0.14, 0.3], fil: 18, streaks: 2, light: "#a06a33" },
-                // mid: the carrying plane, and the one the vortices ride.
-                { rate: 0.42, h: [9, 44], gap: [5, 20], wave: [4, 10], alpha: [0.16, 0.34], fil: 26, streaks: 3, light: "#b3743a" },
-                // near: few, thick, torn, and masked thin at the top of the box.
-                { rate: 1.1, h: [16, 70], gap: [26, 80], wave: [6, 14], alpha: [0.1, 0.22], fil: 14, streaks: 1, light: "#c68a4a", dark: "#1e0f07", density: [0.3, 1] },
-            ],
-            // Ash, baked into a plane of its own between the two band decks:
-            // far enough away that nothing at that size can read as a bullet.
-            flakes: { plane: 1, rate: 0.3, n: 22, size: [4, 9], alpha: [0.05, 0.09], color: "#8a5a34" },
-            vortices: {
-                plane: 2, spin: 0.00085, lo: "#25120a", hi: "#c07a3a",
-                list: [
-                    { x: 0.34, y: 0.28, s: 1, dir: 1 },
-                    { x: 0.73, y: 0.74, s: 0.62, dir: -1 },
-                ],
-            },
-        },
-        desc: "Falling through the cloud deck of a gas giant. Belts and zones rise past at their own speeds, tearing where they meet, and the haze thickens and brightens the further you sink.",
-    },
-    {
-        id: "system", name: "INNER SYSTEM", tint: "#ffe9a8", kind: "pixelSystem",
-        // The place tint rotated to its complement and held cool -- hue
-        // 250-256, chroma under 0.045. Nothing the field can produce is in the
-        // family the enemies fire in, which is what lets the star keep its
-        // warmth on a ramp of its own.
-        p: {
-            veil: 12, topRung: 6, cx: 0.17, cy: 0.24,
-            ramp: ["#04050b", "#0a0d18", "#101728", "#1a2338", "#26304b", "#354260", "#48587a", "#5f7098"],
-            // Reached only inside the corona, a feature 136 px wide.
-            landRamp: ["#0d0a06", "#241a0c", "#3d2c12", "#5a4319", "#7a5d22", "#9a7a32", "#b89a4c", "#d8bd85"],
-            // Deliberately off the top of the main ramp: a baked star has to
-            // be a point light in the sky, not the brightest lane in the dust.
-            starRamp: ["#2b3550", "#4c6084", "#93a8c9"],
-        },
-        desc: "A whole system seen from outside it: a yellow star, its dust lit from within, and five planets crawling along wide tilted orbits.",
-    },
-    {
-        id: "ice_world", name: "ICE WORLD", tint: "#bfe9ff", kind: "pixelIce",
-        // Eight rungs interpolated from the entry tint down to a near-black of
-        // the same hue, with the chroma pulled down as the lightness falls so
-        // the dark end never goes purple. Rung 7 is the tint itself and the cap
-        // means it is never drawn: nothing the backdrop can paint reaches the
-        // colour of the place's own name.
-        p: {
-            veil: 6, topRung: 6, halo: 0.16, cx: 0.376, cy: 0.505,
-            ramp: ["#061420", "#0d2434", "#16394c", "#234f63", "#34677c", "#4b8296", "#79a8b8", "#bfe9ff"],
-            // Rock. Four rungs are used -- one per range, plus the cracks --
-            // and the four above them exist only because a ramp is eight long.
-            landRamp: ["#050e16", "#08161f", "#0c1f2b", "#122a38", "#1a3a4a", "#244c5e", "#305f74", "#40738a"],
-        },
-        desc: "Air too cold to hold any haze, so nothing here softens with distance: the farthest ridge cuts as hard as the nearest, and a ring of light stands in the crystals overhead. The slowest weather of any of the places.",
     },
     {
         id: "comet", name: "COMET TRAIL", tint: "#a8f0ff", kind: "pixelComet",
@@ -13110,205 +13007,34 @@ export const BACKGROUNDS = [
         desc: "A comet crossing on its way in. Gold dust curves back along its path; a blue ion tail points dead away from the star and swings as it passes. It crosses, leaves and comes round again.",
     },
     {
-        id: "ringed", name: "RINGED GIANT", tint: "#e8c98f", kind: "pixelGiant",
-        // The old `base` #6b4a22 and `hi` #e2b877 are kept as rungs 4 and 7, so
-        // the place still looks like itself. Two things changed and they are
-        // the whole palette fix. `atmo` #ffd9a0 drawn additively at 50% is
-        // retired: rung 7 is a cream, and the rim composites source-over so it
-        // cannot exceed it. And the fifty white speckles become baked stars on
-        // a cool ramp of their own -- the same fix EVENT HORIZON made when its
-        // point lights came out as bullets. Every small bright thing in this
-        // sky is cool now, and every warm thing is large.
-        // The veil is 16, not the study's 11. Its own two reasons for 11 are
-        // both measurable here and neither binds: the shared flat scrim does
-        // not "close the Cassini division" (the division reads at rung 1
-        // against the A ring's 3 at every veil up to 30), and the standing
-        // feature detector is already satisfied at 6. What does bind is that
-        // this is the brightest place in the catalogue and wave 30 puts the
-        // largest hull in the game in front of it: 16 is the lowest value that
-        // brings p95 under 0.136 in linear light, which is 4:1 against the
-        // brightest enemy bullet, and it lands the place just under BLUE
-        // MARBLE -- the other place that is one big lit planet.
+        id: "ice_world", name: "ICE WORLD", tint: "#bfe9ff", kind: "pixelIce",
+        // Eight rungs interpolated from the entry tint down to a near-black of
+        // the same hue, with the chroma pulled down as the lightness falls so
+        // the dark end never goes purple. Rung 7 is the tint itself and the cap
+        // means it is never drawn: nothing the backdrop can paint reaches the
+        // colour of the place's own name.
         p: {
-            veil: 16, cx: 0.78, cy: 0.2, r: 0.5,
-            ramp: ["#090a0c", "#191410", "#2c2116", "#46331d", "#6b4a22", "#9a7238", "#c9a463", "#e8cea0"],
-            // The filaments of the mid-latitude belts, one step cooler, so they
-            // read as a second material rather than as a brighter zone.
-            landRamp: ["#090a0c", "#191411", "#2b2218", "#453522", "#684d2c", "#957442", "#c3a26c", "#e4cda6"],
-            // Dimmer than the study's #4a5866 / #8a97a3 / #d6dde4. Its top rung
-            // is luminance 0.863 against the 0.62 the small-bright-feature
-            // detector cuts at, and 150 baked stars of it measure 8 features on
-            // this arena; every rung here is under the threshold, so a star
-            // cannot be one. Third star ramp to come down for the same reason.
-            starRamp: ["#3a4550", "#5e6b78", "#8e9aa6"],
+            veil: 6, topRung: 6, halo: 0.16, cx: 0.376, cy: 0.505,
+            ramp: ["#061420", "#0d2434", "#16394c", "#234f63", "#34677c", "#4b8296", "#79a8b8", "#bfe9ff"],
+            // Rock. Four rungs are used -- one per range, plus the cracks --
+            // and the four above them exist only because a ramp is eight long.
+            landRamp: ["#050e16", "#08161f", "#0c1f2b", "#122a38", "#1a3a4a", "#244c5e", "#305f74", "#40738a"],
         },
-        desc: "A banded giant filling the top right, its rings turning slowly through the frame: behind the body on one side, out in front of it on the other, with the planet's shadow lying across the far arc.",
+        desc: "Air too cold to hold any haze, so nothing here softens with distance: the farthest ridge cuts as hard as the nearest, and a ring of light stands in the crystals overhead. The slowest weather of any of the places.",
     },
     {
-        id: "lava_world", name: "MOLTEN WORLD", tint: "#ff7a45", kind: "pixelMolten",
-        // Four ramps, and a cap on the two the place is mostly made of.
-        // `ramp` is the sky seen from under it -- the tint rotated toward the
-        // maroon air reads when the light comes off the ground, clipped at
-        // rung 6 so it can never reach the pale pink of enemy fire. `landRamp`
-        // is basalt at 0-3 and incandescence at 4-5, capped at 5 (see
-        // `LAVA_LAND_CAP`). `ridgeRamp` carries the three ranges on rungs
-        // 1/3/5, two rungs off the sky at the back. `flowRamp` is the only hot
-        // thing in the place and is never dithered.
+        id: "belt", name: "ASTEROID BELT", tint: "#c7b8a8", kind: "pixelBelt",
+        // From the old base/hi.
         p: {
-            veil: 6, topRung: 6, glow: "#ff7a45",
-            ramp: ["#0a0208", "#16040e", "#240715", "#360a1a", "#4c0f20", "#6a1524", "#8e1c28", "#b3242c"],
-            landRamp: ["#0b0409", "#14060d", "#1e0812", "#2c0b15", "#5a1512", "#952c10", "#d85a12", "#ff9a3c"],
-            ridgeRamp: ["#0d020c", "#160411", "#210718", "#2d0a1e", "#3c0e24", "#4e122a", "#631831", "#7c1f38"],
-            flowRamp: ["#e0600f", "#ff9a2e", "#ffd06a"],
+            veil: 8, topRung: 6,
+            ramp: ["#05050a", "#0e0c12", "#1a161c", "#282029", "#3a2f34", "#544344", "#7a6058", "#a8877a"],
         },
-        desc: "Cold basalt under a red sky, with one flow still running out of the valley. The crust is nearly black and the ranges behind it fade instead of sharpening, because the air over molten ground is too hot to hold still.",
-    },
-    {
-        id: "pulsar", name: "PULSAR", tint: "#8fd8ff", kind: "pixelPulsar",
-        // The ramp is the study's, and this is the one place in the catalogue
-        // that can afford its top rung: a block of #a7e4ff measures mean red
-        // at 0.65 of mean blue, nothing like an enemy core, so the beams and
-        // the wisp heads are allowed to be the brightest thing in the frame.
-        // `topRung` 6 holds the BAKED layer one rung under that, which is what
-        // leaves the top one to the things that move.
-        //
-        // The star ramp is not the study's #5f7f96 / #9dc6dd / #dff4ff. Its
-        // top two rungs measure luminance 0.75 and 0.94 against the 0.62 the
-        // small-bright-feature detector cuts at, and `starList` puts about
-        // half of 460 stars on the top rung whatever a study does to its own
-        // distribution -- so the fix is the ramp, as it was for EVENT HORIZON,
-        // COMET TRAIL and RINGED GIANT. Every rung here is under the threshold
-        // and still clear of the plate it lies on.
-        p: {
-            veil: 11, topRung: 6,
-            ramp: ["#05070c", "#0b1522", "#12283c", "#1a415c", "#2b6484", "#4a8fae", "#74bcd8", "#a7e4ff"],
-            starRamp: ["#43555f", "#5f7885", "#839aa8"],
-        },
-        desc: "A neutron star turning overhead every four seconds, its tilted poles sweeping a beam of light past the arena every two.",
+        desc: "Rocks as far out as you can see, in two layers: five hundred baked into the haze, a couple of dozen nearer ones drifting down over it. They are scenery and cannot be shot -- the asteroids that can kill you are the near ones the wave spawns, and they come at you five times faster and five times bigger.",
     },
     {
         id: "graveyard", name: "SHIP GRAVEYARD", tint: "#9aa6c4", kind: "graveyard",
         p: { base: "#2b3350", hi: "#ff8f5e" },
         desc: "Hulls left where they died, tumbled at every angle and going nowhere. A few panels on them still have power and blink.",
-    },
-    {
-        id: "ocean_world", name: "OCEAN WORLD", tint: "#5ee1ff", kind: "pixelOcean",
-        // Two ramps, and which one a pixel takes is which side of the horizon
-        // it is on. `ramp` is the sky, `landRamp` the water -- a step cooler
-        // and a step darker at every rung, which is the hard teal horizon the
-        // glossary line promises, done in the palette rather than with a line.
-        //
-        // The star ramp is not the study's #9fe8f2 / #cdf6fb / #eafeff. Those
-        // measure luminance 0.85 / 0.93 / 0.98 against the 0.62 the
-        // small-bright-feature detector cuts at, and a 9 px spore of the top
-        // one against the dark top of the box is a bullet by every test the
-        // programme has. Fifth star ramp to come down, after EVENT HORIZON,
-        // COMET TRAIL, RINGED GIANT and PULSAR; assume the next one too.
-        p: {
-            veil: 8, topRung: 6,
-            ramp: ["#031a24", "#06303f", "#0a4a5e", "#10657c", "#1c8398", "#35a3b4", "#6fcbd6", "#bff0f7"],
-            landRamp: ["#02141d", "#04222e", "#062f3d", "#093f4f", "#0d5162", "#146678", "#2b8b9b", "#74d0da"],
-            starRamp: ["#3a5f6a", "#4e7a85", "#628f9a"],
-        },
-        desc: "Over open water: a hard teal horizon, the sky repeated in the swell, and spores lifting off the crests.",
-    },
-    {
-        id: "aurora", name: "ION STORM", tint: "#7bffb0", kind: "pixelIon",
-        // Two ramps sampled at the SAME rung and mixed by a per-curtain tint,
-        // which is what puts four green curtains and three cyan ones on one
-        // lattice: `ramp` is the entry's own green, `landRamp` its cyan. The
-        // third is the dust behind them, three rungs deep and all of it under
-        // the darkest thing in either sky ramp.
-        //
-        // The star ramp is the study's, unchanged, and it is the first one in
-        // the programme that did not have to come down: its top rung measures
-        // luminance 0.338 against the 0.62 the small-bright-feature detector
-        // cuts at. A study that measures its own point lights is a study whose
-        // palette can be taken as it stands.
-        p: {
-            veil: 6, topRung: 6,
-            ramp: ["#050a0c", "#0a1a18", "#0f3028", "#14503a", "#1b7050", "#2b9c6a", "#4fd28e", "#7bffb0"],
-            landRamp: ["#050a0c", "#0a181e", "#0d2c38", "#114353", "#185f74", "#248a9c", "#40b6cb", "#5ee1ff"],
-            starRamp: ["#202b2f", "#354247", "#4a595e"],
-            dustRamp: ["#070c0e", "#0a1114", "#0d171a"],
-        },
-        desc: "Charged particles hitting a magnetosphere. Curtains of green and cyan lean and swing across the whole sky, their rays flaring and dying twice a second, and the stars burn straight through them.",
-    },
-    {
-        id: "moon", name: "LOW MOON ORBIT", tint: "#d6d2c8", kind: "pixelMoon",
-        // The study's own four ramps, taken as they stand: it measured its
-        // point lights (top rung luminance 146 against the detector's 158) and
-        // its flash instead of asserting them. `flashRamp` is the one thing it
-        // asks for that did not exist -- and it is not a contract change, only
-        // a key in this entry's own `p`, the way MOLTEN WORLD carries a
-        // `flowRamp` and AURORA a `dustRamp`.
-        p: {
-            veil: 14, topRung: 6,
-            ramp: ["#0a0b10", "#16202a", "#24323d", "#354853", "#47606b", "#5c7a85", "#7896a0", "#9db9c0"],
-            landRamp: ["#1b1c26", "#2b2c34", "#3e4048", "#54555d", "#6d6e74", "#8b8b8f", "#a9a8a4", "#c8c4b8"],
-            starRamp: ["#39434b", "#57666e", "#84959c"],
-            flashRamp: ["#c9d6d6", "#93a5a8"],
-        },
-        desc: "Low over an airless moon: craters below and a hard horizon, with no atmosphere to soften the edge.",
-    },
-    {
-        id: "nebula_emerald", name: "EMERALD NEBULA", tint: "#7bffb0", kind: "nebula",
-        p: { c1: "#25c07a", c2: "#5ee1ff" },
-        desc: "The same kind of cloud as the violet nebula, in green and cyan: layered gas, dust lanes and stars behind it.",
-    },
-    {
-        id: "jungle_world", name: "JUNGLE WORLD", tint: "#9ade6b", kind: "pixelJungle",
-        // Two ramps and a third for the point lights. Green stops at rung 6 --
-        // #9ad06a is luminance 189 against the small-bright-feature detector's
-        // 158, so the top rung of this ramp is not expressible by the painter.
-        //
-        // `landRamp` is where the composition lives: water is the ONLY material
-        // in the place that can be brighter than the canopy, and the study caps
-        // it at rung 5. Its code caps at 7 and its prose at 5; the prose is the
-        // safety statement and the code is the accident, so 5 ships. #6f9ea9 is
-        // the ceiling that follows, and it is measured rather than chosen: at
-        // the #7aa9b3 it started at, the dithered shoreline broke into 3 px
-        // pale specks and the counter scored 27 of them. Four points of
-        // luminance took that to 0. If this ramp is ever retuned, rung 5 has a
-        // floor it must stay under and the counter is how to find it again.
-        //
-        // `starRamp` carries the spore drifts and the two bioluminescence
-        // clusters. Its top rung is reachable by neither -- both cap at rung 1
-        // -- but it came down from #5fb883 (luminance 161) anyway, because a
-        // ramp with an unusable rung in it is a trap for the next edit.
-        p: {
-            veil: 14, topRung: 6,
-            ramp: ["#071a0f", "#0e2a16", "#16401d", "#205625", "#2e6d2e", "#45883a", "#6cae4a", "#9ad06a"],
-            landRamp: ["#12232e", "#1b3644", "#2a4d5c", "#3d6a78", "#578996", "#6f9ea9", "#a6cbd0", "#d8ecec"],
-            starRamp: ["#2b5c4a", "#3f8a63", "#5bb17e"],
-        },
-        desc: "A canopy of forest to the horizon, cut by a river, with mist lifting out of the valleys.",
-    },
-    {
-        id: "binary", name: "BINARY SUNS", tint: "#ffd66b", kind: "pixelBinary",
-        // Two ramps, and this is the documented two-ramp mechanism rather than
-        // one ramp widened: no rung is spent bridging gold to blue. The gold
-        // one stops at 6 -- a 9 px block of its rung 7 measures mean R over
-        // 1.12x mean B on a dark surround, the same failure COMET TRAIL's core
-        // took -- and the cool one keeps all eight, being nowhere near the
-        // palette the enemies fire in. `topRung` is the cool cap; the gold cap
-        // is per sample, because one number cannot hold two ramps.
-        p: {
-            veil: 13, topRung: 7,
-            ramp: ["#0a0a10", "#241a12", "#45301a", "#6b4720", "#966228", "#bd8236", "#dda94c", "#ffd66b"],
-            landRamp: ["#0a0a10", "#121a2a", "#1c2c48", "#2a4570", "#3d639b", "#5a86c4", "#86ade0", "#c6dcf8"],
-            // The study's own cool blue-grey, two steps down. Its hue is right
-            // for the reason every star ramp here is chosen -- a warm point
-            // light is a bullet -- but #a9bcd6 and #e8f1ff measure luminance
-            // 0.73 and 0.94 against the detector's 0.62, and the ~115 of the
-            // 520 that land inside the arena were 3-6 px near-white blocks on
-            // black. Every rung under the threshold instead. Measured at veil
-            // 13: 129 small bright features to 0, and with the ramp blacked
-            // out entirely the place already read 0 -- so the stars were all
-            // of it, and none of the art was.
-            starRamp: ["#4c5870", "#6a7a96", "#879ab8"],
-        },
-        desc: "A swollen gold star pouring gas onto a small blue-white companion, where it winds into a spinning disc that burns brightest where the stream lands.",
     },
     {
         id: "station", name: "ORBITAL STATION", tint: "#9fd4ff", kind: "pixelStation",
@@ -13335,6 +13061,98 @@ export const BACKGROUNDS = [
         desc: "A ring station turning slowly at the top right, its windows lit and a craft docked at the still hub at its centre. Somebody out here is still home.",
     },
     {
+        id: "pulsar", name: "PULSAR", tint: "#8fd8ff", kind: "pixelPulsar",
+        // The ramp is the study's, and this is the one place in the catalogue
+        // that can afford its top rung: a block of #a7e4ff measures mean red
+        // at 0.65 of mean blue, nothing like an enemy core, so the beams and
+        // the wisp heads are allowed to be the brightest thing in the frame.
+        // `topRung` 6 holds the BAKED layer one rung under that, which is what
+        // leaves the top one to the things that move.
+        //
+        // The star ramp is not the study's #5f7f96 / #9dc6dd / #dff4ff. Its
+        // top two rungs measure luminance 0.75 and 0.94 against the 0.62 the
+        // small-bright-feature detector cuts at, and `starList` puts about
+        // half of 460 stars on the top rung whatever a study does to its own
+        // distribution -- so the fix is the ramp, as it was for EVENT HORIZON,
+        // COMET TRAIL and RINGED GIANT. Every rung here is under the threshold
+        // and still clear of the plate it lies on.
+        p: {
+            veil: 11, topRung: 6,
+            ramp: ["#05070c", "#0b1522", "#12283c", "#1a415c", "#2b6484", "#4a8fae", "#74bcd8", "#a7e4ff"],
+            starRamp: ["#43555f", "#5f7885", "#839aa8"],
+        },
+        desc: "A neutron star turning overhead every four seconds, its tilted poles sweeping a beam of light past the arena every two.",
+    },
+    {
+        id: "nebula_violet", name: "VIOLET NEBULA", tint: "#c9a4ff", kind: "pixelNebula",
+        // The old `c1` violet climbing into the old `c2` pink. Capped one rung
+        // under the top: the gas may not reach the colour the enemies fire in.
+        p: {
+            veil: 12, topRung: 6,
+            ramp: ["#0a0714", "#1a0f2e", "#2e1748", "#4b2168", "#6f2f86", "#a4508f", "#d98aae", "#f2c4d6"],
+            // Same reason as EVENT HORIZON, one order of magnitude smaller: a
+            // star taken off the top of this ramp is a pale pink 3 px square,
+            // and ten of them landed in a dust lane where nothing else is lit.
+            // Stars in a nebula are white anyway, and cool ones read as being
+            // behind the gas rather than in it.
+            starRamp: ["#4b4470", "#7a74a4", "#b9b6d8"],
+        },
+        desc: "Violet and pink gas stacked in soft layers, with dark dust lanes cutting across it and stars showing through wherever it thins out. However bright the gas gets, it stops short of the pink the enemies shoot in.",
+    },
+    {
+        id: "system", name: "INNER SYSTEM", tint: "#ffe9a8", kind: "pixelSystem",
+        // The place tint rotated to its complement and held cool -- hue
+        // 250-256, chroma under 0.045. Nothing the field can produce is in the
+        // family the enemies fire in, which is what lets the star keep its
+        // warmth on a ramp of its own.
+        p: {
+            veil: 12, topRung: 6, cx: 0.17, cy: 0.24,
+            ramp: ["#04050b", "#0a0d18", "#101728", "#1a2338", "#26304b", "#354260", "#48587a", "#5f7098"],
+            // Reached only inside the corona, a feature 136 px wide.
+            landRamp: ["#0d0a06", "#241a0c", "#3d2c12", "#5a4319", "#7a5d22", "#9a7a32", "#b89a4c", "#d8bd85"],
+            // Deliberately off the top of the main ramp: a baked star has to
+            // be a point light in the sky, not the brightest lane in the dust.
+            starRamp: ["#2b3550", "#4c6084", "#93a8c9"],
+        },
+        desc: "A whole system seen from outside it: a yellow star, its dust lit from within, and five planets crawling along wide tilted orbits.",
+    },
+    {
+        id: "lava_world", name: "MOLTEN WORLD", tint: "#ff7a45", kind: "pixelMolten",
+        // Four ramps, and a cap on the two the place is mostly made of.
+        // `ramp` is the sky seen from under it -- the tint rotated toward the
+        // maroon air reads when the light comes off the ground, clipped at
+        // rung 6 so it can never reach the pale pink of enemy fire. `landRamp`
+        // is basalt at 0-3 and incandescence at 4-5, capped at 5 (see
+        // `LAVA_LAND_CAP`). `ridgeRamp` carries the three ranges on rungs
+        // 1/3/5, two rungs off the sky at the back. `flowRamp` is the only hot
+        // thing in the place and is never dithered.
+        p: {
+            veil: 6, topRung: 6, glow: "#ff7a45",
+            ramp: ["#0a0208", "#16040e", "#240715", "#360a1a", "#4c0f20", "#6a1524", "#8e1c28", "#b3242c"],
+            landRamp: ["#0b0409", "#14060d", "#1e0812", "#2c0b15", "#5a1512", "#952c10", "#d85a12", "#ff9a3c"],
+            ridgeRamp: ["#0d020c", "#160411", "#210718", "#2d0a1e", "#3c0e24", "#4e122a", "#631831", "#7c1f38"],
+            flowRamp: ["#e0600f", "#ff9a2e", "#ffd06a"],
+        },
+        desc: "Cold basalt under a red sky, with one flow still running out of the valley. The crust is nearly black and the ranges behind it fade instead of sharpening, because the air over molten ground is too hot to hold still.",
+    },
+    {
+        id: "moon", name: "LOW MOON ORBIT", tint: "#d6d2c8", kind: "pixelMoon",
+        // The study's own four ramps, taken as they stand: it measured its
+        // point lights (top rung luminance 146 against the detector's 158) and
+        // its flash instead of asserting them. `flashRamp` is the one thing it
+        // asks for that did not exist -- and it is not a contract change, only
+        // a key in this entry's own `p`, the way MOLTEN WORLD carries a
+        // `flowRamp` and AURORA a `dustRamp`.
+        p: {
+            veil: 14, topRung: 6,
+            ramp: ["#0a0b10", "#16202a", "#24323d", "#354853", "#47606b", "#5c7a85", "#7896a0", "#9db9c0"],
+            landRamp: ["#1b1c26", "#2b2c34", "#3e4048", "#54555d", "#6d6e74", "#8b8b8f", "#a9a8a4", "#c8c4b8"],
+            starRamp: ["#39434b", "#57666e", "#84959c"],
+            flashRamp: ["#c9d6d6", "#93a5a8"],
+        },
+        desc: "Low over an airless moon: craters below and a hard horizon, with no atmosphere to soften the edge.",
+    },
+    {
         id: "desert_world", name: "DESERT WORLD", tint: "#e8c07a", kind: "pixelDesert",
         p: {
             // Sky and dust. Rungs 6 and 7 are unreachable -- `topRung` is 5 --
@@ -13355,55 +13173,6 @@ export const BACKGROUNDS = [
             veil: 8,
         },
         desc: "Sand blowing across an ochre sky, thick enough that you can read the wind in it.",
-    },
-    {
-        id: "supernova", name: "SUPERNOVA", tint: "#3fb9a6", kind: "pixelSupernova",
-        p: {
-            // O III against the dust, capped at rung 5. The tint was #ff8f5e
-            // and is now rung 6 nudged toward the ramp's middle, so it still
-            // reads on an 11 px catalogue card and no longer sits inside the
-            // enemy-fire family.
-            ramp: ["#06131a", "#0a2430", "#0e3a44", "#12545a", "#1c7a78", "#2aa394", "#58c9b4", "#a8ead8"],
-            // Halpha, and it stops at rung 3: top warm luminance 34, under the
-            // surround threshold the small-bright-feature detector uses.
-            landRamp: ["#160a0c", "#241012", "#33161a", "#451d20", "#5a2528", "#6f2e2f", "#833838", "#a04442"],
-            starRamp: ["#3d4a55", "#6b7c88", "#8fa0a6"],
-            topRung: 5,
-            veil: 11,
-        },
-        desc: "A shell thrown outward and lopsided, ploughing into a dense cloud on one flank. Oxygen filaments stand cyan against the dust; the middle is empty, and a slow light echo lifts one lane of it at a time.",
-    },
-    {
-        id: "crystal", name: "CRYSTAL FIELD", tint: "#a8d8ff", kind: "pixelCrystal",
-        // Two ramps, and the old painter's two gradient stops are what they
-        // are: #a8d8ff became the ice ramp and #c9a4ff the violet one, which is
-        // now the material of a face turned AWAY from the light rather than the
-        // dim end of a gradient.
-        //
-        // The rung rules are not in `topRung`, because they are not rules about
-        // the field -- nothing baked in this place reaches rung 2. They are
-        // rules about the shards and they live in `CRY_NEAR` / `CRY_FAR`: a
-        // near surface stops at rung 6 and a far one at rung 4, so rungs 7 and
-        // 8 appear nowhere in the place except as a specular streak 72 px or
-        // longer. Both are measurable: raise either cap, or turn the edge-on
-        // clamp off, and the pale-feature count climbs immediately.
-        //
-        // `starRamp` is the study's own and it is the FIRST in eleven studies
-        // that needed no scaling -- #7d94b2 is luminance 145 against the
-        // detector's 158, because the study worked out for itself that a 1 px
-        // near-white star in a place this pale is exactly the feature its own
-        // count is protecting. Its departure note names #9fb8d4 instead, at
-        // 183; the code ships the safe one and the code is right.
-        p: {
-            veil: 6,
-            ramp: ["#070c16", "#0f1a2e", "#182a49", "#254069", "#365a8e", "#4d7cb0", "#7ba8d6", "#bfdefa"],
-            landRamp: ["#0a0917", "#141130", "#1f1a4a", "#2c2469", "#3e3390", "#5b4cb2", "#8a7ad2", "#c4bbee"],
-            starRamp: ["#26334a", "#4a5c7c", "#7d94b2"],
-        },
-        // Kept verbatim: the art moved to meet the line rather than the other
-        // way round. "Catching" is an event with a duration in frames now, and
-        // "down its length" is the shape of the flash.
-        desc: "Ice shards big enough to hold themselves together, each one catching the light down its length.",
     },
     {
         id: "storm_world", name: "STORM WORLD", tint: "#b9a8ff", kind: "pixelStorm",
@@ -13450,6 +13219,49 @@ export const BACKGROUNDS = [
         desc: "A dead world dead ahead with the star behind it, so what you get is the ring of atmosphere burning around a black disc, once it lines up.",
     },
     {
+        id: "binary", name: "BINARY SUNS", tint: "#ffd66b", kind: "pixelBinary",
+        // Two ramps, and this is the documented two-ramp mechanism rather than
+        // one ramp widened: no rung is spent bridging gold to blue. The gold
+        // one stops at 6 -- a 9 px block of its rung 7 measures mean R over
+        // 1.12x mean B on a dark surround, the same failure COMET TRAIL's core
+        // took -- and the cool one keeps all eight, being nowhere near the
+        // palette the enemies fire in. `topRung` is the cool cap; the gold cap
+        // is per sample, because one number cannot hold two ramps.
+        p: {
+            veil: 13, topRung: 7,
+            ramp: ["#0a0a10", "#241a12", "#45301a", "#6b4720", "#966228", "#bd8236", "#dda94c", "#ffd66b"],
+            landRamp: ["#0a0a10", "#121a2a", "#1c2c48", "#2a4570", "#3d639b", "#5a86c4", "#86ade0", "#c6dcf8"],
+            // The study's own cool blue-grey, two steps down. Its hue is right
+            // for the reason every star ramp here is chosen -- a warm point
+            // light is a bullet -- but #a9bcd6 and #e8f1ff measure luminance
+            // 0.73 and 0.94 against the detector's 0.62, and the ~115 of the
+            // 520 that land inside the arena were 3-6 px near-white blocks on
+            // black. Every rung under the threshold instead. Measured at veil
+            // 13: 129 small bright features to 0, and with the ramp blacked
+            // out entirely the place already read 0 -- so the stars were all
+            // of it, and none of the art was.
+            starRamp: ["#4c5870", "#6a7a96", "#879ab8"],
+        },
+        desc: "A swollen gold star pouring gas onto a small blue-white companion, where it winds into a spinning disc that burns brightest where the stream lands.",
+    },
+    {
+        id: "supernova", name: "SUPERNOVA", tint: "#3fb9a6", kind: "pixelSupernova",
+        p: {
+            // O III against the dust, capped at rung 5. The tint was #ff8f5e
+            // and is now rung 6 nudged toward the ramp's middle, so it still
+            // reads on an 11 px catalogue card and no longer sits inside the
+            // enemy-fire family.
+            ramp: ["#06131a", "#0a2430", "#0e3a44", "#12545a", "#1c7a78", "#2aa394", "#58c9b4", "#a8ead8"],
+            // Halpha, and it stops at rung 3: top warm luminance 34, under the
+            // surround threshold the small-bright-feature detector uses.
+            landRamp: ["#160a0c", "#241012", "#33161a", "#451d20", "#5a2528", "#6f2e2f", "#833838", "#a04442"],
+            starRamp: ["#3d4a55", "#6b7c88", "#8fa0a6"],
+            topRung: 5,
+            veil: 11,
+        },
+        desc: "A shell thrown outward and lopsided, ploughing into a dense cloud on one flank. Oxygen filaments stand cyan against the dust; the middle is empty, and a slow light echo lifts one lane of it at a time.",
+    },
+    {
         id: "galaxy", name: "GALACTIC CORE", tint: "#ffd6a8", kind: "pixelGalaxy",
         p: {
             // Warm: the core and the inner disc. Rung 7 is the nucleus and
@@ -13487,6 +13299,20 @@ export const BACKGROUNDS = [
             veil: 6,
         },
         desc: "The mouth of a tunnel, straight ahead. Two ribs of light wind inward, crowding together as they fall away from you.",
+    },
+    {
+        id: "blackhole", name: "EVENT HORIZON", tint: "#ffb35e", kind: "pixelHorizon",
+        // The old `c1` amber. The old `c2` blue is gone: the disc is one
+        // temperature now, and the ramp is the only place it can get hot.
+        p: {
+            veil: 22,
+            ramp: ["#04030a", "#120a12", "#241017", "#3d1a1c", "#5e2a1c", "#8c4620", "#c07a2a", "#f0c060"],
+            // Stars do not come out of that ramp here: its top three rungs are
+            // the amber the enemies fire in, and a star is a 3 px square on
+            // black, which is also what a bullet is.
+            starRamp: ["#232a38", "#38414f", "#5a6478"],
+        },
+        desc: "A singularity hanging in the top third of the arena, its accretion disc laid out flat around it. The dust is on real orbits: grains spiral in, go bright as they pick up speed and are gone the moment they reach the horizon.",
     },
     {
         id: "nebula_shell", name: "PLANETARY NEBULA", tint: "#7bffb0", kind: "pixelShell",
@@ -13528,6 +13354,196 @@ export const BACKGROUNDS = [
             starRamp: ["#275a6a", "#43808f", "#66a3b4"],
         },
         desc: "A dying star's exhaled shell, lit from the inside out: concentric rings of ionised oxygen, dust columns standing against them, and a flash of light crossing the gas every few seconds.",
+    },
+    {
+        id: "nebula_emerald", name: "EMERALD NEBULA", tint: "#7bffb0", kind: "nebula",
+        p: { c1: "#25c07a", c2: "#5ee1ff" },
+        desc: "The same kind of cloud as the violet nebula, in green and cyan: layered gas, dust lanes and stars behind it.",
+    },
+    {
+        id: "crystal", name: "CRYSTAL FIELD", tint: "#a8d8ff", kind: "pixelCrystal",
+        // Two ramps, and the old painter's two gradient stops are what they
+        // are: #a8d8ff became the ice ramp and #c9a4ff the violet one, which is
+        // now the material of a face turned AWAY from the light rather than the
+        // dim end of a gradient.
+        //
+        // The rung rules are not in `topRung`, because they are not rules about
+        // the field -- nothing baked in this place reaches rung 2. They are
+        // rules about the shards and they live in `CRY_NEAR` / `CRY_FAR`: a
+        // near surface stops at rung 6 and a far one at rung 4, so rungs 7 and
+        // 8 appear nowhere in the place except as a specular streak 72 px or
+        // longer. Both are measurable: raise either cap, or turn the edge-on
+        // clamp off, and the pale-feature count climbs immediately.
+        //
+        // `starRamp` is the study's own and it is the FIRST in eleven studies
+        // that needed no scaling -- #7d94b2 is luminance 145 against the
+        // detector's 158, because the study worked out for itself that a 1 px
+        // near-white star in a place this pale is exactly the feature its own
+        // count is protecting. Its departure note names #9fb8d4 instead, at
+        // 183; the code ships the safe one and the code is right.
+        p: {
+            veil: 6,
+            ramp: ["#070c16", "#0f1a2e", "#182a49", "#254069", "#365a8e", "#4d7cb0", "#7ba8d6", "#bfdefa"],
+            landRamp: ["#0a0917", "#141130", "#1f1a4a", "#2c2469", "#3e3390", "#5b4cb2", "#8a7ad2", "#c4bbee"],
+            starRamp: ["#26334a", "#4a5c7c", "#7d94b2"],
+        },
+        // Kept verbatim: the art moved to meet the line rather than the other
+        // way round. "Catching" is an event with a duration in frames now, and
+        // "down its length" is the shape of the flash.
+        desc: "Ice shards big enough to hold themselves together, each one catching the light down its length.",
+    },
+    {
+        id: "aurora", name: "ION STORM", tint: "#7bffb0", kind: "pixelIon",
+        // Two ramps sampled at the SAME rung and mixed by a per-curtain tint,
+        // which is what puts four green curtains and three cyan ones on one
+        // lattice: `ramp` is the entry's own green, `landRamp` its cyan. The
+        // third is the dust behind them, three rungs deep and all of it under
+        // the darkest thing in either sky ramp.
+        //
+        // The star ramp is the study's, unchanged, and it is the first one in
+        // the programme that did not have to come down: its top rung measures
+        // luminance 0.338 against the 0.62 the small-bright-feature detector
+        // cuts at. A study that measures its own point lights is a study whose
+        // palette can be taken as it stands.
+        p: {
+            veil: 6, topRung: 6,
+            ramp: ["#050a0c", "#0a1a18", "#0f3028", "#14503a", "#1b7050", "#2b9c6a", "#4fd28e", "#7bffb0"],
+            landRamp: ["#050a0c", "#0a181e", "#0d2c38", "#114353", "#185f74", "#248a9c", "#40b6cb", "#5ee1ff"],
+            starRamp: ["#202b2f", "#354247", "#4a595e"],
+            dustRamp: ["#070c0e", "#0a1114", "#0d171a"],
+        },
+        desc: "Charged particles hitting a magnetosphere. Curtains of green and cyan lean and swing across the whole sky, their rays flaring and dying twice a second, and the stars burn straight through them.",
+    },
+    {
+        id: "ringed", name: "RINGED GIANT", tint: "#e8c98f", kind: "pixelGiant",
+        // The old `base` #6b4a22 and `hi` #e2b877 are kept as rungs 4 and 7, so
+        // the place still looks like itself. Two things changed and they are
+        // the whole palette fix. `atmo` #ffd9a0 drawn additively at 50% is
+        // retired: rung 7 is a cream, and the rim composites source-over so it
+        // cannot exceed it. And the fifty white speckles become baked stars on
+        // a cool ramp of their own -- the same fix EVENT HORIZON made when its
+        // point lights came out as bullets. Every small bright thing in this
+        // sky is cool now, and every warm thing is large.
+        // The veil is 16, not the study's 11. Its own two reasons for 11 are
+        // both measurable here and neither binds: the shared flat scrim does
+        // not "close the Cassini division" (the division reads at rung 1
+        // against the A ring's 3 at every veil up to 30), and the standing
+        // feature detector is already satisfied at 6. What does bind is that
+        // this is the brightest place in the catalogue and a colossus wave
+        // (70) puts a hull wider than the arena in front of it: 16 is the
+        // lowest value that
+        // brings p95 under 0.136 in linear light, which is 4:1 against the
+        // brightest enemy bullet, and it lands the place just under BLUE
+        // MARBLE -- the other place that is one big lit planet.
+        p: {
+            veil: 16, cx: 0.78, cy: 0.2, r: 0.5,
+            ramp: ["#090a0c", "#191410", "#2c2116", "#46331d", "#6b4a22", "#9a7238", "#c9a463", "#e8cea0"],
+            // The filaments of the mid-latitude belts, one step cooler, so they
+            // read as a second material rather than as a brighter zone.
+            landRamp: ["#090a0c", "#191411", "#2b2218", "#453522", "#684d2c", "#957442", "#c3a26c", "#e4cda6"],
+            // Dimmer than the study's #4a5866 / #8a97a3 / #d6dde4. Its top rung
+            // is luminance 0.863 against the 0.62 the small-bright-feature
+            // detector cuts at, and 150 baked stars of it measure 8 features on
+            // this arena; every rung here is under the threshold, so a star
+            // cannot be one. Third star ramp to come down for the same reason.
+            starRamp: ["#3a4550", "#5e6b78", "#8e9aa6"],
+        },
+        desc: "A banded giant filling the top right, its rings turning slowly through the frame: behind the body on one side, out in front of it on the other, with the planet's shadow lying across the far arc.",
+    },
+    {
+        id: "gas_giant", name: "GAS GIANT DESCENT", tint: "#ffca8a", kind: "surface",
+        // The GAS GIANT DESCENT study, smooth branch. Rates are logical px per
+        // frame and `flow: -1` turns all of them negative: the deck rises past
+        // the camera because the camera is falling. The ladder 0.16 / 0.30 /
+        // 0.42 / 1.10 steps by about 2.6x, the smallest ratio at which the
+        // shear between two decks reads without the near plane looking loose.
+        p: {
+            veil: 0, flow: -1, bandForm: "belt", bandSpread: [0, 1],
+            sky: ["#0b0605", "#3a1d0f", "#70401d", "#a86c31"],
+            skyStops: [0, 0.45, 0.8, 1],
+            glow: "#d69654",
+            beltColor: "#2a1409", band: "#b3743a",
+            filament: "#d0995e", streak: "#c0703a",
+            decks: [
+                // far: thin, low wave, nearly still.
+                { rate: 0.16, h: [5, 26], gap: [3, 12], wave: [2, 6], alpha: [0.14, 0.3], fil: 18, streaks: 2, light: "#a06a33" },
+                // mid: the carrying plane, and the one the vortices ride.
+                { rate: 0.42, h: [9, 44], gap: [5, 20], wave: [4, 10], alpha: [0.16, 0.34], fil: 26, streaks: 3, light: "#b3743a" },
+                // near: few, thick, torn, and masked thin at the top of the box.
+                { rate: 1.1, h: [16, 70], gap: [26, 80], wave: [6, 14], alpha: [0.1, 0.22], fil: 14, streaks: 1, light: "#c68a4a", dark: "#1e0f07", density: [0.3, 1] },
+            ],
+            // Ash, baked into a plane of its own between the two band decks:
+            // far enough away that nothing at that size can read as a bullet.
+            flakes: { plane: 1, rate: 0.3, n: 22, size: [4, 9], alpha: [0.05, 0.09], color: "#8a5a34" },
+            vortices: {
+                plane: 2, spin: 0.00085, lo: "#25120a", hi: "#c07a3a",
+                list: [
+                    { x: 0.34, y: 0.28, s: 1, dir: 1 },
+                    { x: 0.73, y: 0.74, s: 0.62, dir: -1 },
+                ],
+            },
+        },
+        desc: "Falling through the cloud deck of a gas giant. Belts and zones rise past at their own speeds, tearing where they meet, and the haze thickens and brightens the further you sink.",
+    },
+    {
+        id: "planet_blue", name: "BLUE MARBLE", tint: "#7fb6ff", kind: "pixelMarble",
+        // `ramp` is the old base/hi/atmo run out to eight rungs, `landRamp` the
+        // old `land`. Retune the place here: the painter reads nothing else.
+        p: {
+            veil: 18,
+            ramp: ["#02050c", "#061426", "#0b2a4a", "#10426e", "#1a5c8c", "#2b86b0", "#57b3cf", "#a8e0ee"],
+            landRamp: ["#04070a", "#0a1410", "#132018", "#1d3020", "#2a4526", "#3d5c2c", "#587a3a", "#86a856"],
+        },
+        desc: "A living world sitting low on the left, close enough to make out continents through the blue rim of its atmosphere. The star is off to one side, so the far half of it falls away into the dark.",
+    },
+    {
+        id: "ocean_world", name: "OCEAN WORLD", tint: "#5ee1ff", kind: "pixelOcean",
+        // Two ramps, and which one a pixel takes is which side of the horizon
+        // it is on. `ramp` is the sky, `landRamp` the water -- a step cooler
+        // and a step darker at every rung, which is the hard teal horizon the
+        // glossary line promises, done in the palette rather than with a line.
+        //
+        // The star ramp is not the study's #9fe8f2 / #cdf6fb / #eafeff. Those
+        // measure luminance 0.85 / 0.93 / 0.98 against the 0.62 the
+        // small-bright-feature detector cuts at, and a 9 px spore of the top
+        // one against the dark top of the box is a bullet by every test the
+        // programme has. Fifth star ramp to come down, after EVENT HORIZON,
+        // COMET TRAIL, RINGED GIANT and PULSAR; assume the next one too.
+        p: {
+            veil: 8, topRung: 6,
+            ramp: ["#031a24", "#06303f", "#0a4a5e", "#10657c", "#1c8398", "#35a3b4", "#6fcbd6", "#bff0f7"],
+            landRamp: ["#02141d", "#04222e", "#062f3d", "#093f4f", "#0d5162", "#146678", "#2b8b9b", "#74d0da"],
+            starRamp: ["#3a5f6a", "#4e7a85", "#628f9a"],
+        },
+        desc: "Over open water: a hard teal horizon, the sky repeated in the swell, and spores lifting off the crests.",
+    },
+    {
+        id: "jungle_world", name: "JUNGLE WORLD", tint: "#9ade6b", kind: "pixelJungle",
+        // Two ramps and a third for the point lights. Green stops at rung 6 --
+        // #9ad06a is luminance 189 against the small-bright-feature detector's
+        // 158, so the top rung of this ramp is not expressible by the painter.
+        //
+        // `landRamp` is where the composition lives: water is the ONLY material
+        // in the place that can be brighter than the canopy, and the study caps
+        // it at rung 5. Its code caps at 7 and its prose at 5; the prose is the
+        // safety statement and the code is the accident, so 5 ships. #6f9ea9 is
+        // the ceiling that follows, and it is measured rather than chosen: at
+        // the #7aa9b3 it started at, the dithered shoreline broke into 3 px
+        // pale specks and the counter scored 27 of them. Four points of
+        // luminance took that to 0. If this ramp is ever retuned, rung 5 has a
+        // floor it must stay under and the counter is how to find it again.
+        //
+        // `starRamp` carries the spore drifts and the two bioluminescence
+        // clusters. Its top rung is reachable by neither -- both cap at rung 1
+        // -- but it came down from #5fb883 (luminance 161) anyway, because a
+        // ramp with an unusable rung in it is a trap for the next edit.
+        p: {
+            veil: 14, topRung: 6,
+            ramp: ["#071a0f", "#0e2a16", "#16401d", "#205625", "#2e6d2e", "#45883a", "#6cae4a", "#9ad06a"],
+            landRamp: ["#12232e", "#1b3644", "#2a4d5c", "#3d6a78", "#578996", "#6f9ea9", "#a6cbd0", "#d8ecec"],
+            starRamp: ["#2b5c4a", "#3f8a63", "#5bb17e"],
+        },
+        desc: "A canopy of forest to the horizon, cut by a river, with mist lifting out of the valleys.",
     },
 ];
 
