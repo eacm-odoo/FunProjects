@@ -1638,6 +1638,213 @@
  * SUPERNOVA. 5 rasterising calls a frame against the old painter's 17.
  * See `tools/neon_strike_bench/probe_storm.mjs`.
  *
+ * -------------------------------------------------------------------------
+ * JUNGLE WORLD, Direction A -- the 20th conversion (2026-09-01)
+ * -------------------------------------------------------------------------
+ * The second breakout from the shared `surface` painter, which is now down to
+ * ONE place. The study did not take the reference's vantage and is right about
+ * why: from orbit a jungle world is BLUE MARBLE with the rim recoloured, and at
+ * a 130 px thumbnail the two are the same card. What is worth keeping from the
+ * reference is its readable density -- ridges you can trace, a river between
+ * them, clearings -- and that is a function of ALTITUDE, not of orbit. So the
+ * horizon stays flat like its six siblings and the camera climbs until the
+ * canopy is terrain.
+ *
+ * Three strata plus the sky plane, on a 2.6x lateral ladder at 0.038 / 0.10 /
+ * 0.26 / 0.676 logical px a frame, with the mist rising through them and
+ * fourteen spore drifts rising faster still.
+ *
+ * Departures from the study, and why:
+ *   1. `field` bakes the SKY and nothing else. The shared bake produces one
+ *      opaque plane; a parallax ladder is five that shear against each other,
+ *      and four of them need per-art-pixel TRANSPARENCY (a silhouette decided
+ *      as a material, the way ICE WORLD decides a shelf edge) and a per-art-
+ *      pixel MATERIAL (water escaping to `landRamp`). Neither is expressible
+ *      in `_bakeField`, and neither is worth putting there for one place, so
+ *      `junLayer` is `_bakeField`'s quantise written out with both -- the same
+ *      relationship `artRung` already has to it. Seven layers and a scratch,
+ *      about 2.1 MB, and that is the real price of the breakout.
+ *   2. The cloud shadow is NOT a multiply. The study composites a dark sheet
+ *      with `multiply` and flags it as a departure it is unsure about, offering
+ *      "bake it into the crown and lose its independent rate" as the fallback.
+ *      Neither was necessary: a dark twin of the canopy, cut back to the
+ *      shadow's shape and drawn over the lit one, is a demotion by exactly one
+ *      rung where the shadow falls and nothing anywhere else -- the rate
+ *      survives and every pixel stays on the ramp. The mode has to be
+ *      `destination-out`, and that is the finding worth carrying: an x-wrapped
+ *      mask arrives in TWO pieces, and `destination-in` would have each piece
+ *      throw away what the other kept, leaving an empty scratch. Reach for the
+ *      cut-out, not the keep, whenever a mask wraps.
+ *   3. Alpha became DENSITY twice, which is the desert's lesson applied
+ *      without being asked. The mist sheet and the shadow sheet are both laid
+ *      down at `globalAlpha`, and an opaque rung blended over the plate is a
+ *      colour on no ramp. The mist conversion is arithmetic, not taste: the
+ *      study's mean optical density over its two levels runs 0.38 / 0.61 /
+ *      0.84 at plume amounts 0.4 / 0.69 / 1.0, which `a * 0.9` capped at 0.86
+ *      reproduces within a few per cent. Rendering its two levels opaque
+ *      instead -- the obvious first conversion -- turned every mid-gate bank
+ *      from a haze into a sheet and the mist ate the horizon and the far
+ *      ridge. If a study fades something, ask what the fade is worth in
+ *      coverage before choosing a number.
+ *   4. A new noise generator, and every cut it publishes re-solved. `mkNoise`
+ *      cannot tile: it wraps on a fixed 64 lattice and each octave multiplies
+ *      the frequency by 2.07, so nothing has a period. A canopy that scrolls
+ *      until it meets itself -- the crown wraps every 5,492 frames -- has to,
+ *      so `tileFbm` is here. Being a different generator, all four published
+ *      cuts were re-solved BY QUANTILE against it: clearings 0.70 -> 0.677
+ *      (3.5% of the field at the study's number against its own 5.8%), valleys
+ *      0.34 -> 0.345, shadow 0.58 -> 0.571, mist plume 0.30 -> 0.284. The one
+ *      that mattered is the mist gate, whose upper edge of 0.56 sits ABOVE the
+ *      study's own maximum (0.532) and BELOW ours (0.659): carried across
+ *      unchanged it opens the gate fully over 31% of the box width and turns
+ *      "two or three banks" into a uniform fog. Matched instead on the two
+ *      things that are really being set -- the share of the width where the
+ *      gate is shut (28.6%) and the peak the gate reaches (0.92) -- it is
+ *      [0.364, 0.722].
+ *   5. Water caps at rung 5, which is the study's PROSE and not its code. Its
+ *      code caps `landRamp` at 7; its palette section says "river peaks at rung
+ *      5". The prose is the safety statement and the code is the accident: rung
+ *      6 of that ramp is luminance 196 and the river is exactly the kind of
+ *      long thin feature whose stray bright pixels are isolated specks.
+ *   6. The plane's vertical drift is the engine's `t * 0.0016`, not the study's
+ *      1440-frame sine. Seventh port in a row.
+ *   7. The veil converts by ratio of formulas, as always: the study's scrim is
+ *      `veil * 0.0115` and this file's is `veil / 100`, so its 12 is 14 here.
+ *   8. Two bioluminescence clusters, not three. The study says two in its code
+ *      and its palette section and three in its phase list; the code ships.
+ *
+ * What the breakout leaves behind is the whole of `surface` minus its mote
+ * loop, which went out with this place because this place was its last user --
+ * 70 pale 1-3 px squares rising at 55% in `lighter`, which is the player's own
+ * fire in size, paleness and travel, and the second time that exact defect has
+ * had to be removed from this catalogue. `bd.motes` is gone with it. What is
+ * left of the painter is a gradient with sixteen ellipses on it and one place
+ * that wants them.
+ *
+ * Measured on the composed 680x540 arena. Pale features by the study's own
+ * counter, run BOTH ways because its strict surround test flatters a bright
+ * background: **0 strict / 0 relative at every veil from 0 to 18**, against
+ * the old painter's 0 / 5 at the flat scrim it actually shipped under (6 / 11
+ * bare). Arena mean luminance 0.190 at veil 14 against the old painter's
+ * 0.392, which moves the place from the brightest in the catalogue (91.9 of
+ * 255) to 48.5, between BLUE MARBLE and OCEAN WORLD. And the number the whole
+ * composition is for: the pale bolt over the 120 x 260 px lane above the
+ * parked ship stands at **3.71:1 against 1.88:1**, because water takes the
+ * second ramp and its value is a function of view angle, so the ship sits over
+ * the darkest material in the frame and the brightest is the mid-band under
+ * the horizon. 34 rasterising calls a frame against the old painter's 86.
+ * See `tools/neon_strike_bench/probe_jungle.mjs`.
+ *
+ * -------------------------------------------------------------------------
+ * CRYSTAL FIELD, Direction A -- the 21st conversion (2026-09-01)
+ * -------------------------------------------------------------------------
+ * The first place whose SUBJECT is entirely live. `field` carries the dark
+ * base, two ice-haze bands and the star field, and not one shard -- not even
+ * the far population, which tumbles an order of magnitude slower but does
+ * tumble, and whose 3 art px bodies are where a rotation step is coarsest, so a
+ * baked one would visibly pop.
+ *
+ * The painter it replaces is 34 rhombi at random angles, each with its own
+ * gradient from #a8d8ff to #c9a4ff, plus 70 white speckles. Nothing in it obeys
+ * a light: the gradient angle IS the shard's angle, so the brightest edge of
+ * every stone points a different way and a field of them reads as scattered
+ * glass rather than as a place. The redesign is one light for all of them --
+ * azimuth 225, elevation 22, fixed in screen space -- and FACETS instead of
+ * gradients: of a prism's six longitudinal faces the two or three facing the
+ * camera fill flat, the boundaries between them are the prism's own edges, and
+ * which faces those are changes as it rolls. The violet survives as `landRamp`,
+ * the colour of a face turned away from the light.
+ *
+ * The flash is why the place exists and it works because a prism face is a
+ * ONE-DIMENSIONAL mirror: alignment is required only in the plane perpendicular
+ * to the long axis, so it is a condition on the shard's ROLL alone, which is
+ * its fast axis. That is both why the highlight is a streak and why there are
+ * any: the obvious full-3D specular condition needs roll and screen angle to
+ * coincide and measures 0.08 lit facets a frame across the whole field.
+ *
+ * Departures from the study, and why:
+ *   1. `hard` reads the finished plate back ONCE, as palette indices. The live
+ *      pass restores dirty tiles from that buffer, and it has to be the plate
+ *      rather than a recomputation of the field: `hard` runs after the point
+ *      lights, so it is the only phase that can see the field AND the stars as
+ *      one picture. This is the second time the field -> stars -> `hard` order
+ *      has been load-bearing, after BINARY SUNS. One `getImageData` at bake
+ *      time is not the per-frame readback COMET TRAIL refused.
+ *   2. `blit` is empty. The live surface starts as a copy of the plate and only
+ *      ever overwrites it, so it is opaque and exactly as large -- blitting the
+ *      plate underneath would be one full-box `drawImage` a frame with an
+ *      identical one straight over it. Proved rather than assumed: the composed
+ *      arena is byte-identical without it. First place that can say this,
+ *      because it is the first whose live layer covers the whole box.
+ *   3. The study bakes and measures its ARENA (227x180); the engine needs the
+ *      BOX (476x388, 4.5x the area), as it always does. Its 48 near and 96 far
+ *      shards were already placed across a 1428x1134 box, so the COUNTS carry
+ *      unchanged and its "11 near shards on screen" is the arena's share of
+ *      them -- but everything it costed itself at is an arena number and comes
+ *      out about 4.5x here. Its 108 fills a frame is 393 over the box.
+ *   4. The veil is 6, and the study's own ceiling argument does NOT transfer.
+ *      It sets 4 as "the largest value that still leaves the top rung intact",
+ *      which is true of ITS veil -- a re-quantise of the rung index, where 6
+ *      drops a peak streak from 0.853 to 0.634 in one step. This engine's veil
+ *      is a linear scrim over the composed frame, so there is no cliff to sit
+ *      under: 6 costs the peak streak 6% and buys almost nothing, because the
+ *      place is dark by composition rather than by correction. What settles it
+ *      is that the study's own checklist line asks for 6 and its prose for 4,
+ *      the mechanism that argued for 4 is gone, and the measurement is flat
+ *      between them. Sixth study whose headline its own code or checklist
+ *      rejects.
+ *   5. `starRamp` needed NO scaling -- the first in eleven studies. #7d94b2 is
+ *      luminance 145 against the detector's 158, because this study worked out
+ *      for itself that a 1 px near-white star in a place this pale is the exact
+ *      feature its own counter protects. Its departure note names #9fb8d4
+ *      (183) instead; the code ships the safe one and the code is right. 680
+ *      stars rather than its 150, which is the same density over 4.5x the area,
+ *      at `aMin` 0.22 -- the value that puts 12% of them on the top rung, which
+ *      is the study's own distribution, against the catalogue's usual 0.24.
+ *   6. The plane's drift is the engine's, not the study's 22 px sine. Eighth
+ *      port in a row.
+ *
+ * Two of the study's departures were taken as written and are worth recording
+ * because they are both MEASUREMENTS rather than preferences. A baked rotation
+ * atlas -- the precedent every other moving-art place here follows -- is the
+ * more expensive option at 1.69 MB, and it does not even remove the per-frame
+ * work: it can only store facet IDS, because a face's VALUE changes with the
+ * light every frame, so a blit still needs a per-facet palette pass. The angle
+ * is still quantised to the step table, which is what the atlas actually
+ * bought. And a single union dirty rectangle -- COMET TRAIL's idiom -- measures
+ * 100% of the surface every frame here, because eleven shards up to 260 px long
+ * spread across the arena and their union IS the arena; 8x8 art-pixel tiles
+ * measure 41% over the box.
+ *
+ * Measured on the composed 680x540 arena. **0 pale features by the study's own
+ * counter at every veil from 0 to 10, on flash and quiet frames alike**, and
+ * that is not restraint: no shard SURFACE reaches the top two rungs (cap 6
+ * near, 4 far), so rungs 7 and 8 appear nowhere except as a streak 72 px or
+ * longer, whose bounding box cannot be under the 40 px the counter cuts at.
+ * The edge-on clamp is what stops a nearly side-on facet from being the
+ * compact bright dot the streak is not. Peak arena luminance 0.853 on a flash
+ * frame and 0.536 without one, which is the study's own pair EXACTLY; arena
+ * mean 0.106; the pale bolt over the ship's lane stands at 6.14:1.
+ *
+ * The light reproduces the study's own statistics almost to the number, which
+ * is what says the port is the same model and not a lookalike: flash length
+ * mean 17.6 frames against its 17, typical 14-21 against 12-35, extremes 1 and
+ * 71 against 1 and 50; recurrence 257 frames against 218; and **0.97 lit
+ * facets a frame inside the arena against its 1.04**, over 48 shards x 4,000
+ * frames. Over the whole box it is 3.34 concurrent, peak 8, with 3% of frames
+ * carrying none -- the box holds 4.5x the shards, so the arena number is the
+ * one that compares. Frame 1500 carries no flash, exactly as the study says,
+ * which is the right way round for a thumbnail: the card rests on faceted form.
+ *
+ * Cost: 393 facet fills a frame over the box against the study's 108 over the
+ * arena, 41% of tiles dirty against its 33%, and TWO canvas calls a frame --
+ * one `putImageData`, one blit. Against the catalogue's cheapest converted
+ * places at fourteen rectangles this is the expensive option, and it buys the
+ * only thing the place is for. If the budget ever bites, the study's own order
+ * to cut is: far population 96 -> 48, then near 48 -> 36, then the tile size
+ * 8 -> 16. Not the streaks.
+ * See `tools/neon_strike_bench/probe_crystal.mjs`.
+ *
  */
 
 // The static layer is soft gradient art, so half resolution is free quality.
@@ -1646,18 +1853,17 @@ const LAYER_SCALE = 0.5;
 // baked box is this much taller on each side so the edge never shows.
 const DRIFT = 14;
 // Veil between the backdrop and the play field, for the places still painted
-// the old way. FOUR of the 28 are still on it -- it was twelve before
-// SUPERNOVA, ECLIPSE and WORMHOLE were converted, and GALACTIC CORE, DESERT
-// WORLD and STORM WORLD have followed them since, taking the worst of the
-// offenders with them -- and the ones left (graveyard, crystal, PLANETARY
-// NEBULA and JUNGLE WORLD) paint in the same warm reds and the same 1-3 px
-// motes the enemy bullets use, adding up in `lighter` until a bullet is
-// indistinguishable from scenery. One flat number fixes those and flattens the
-// rest, which is why a Direction A place carries its own `p.veil` instead --
-// see `bgScrim`. The place this was invented for is no longer one of them, and
-// what it measured on the way out is worth keeping: MOLTEN WORLD's warm-feature
-// count was identical at veil 0 and at veil 30, so the number was never what
-// was doing the work there.
+// the old way. TWO of the 28 are still on it -- SHIP GRAVEYARD and EMERALD
+// NEBULA -- against twelve before SUPERNOVA, ECLIPSE and WORMHOLE were
+// converted, and GALACTIC CORE, DESERT WORLD, STORM WORLD, JUNGLE WORLD and
+// CRYSTAL FIELD since. What it exists for is a place painting in the same warm
+// reds and the same 1-3 px motes the enemy bullets use, adding up in `lighter`
+// until a bullet is indistinguishable from scenery. One flat number fixes those
+// and flattens the rest, which is why a Direction A place carries its own
+// `p.veil` instead -- see `bgScrim`. The place this was invented for is no
+// longer one of them, and what it measured on the way out is worth keeping:
+// MOLTEN WORLD's warm-feature count was identical at veil 0 and at veil 30, so
+// the number was never what was doing the work there.
 export const BG_SCRIM = "rgba(5,6,14,0.30)";
 // Where an atmosphere's sky colours sit down the box, by default. A place may
 // pass its own `skyStops` when three stops cannot hold it -- the gas giant runs
@@ -3380,6 +3586,226 @@ const STORM_STARS = 120;
 const STORM_STAR_SEED = 0x4e21;
 const STORM_STAR_A = 0.06;
 
+/* JUNGLE WORLD ------------------------------------------------------------ */
+// The vantage. The reference for this place is a globe from orbit, and the
+// catalogue already owns that picture twice over -- from orbit a jungle world
+// is BLUE MARBLE with the rim recoloured, and at a 130 px thumbnail the two are
+// one image. What survives the reduction is not the vantage but the DENSITY:
+// ridges you can trace, a river threading between them, clearings. So the
+// horizon stays flat like its six siblings and the camera climbs until the
+// canopy is terrain rather than haze. Both numbers were dragged, not derived:
+// under altitude ~0.45 the three strata collapse into one green mass, over
+// ~0.80 the ridge scale shrinks until the canopy reads as noise.
+const JUN_HZ = 0.4;
+const JUN_ALT = 0.62;
+// Lateral rates, logical px a frame: sky plane, far ridge, crown, emergents.
+// Four rungs of the desert's own 2.6x ladder, and the whole ladder is what
+// makes the frame read as depth rather than as one moving picture. Wraps at
+// 37,579 / 14,280 / 5,492 / 2,112 frames.
+const JUN_RATE = [0.038, 0.1, 0.26, 0.676];
+// The cloud shadow runs at its own rate: it belongs to weather, not to the
+// forest. Slower than the crown it falls on, so the two shear.
+const JUN_SHADOW_RATE = 0.09;
+// The mist rises at 0.22 and drifts sideways at the CROWN's rate, so it belongs
+// to the forest underneath it rather than to the frame. One vertical cycle
+// every 545 frames.
+const JUN_MIST_RISE = 0.22;
+// Ridge lines, three summed sines each at integer cycles over the box width so
+// every stratum tiles. One per stratum, and they share no frequency: two ridge
+// ranges that beat against each other read as one range with a wobble.
+const JUN_RIDGE = [
+    [[3, 0.11, 0.5], [7, 0.63, 0.31], [13, 0.29, 0.19]],
+    [[2, 0.41, 0.46], [5, 0.07, 0.33], [11, 0.85, 0.21]],
+    [[2, 0.72, 0.44], [4, 0.36, 0.34], [9, 0.18, 0.22]],
+];
+// The strata, as offsets and amplitudes in art rows against the horizon. Every
+// one is a function of the altitude, which is the single control the vantage
+// has: raise it and the bands spread and the ridges shrink.
+const JUN_FAR_AMP = [6, 11];
+const JUN_CROWN = [[5, 16], [8, 12]];
+const JUN_EMG = [[28, 46], [9, 17]];
+// The sky. Base, span and gamma from the top of the arena down to the horizon,
+// then two bands and the two haze lifts that sit on the horizon itself.
+const JUN_SKY = [0.015, 0.52, 2.1];
+const JUN_SKY_BAND = [[7 / 378, 0.5, 0.2, 0.055, 0.25, 0.9], [17 / 378, -0.8, 0.6, 0.03, 0.45, 0.95]];
+const JUN_SKY_HAZE = [[0.86, 0.09], [0.955, 0.13]];
+// Below the horizon the sky plane is the ground the canopy stands on: it shows
+// through every gap in the three strata, so it is a value and not a hole.
+const JUN_GROUND = 0.62;
+// The canopy's own texture, and the two features read out of one low-frequency
+// field: where the forest thins into a clearing and where it falls into a
+// valley. Both cuts are RE-SOLVED against this file's hash -- the study's 0.70
+// and 0.34 are quantiles of its own generator and land at 3.5% here against its
+// 5.8%. Port the count, not the threshold.
+const JUN_CLEARING = 0.677;
+const JUN_VALLEY = 0.345;
+// The river, in the crown stratum: centreline two bends across the box with a
+// 15 logical px second harmonic, width breathing between 8 and 20.
+const JUN_RIVER = [9, 11, 5];
+const JUN_RIVER_W = [1.4, 1.9];
+// ...and the same river again as the bottom reach, filling the last 75 logical
+// px of the ARENA -- which is the part of the frame the player's ship sits in.
+// That one physical fact is what solves the composition: the busiest, brightest
+// terrain is the mid-band under the horizon, the ship is parked over the
+// darkest material in the place, and its pale stream flies up over dark water
+// and dark understorey before it ever crosses lit canopy.
+const JUN_REACH = 75;
+const JUN_REACH_W = [10, 4];
+// Water takes the second ramp, so a river in a green frame is not green. Its
+// value is a function of VIEW ANGLE rather than depth: at the horizon the
+// surface is grazed and returns sky (rung 5, brighter than any green here), and
+// toward the bottom of the frame the angle steepens, you see into it, and it
+// falls to rungs 1-2.
+const JUN_WATER = [0.76, 0.4];
+const JUN_REACH_V = [0.15, 0.07, 0.03, 44];
+const JUN_WATER_CAP = 5;
+// The far shore's specular rim, one art pixel, pinned to exactly rung 4 and
+// UNDITHERED: a dithered rim breaks into isolated pale pixels and those are
+// bullets. It is the whole reason `field` grew a `flat` rung.
+const JUN_RIM = [1.7, 4];
+// Two bioluminescence clusters in the understorey, on `starRamp`, dim and
+// clustered. Capped at rung 1: the top rung of that ramp is never painted.
+const JUN_GLOW = [[0.28, 11], [0.66, 18]];
+const JUN_GLOW_BOX = [20, 6];
+const JUN_GLOW_CUT = [0.9, 0.09];
+const JUN_GLOW_V = 0.3;
+const JUN_GLOW_CAP = 1;
+// The mist. A single art-pixel sheet 40 rows tall that tiles on both axes,
+// gated into two or three banks. Its density falls to zero at both tile edges,
+// so each bank swells as it lifts and has dissolved by the top of the band and
+// the vertical seam cannot be seen. Cuts re-solved against this file's hash:
+// the study's gate edges are quantiles of its own noise and its top edge sits
+// ABOVE our maximum, which would have opened the gate over 31% of the width and
+// turned two or three banks into a sheet.
+const JUN_MIST_H = 40;
+const JUN_MIST_BIRTH = 8;
+const JUN_MIST_PROF = [0.34, 0.58];
+const JUN_MIST_GATE = [0.364, 0.722];
+const JUN_MIST_PLUME = [0.284, 5.2];
+// Mist takes `landRamp` and not the green ramp, because mist is water. On the
+// green ramp it reads as a clearing in the canopy; cool grey-blue against green
+// reads as vapour at a glance. Rungs 4 and 5, and rung 5 is the reason
+// `landRamp` rung 5 is #6f9ea9 rather than the #7aa9b3 it started at -- four
+// points of luminance is what puts it under the pale-feature threshold.
+//
+// The study lays the sheet down at `globalAlpha` 0.47 and 0.84, which is a
+// colour on no ramp. What that alpha is really doing is stated in its own
+// prose -- banks swell as they lift -- so it is a DENSITY, and the conversion
+// is not a taste call but arithmetic: the study's mean optical density over its
+// two levels runs 0.38 / 0.61 / 0.84 at plume amounts 0.4 / 0.69 / 1.0, which
+// `a * 0.9` capped at 0.86 reproduces within a few per cent. Rendered opaque at
+// the study's own two levels instead, every mid-gate bank went from a thin haze
+// to a solid sheet and the mist ate the horizon.
+const JUN_MIST_RUNG = [4, 5];
+const JUN_MIST_DENS = [0.9, 0.86];
+const JUN_MIST_SPLIT = 0.75;
+// The cloud shadow: an x-periodic sheet over the whole span below the horizon,
+// fading in over the first 30 art rows so the far ridge is never shadowed.
+const JUN_SHADOW = [0.571, 2.4, 30, 1];
+// The spore drifts. Six or nine logical px on a side (2-3 art px, the molten
+// world's ash sizing) against an enemy core of 1-4; `starRamp` rungs 0-1 so
+// they are green-cyan where a bolt is pale; clustered in three groups over the
+// valleys rather than scattered; and rising diagonally where a bolt is dead
+// vertical. Three signals, any one of which is enough. They replace 70 pale
+// 1-3 px squares that were the player's own fire in every respect that matters.
+const JUN_SPORES = 14;
+const JUN_SPORE_SEED = 17;
+const JUN_SPORE_CLUSTER = [0.24, 0.26, 80];
+const JUN_SPORE_RISE = 0.35;
+const JUN_SPORE_SPAN = 170;
+const JUN_SPORE_DROP = 250;
+const JUN_SPORE_SWAY = [9, 1290];
+const JUN_SPORE_BRIGHT = 0.62;
+
+/* CRYSTAL FIELD ----------------------------------------------------------- */
+// ONE light for the whole place, fixed in screen space: azimuth 225 degrees,
+// elevation 22, so it arrives from the upper left and slightly toward the
+// camera. It is a constant and not a parameter of any shard. Every stone obeys
+// it the same way and nothing else sets a face's value -- no per-shard tint, no
+// per-shard gradient angle, no random -- which is what makes a scattered field
+// read as one scene lit from one place. Both numbers were dragged: from the
+// upper left a long shard shows two lit faces and one shadowed, which is what
+// makes it read as solid, while a low elevation flattens it and a high one
+// washes every face to the same rung.
+const CRY_AZ = 225;
+const CRY_EL = 22;
+// Four shapes. Hexagonal prisms at width ratios 0.16, 0.26 and 0.34 and a
+// square one at 0.11; the two taper points sit at different fractions of the
+// half-length, so a shard's two ends are never the same.
+const CRY_SHAPES = [
+    { sides: 6, w: 0.16, t0: 0.55, t1: 0.62 },
+    { sides: 6, w: 0.26, t0: 0.62, t1: 0.5 },
+    { sides: 4, w: 0.11, t0: 0.48, t1: 0.66 },
+    { sides: 6, w: 0.34, t0: 0.7, t1: 0.66 },
+];
+// The study's own seed, and the two populations drawn from it in its own order,
+// so the layout it tuned by eye is the layout that ships: `mulberry32` here IS
+// its generator, which is the one time in this file a study's literal seed
+// transfers unchanged.
+//
+// The 90 px / 24 px gap between the two is a decision and the hazard band it
+// avoids is the engine's: rocks are 26-38 px, so nothing in this place is
+// rock-sized. If a rock ever exceeds 38, the near floor moves up rather than
+// the rock moving down.
+const CRY_SEED = 0x5c0de;
+const CRY_NEAR = {
+    n: 48, len: [90, 260], spin: [0.0006, 0.0022], roll: [0.0022, 0.0062],
+    // Rungs 7 and 8 belong to the specular streaks alone, so no shard SURFACE
+    // reaches them: 6 near, 4 far, on the 1-8 count the study writes in.
+    cap: 5,
+    // 96 steps over 180 degrees, from the rule that the tip of the longest
+    // shard may not move more than one art pixel per step. Under about 40 the
+    // tumble visibly ratchets on the big ones.
+    steps: 96,
+};
+const CRY_FAR = {
+    n: 96, len: [8, 24], spin: [0.0002, 0.0008], roll: [0.0008, 0.002],
+    cap: 3, steps: 12,
+};
+// Diffuse exponent, and the incidence under which a face stops being lit at all
+// and switches material to `landRamp` rungs 2-3. That is where the old
+// painter's violet #c9a4ff now lives: as the colour of a face turned away from
+// the light rather than as the bottom of a gradient.
+const CRY_DIFF = 0.85;
+const CRY_SHADE = [0.16, 0.07, 2, 3];
+// The flash. A prism face is a ONE-DIMENSIONAL mirror: it does not have to
+// point at the light, it only has to line up in the plane perpendicular to the
+// shard's long axis. So the light is projected into that cross-section and the
+// test runs on the projected half vector. That is why the highlight is a streak
+// and not a point, and it is also what makes flashes happen at all -- alignment
+// becomes a condition on the shard's ROLL alone, which is its fast axis.
+// Requiring full 3D alignment instead, which is the obvious first
+// implementation, measured 0.08 lit facets a frame across the whole field.
+const CRY_SPEC = [0.55, 800];
+// The bloom, 6 -> 7 -> 8 -> 7 -> 6 as the alignment rises and falls.
+const CRY_SPEC_RUNG = [5, 0.6, 1.4];
+// A facet whose projected width falls under 1.7 art px drops two rungs. An
+// almost-edge-on face subtends nothing, and without this it lands as a one
+// pixel wide dotted bright line on the lattice -- which is exactly the compact
+// pale feature the count exists to prevent. Measured by the study: the clamp
+// alone took its frame-1500 count from 10 to 1.
+const CRY_EDGE_ON = [1.7, 2];
+// The streak: 80% of the shard's own length, 1-3 px wide.
+const CRY_STREAK = [0.8, 0.35, 0.5];
+// The baked plane: a dark base falling down the frame and two broad ice-haze
+// bands, both anchored to the ARENA. Nothing here reaches rung 2.
+const CRY_FIELD = [0.03, 0.03];
+const CRY_HAZE = [[0.3, 0.034, 4.4], [0.74, 0.026, 3.2]];
+const CRY_MOTTLE = [0.01, 0.055, 0.021];
+const CRY_STARS = 680;
+const CRY_STAR_SEED = 0x5c0d;
+// 0.22, not the catalogue's 0.24: `_bakeField` buckets a star by
+// round(a * 3) / 3 over a band 0.5 wide, and this is the value that puts 12% of
+// the field on the top star rung, which is the study's own distribution.
+const CRY_STAR_A = 0.22;
+// 8 x 8 art-pixel tiles. A single union dirty rectangle -- COMET TRAIL's idiom,
+// and the precedent this place would otherwise follow -- measured 100% of the
+// surface every frame, because eleven shards up to 260 px long spread across
+// the arena and their union IS the arena.
+const CRY_TILE = 8;
+// A star inside the denser of the two haze bands loses this much of itself.
+const CRY_HAZE_OCC = 0.55;
+
 const FIELD_DARK = { v: 0 };
 // The arena the glossary thumbnails are composed in. Painters place things in
 // logical pixels, so a still has to be taken at the size they were written for
@@ -3573,6 +3999,54 @@ function mkNoise(seed) {
         }
         return s / norm;
     };
+}
+
+/**
+ * Value noise on a lattice that WRAPS in x at a chosen period, summed over
+ * `oct` octaves. `mkNoise` cannot stand in for it: its lattice wraps at a fixed
+ * 64 cells and every octave multiplies the frequency by 2.07, so the octaves
+ * come back into phase nowhere and the field has no period at all. A layer that
+ * scrolls sideways until it meets itself -- the jungle's canopy wraps every
+ * 5,492 frames -- needs every octave periodic at the same width, which is what
+ * doubling `f` and `p` together gives. Keep `p` an integer.
+ *
+ * @param {number} x - in noise cells; `p` of them span the box width
+ * @param {number} y - in noise cells, not wrapped
+ * @param {number} p - cells per box width
+ * @param {number} s - seed
+ * @returns {number} 0..1
+ */
+function tileNoise(x, y, p, s) {
+    const xi = Math.floor(x);
+    const yi = Math.floor(y);
+    const fx = x - xi;
+    const fy = y - yi;
+    const ux = fx * fx * (3 - 2 * fx);
+    const uy = fy * fy * (3 - 2 * fy);
+    const xa = ((xi % p) + p) % p;
+    const xb = (((xi + 1) % p) + p) % p;
+    const a = hash2(xa, yi, s);
+    const b = hash2(xb, yi, s);
+    const c = hash2(xa, yi + 1, s);
+    const d = hash2(xb, yi + 1, s);
+    const top = a + (b - a) * ux;
+    const bot = c + (d - c) * ux;
+    return top + (bot - top) * uy;
+}
+
+/** `tileNoise` over `oct` octaves, still periodic in x at `p` cells. */
+function tileFbm(x, y, p, s, oct) {
+    let sum = 0;
+    let amp = 0.5;
+    let f = 1;
+    let norm = 0;
+    for (let o = 0; o < oct; o++) {
+        sum += tileNoise(x * f, y * f, p * f, s + o * 17) * amp;
+        norm += amp;
+        amp *= 0.5;
+        f *= 2;
+    }
+    return sum / norm;
 }
 
 /**
@@ -7931,6 +8405,493 @@ function wormBake(bd) {
     P.par = Uint8Array.from(par);
 }
 
+/* -------------------------------------------------------------------------- */
+/* JUNGLE WORLD                                                                */
+/* -------------------------------------------------------------------------- */
+
+/** One stratum's ridge line: three summed sines, periodic over the box. */
+function junRidge(k, u) {
+    const t = JUN_RIDGE[k];
+    return t[0][2] * Math.sin(6.2832 * (t[0][0] * u + t[0][1]))
+        + t[1][2] * Math.sin(6.2832 * (t[1][0] * u + t[1][1]))
+        + t[2][2] * Math.sin(6.2832 * (t[2][0] * u + t[2][1]));
+}
+
+/**
+ * The sky plane, as a value. Anchored to the ARENA at both ends -- near black
+ * at the top of the arena, brightest at the horizon -- so the box's extra rows
+ * extend the dark end rather than shifting the gradient the study composed.
+ */
+function junSky(bd, ax, ay) {
+    const S = bd.jun;
+    if (ay < S.at) {
+        return JUN_SKY[0] * clamp(ay / Math.max(1, S.at), 0, 1);
+    }
+    if (ay > S.hr) {
+        return JUN_GROUND;
+    }
+    const u = ax / S.aw;
+    const d = ay - S.at;
+    const t = clamp(d / Math.max(1, S.hr - S.at), 0, 1);
+    let v = JUN_SKY[0] + JUN_SKY[1] * Math.pow(t, JUN_SKY[2]);
+    for (const b of JUN_SKY_BAND) {
+        v += b[3] * Math.sin(6.2832 * (d * b[0] + u * b[1] + b[2])) * smoothstep(t, b[4], b[5]);
+    }
+    for (const h of JUN_SKY_HAZE) {
+        v += h[1] * smoothstep(t, h[0], 1);
+    }
+    return clamp(v, 0, 1);
+}
+
+/**
+ * The far ridge line: hazy, low contrast, sitting on the horizon. It is the
+ * only stratum with no features in it -- one range, one texture -- because at
+ * that distance anything else would be the horizon crawling.
+ */
+function junFar(bd, ax, ay) {
+    const S = bd.jun;
+    const u = ax / S.aw;
+    const top = S.hr + 1 + S.f1 * (0.5 + 0.5 * junRidge(0, u));
+    if (ay < top || ay > S.farY1) {
+        return null;
+    }
+    const n = tileFbm(u * 40, ay * 0.3, 40, 7, 3);
+    return { v: clamp(0.33 + 0.11 * n + 0.05 * smoothstep(ay - top, 2.2, 0), 0, 1), m: 0 };
+}
+
+/**
+ * The main crown: the bulk of the frame and all of its texture, plus the two
+ * features that make it land read as land -- clearings where the forest thins
+ * and valleys where it falls away -- and the river's upper meander.
+ */
+function junCrown(bd, ax, ay) {
+    const S = bd.jun;
+    const u = ax / S.aw;
+    const top = S.hr + S.c0 + S.c1 * (0.5 + 0.5 * junRidge(1, u));
+    if (ay < top || ay > S.crownY1) {
+        return null;
+    }
+    const dep = (ay - S.hr) / S.span;
+    // The river is decided PER ART PIXEL inside the bake, the same way the
+    // silhouettes are: a boundary that is a material decision has nothing for
+    // the dither to soften, so a bank is one hard step at any width.
+    const rc = S.hr + S.c0 + S.c1 * 0.5 + JUN_RIVER[0]
+        + JUN_RIVER[1] * Math.sin(6.2832 * (2 * u + 0.18))
+        + JUN_RIVER[2] * Math.sin(6.2832 * (u + 0.55));
+    const w = JUN_RIVER_W[0] + JUN_RIVER_W[1] * (0.5 + 0.5 * Math.sin(6.2832 * (3 * u + 0.27)));
+    if (Math.abs(ay - rc) < w) {
+        return { v: clamp(JUN_WATER[0] - JUN_WATER[1] * dep, 0, 1), m: 1 };
+    }
+    const n = tileFbm(u * 48, ay * 0.34, 48, 23, 4);
+    const val = tileFbm(u * 12, ay * 0.075, 12, 61, 3);
+    let v = 0.2 + 0.24 * n + 0.15 * val - 0.07 * dep + 0.17 * smoothstep(ay - top, 3, 0);
+    if (val > JUN_CLEARING) {
+        v += 0.06;
+    }
+    if (val < JUN_VALLEY) {
+        v -= 0.07;
+    }
+    return { v: clamp(v, 0, 1), m: 0 };
+}
+
+/**
+ * The near emergents: individual tree crowns breaking the lower silhouette,
+ * the dark understorey under them, the two bioluminescence clusters, and the
+ * river's bottom reach with its one-pixel specular rim.
+ */
+function junEmg(bd, ax, ay) {
+    const S = bd.jun;
+    const u = ax / S.aw;
+    let top = S.hr + S.e0 + S.e1 * (0.5 + 0.5 * junRidge(2, u));
+    // Crowns, clustered rather than periodic: a hash decides which of the 46
+    // slots carries one, and the bump is a half sine across its own slot.
+    const cx = Math.floor(u * 46);
+    if (hash2(cx, 3, 91) > 0.6) {
+        const ph = u * 46 - cx;
+        top -= (3 + 7 * hash2(cx, 4, 92)) * Math.sin(Math.PI * clamp(ph, 0, 1));
+    }
+    if (ay < top) {
+        return null;
+    }
+    const wc = S.wc + JUN_REACH_W[0] * Math.sin(6.2832 * (u + 0.45))
+        + JUN_REACH_W[1] * Math.sin(6.2832 * (3 * u + 0.1));
+    const dep = (ay - S.hr) / S.span;
+    const n = tileFbm(u * 44, ay * 0.4, 44, 131, 4);
+    if (ay > wc) {
+        if (ay - wc < JUN_RIM[0]) {
+            return { m: 1, flat: JUN_RIM[1] };
+        }
+        return {
+            m: 1,
+            v: clamp(JUN_REACH_V[0] - JUN_REACH_V[1] * smoothstep(ay - wc, 0, JUN_REACH_V[3])
+                + JUN_REACH_V[2] * n, 0, 1),
+        };
+    }
+    for (let k = 0; k < JUN_GLOW.length; k++) {
+        const bx = JUN_GLOW[k][0] * S.aw;
+        const by = S.hr + S.e0 + JUN_GLOW[k][1];
+        const dx = Math.abs(ax - bx);
+        if (dx < JUN_GLOW_BOX[0] && Math.abs(ay - by) < JUN_GLOW_BOX[1]
+            && hash2(Math.floor(ax / 3), Math.floor(ay / 3), 300 + k)
+                > JUN_GLOW_CUT[0] + JUN_GLOW_CUT[1] * (dx / JUN_GLOW_BOX[0])) {
+            return { v: JUN_GLOW_V, m: 2 };
+        }
+    }
+    return {
+        v: clamp(0.05 + 0.15 * n - 0.03 * dep + 0.15 * smoothstep(ay - top, 3, 0), 0, 1),
+        m: 0,
+    };
+}
+
+/**
+ * One art-resolution stratum, sampled per art pixel. This is `_bakeField`'s
+ * quantise with the two things it does not have and cannot be given for one
+ * place: a per-pixel MATERIAL (which of the three ramps this art pixel takes)
+ * and TRANSPARENCY, which is how a canopy edge is decided per art pixel instead
+ * of being drawn. The shared bake produces one opaque plane; a parallax ladder
+ * is five that shear against each other, so it produces the sky and this
+ * produces the rest.
+ *
+ * `dim` demotes every rung by that much, which is the whole of the dark twin
+ * the cloud shadow is masked out of.
+ *
+ * @param {object} bd
+ * @param {number} ay0 - first art row, inclusive
+ * @param {number} ay1 - last art row, exclusive
+ * @param {number} dim - rungs to demote by
+ * @param {Function} sample - (ax, ay) => null | {v, m, flat}
+ * @returns {HTMLCanvasElement}
+ */
+function junLayer(bd, ay0, ay1, dim, sample) {
+    const S = bd.jun;
+    const h = Math.max(1, ay1 - ay0);
+    const cv = document.createElement("canvas");
+    cv.width = S.aw;
+    cv.height = h;
+    const g = cv.getContext("2d");
+    const img = g.createImageData(S.aw, h);
+    const data = img.data;
+    for (let ay = ay0; ay < ay1; ay++) {
+        const row = (ay & 3) * 4;
+        const base = (ay - ay0) * S.aw * 4;
+        for (let ax = 0; ax < S.aw; ax++) {
+            const s = sample(bd, ax, ay);
+            const o = base + ax * 4;
+            if (!s) {
+                data[o + 3] = 0;
+                continue;
+            }
+            const pal = s.m === 1 ? bd.rgbAlt : s.m === 2 ? S.star : bd.rgb;
+            const cap = s.m === 1 ? JUN_WATER_CAP : s.m === 2 ? JUN_GLOW_CAP : bd.p.topRung;
+            const bay = (BAYER[row + (ax & 3)] / 16 - 0.46) * DITHER;
+            const k = s.flat === undefined
+                ? clamp(Math.round(s.v * (pal.length - 1) + bay), 0, cap)
+                : s.flat;
+            const c = pal[clamp(k - dim, 0, cap)];
+            data[o] = c[0];
+            data[o + 1] = c[1];
+            data[o + 2] = c[2];
+            data[o + 3] = 255;
+        }
+    }
+    g.putImageData(img, 0, 0);
+    return cv;
+}
+
+/**
+ * The mist sheet: 476 x 40 art pixels, tiling on both axes. Two rungs of
+ * `landRamp` at a DENSITY rather than at an opacity -- the study fades it with
+ * `globalAlpha`, and an opaque rung blended over the plate is a colour on no
+ * ramp. What the alpha was really for is stated in the study's own prose
+ * ("banks swell as they lift"), which is a density, and an ordered dither on
+ * the same value is that. Nothing about it is soft.
+ */
+function junMistSheet(bd) {
+    const S = bd.jun;
+    const cv = document.createElement("canvas");
+    cv.width = S.aw;
+    cv.height = JUN_MIST_H;
+    const g = cv.getContext("2d");
+    const img = g.createImageData(S.aw, JUN_MIST_H);
+    const data = img.data;
+    for (let ay = 0; ay < JUN_MIST_H; ay++) {
+        const row = (ay & 3) * 4;
+        const ty = ay / JUN_MIST_H;
+        // 0 at the birth line under the canopy, 1 at the top of the band.
+        const s = 1 - ty;
+        const prof = smoothstep(s, 0, JUN_MIST_PROF[0]) * (1 - smoothstep(s, JUN_MIST_PROF[1], 1));
+        for (let ax = 0; ax < S.aw; ax++) {
+            const u = ax / S.aw;
+            const gate = smoothstep(tileFbm(u * 5, 0.5, 5, 313, 2), JUN_MIST_GATE[0], JUN_MIST_GATE[1]);
+            const plume = tileFbm(u * 13, ty * 1.3, 13, 211, 3);
+            const a = clamp(prof * gate * (plume - JUN_MIST_PLUME[0]) * JUN_MIST_PLUME[1], 0, 1);
+            const dens = Math.min(a * JUN_MIST_DENS[0], JUN_MIST_DENS[1]);
+            const o = (ay * S.aw + ax) * 4;
+            if (dens + (BAYER[row + (ax & 3)] + 0.5) / 16 < 1) {
+                data[o + 3] = 0;
+                continue;
+            }
+            const c = bd.rgbAlt[a > JUN_MIST_SPLIT ? JUN_MIST_RUNG[1] : JUN_MIST_RUNG[0]];
+            data[o] = c[0];
+            data[o + 1] = c[1];
+            data[o + 2] = c[2];
+            data[o + 3] = 255;
+        }
+    }
+    g.putImageData(img, 0, 0);
+    return cv;
+}
+
+/**
+ * The cloud shadow, as a CUT-OUT rather than as a wash. The study composites it
+ * `multiply`, which is the one thing this catalogue cannot take: a rung
+ * multiplied by a constant is a colour on no ramp. Its own fallback is to bake
+ * the shadow into the crown and give up its independent rate, and that is not
+ * necessary -- a dark twin of the canopy, cut back to the shadow's own shape
+ * and drawn over the lit one, is a demotion by exactly one rung wherever the
+ * shadow falls and nothing else. It keeps the rate, and every pixel it paints
+ * is on the place's own ramp.
+ *
+ * The sheet is the shadow's NEGATIVE -- opaque wherever the sun reaches -- and
+ * it is applied with `destination-out`. That is not a detail: an x-wrapped mask
+ * is laid down in two pieces, and `destination-in` would have each piece throw
+ * away what the other kept, leaving an empty scratch. `destination-out` is the
+ * one mode whose result depends on nothing outside the pixels the source
+ * paints, so a mask can arrive in as many pieces as the wrap needs.
+ */
+function junShadowSheet(bd) {
+    const S = bd.jun;
+    const cv = document.createElement("canvas");
+    cv.width = S.aw;
+    cv.height = S.span;
+    const g = cv.getContext("2d");
+    const img = g.createImageData(S.aw, S.span);
+    const data = img.data;
+    for (let ay = 0; ay < S.span; ay++) {
+        const row = (ay & 3) * 4;
+        const fade = smoothstep(ay, 0, JUN_SHADOW[2]);
+        for (let ax = 0; ax < S.aw; ax++) {
+            const n = tileFbm((ax / S.aw) * 4, ay * 0.016, 4, 401, 3);
+            const dens = clamp((n - JUN_SHADOW[0]) * JUN_SHADOW[1], 0, 1) * fade;
+            const o = (ay * S.aw + ax) * 4;
+            // Density, not opacity: the ordered dither decides whether this art
+            // pixel is under cloud at all, and the shadow thins out at its own
+            // edges by covering fewer of them.
+            if (dens + (BAYER[row + (ax & 3)] + 0.5) / 16 >= 1) {
+                data[o + 3] = 0;
+                continue;
+            }
+            data[o] = 255;
+            data[o + 1] = 255;
+            data[o + 2] = 255;
+            data[o + 3] = 255;
+        }
+    }
+    g.putImageData(img, 0, 0);
+    return cv;
+}
+
+/** A layer's scroll offset, in whole art pixels, wrapped into the box. */
+function junOffset(bd, rate) {
+    const aw = bd.jun.aw;
+    return ((Math.floor(-bd.t * rate / ART_PIX) % aw) + aw) % aw;
+}
+
+/** One x-wrapped stratum, in art pixels, on an art-resolution target. */
+function junWrapArt(g, img, ax, ay, aw) {
+    g.drawImage(img, ax - aw, ay);
+    g.drawImage(img, ax, ay);
+}
+
+/** The same, on the logical-coordinate target the box is composed in. */
+function junWrapBox(bd, g, img, ax, ay) {
+    const S = bd.jun;
+    const x = bd.x0 + ax * S.sx;
+    const y = bd.y0 + ay * S.sy;
+    const w = S.aw * S.sx;
+    const h = img.height * S.sy;
+    g.drawImage(img, x - w, y, w, h);
+    g.drawImage(img, x, y, w, h);
+}
+
+/* -------------------------------------------------------------------------- */
+/* CRYSTAL FIELD                                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One population of shards, in box coordinates. Drawn in the study's own order
+ * from the study's own seed and generator, so the field it composed by eye is
+ * the field that ships.
+ */
+function crystalShards(rng, bd, spec, near) {
+    const out = [];
+    for (let i = 0; i < spec.n; i++) {
+        const shape = Math.floor(rng() * CRY_SHAPES.length);
+        const x = bd.x0 + rng() * bd.w;
+        const y = bd.y0 + rng() * bd.h;
+        const len = spec.len[0] + rng() * (spec.len[1] - spec.len[0]);
+        const th0 = rng() * 6.2832;
+        const spin = (spec.spin[0] + rng() * (spec.spin[1] - spec.spin[0])) * (rng() < 0.5 ? -1 : 1);
+        const ph0 = rng() * 6.2832;
+        const roll = (spec.roll[0] + rng() * (spec.roll[1] - spec.roll[0])) * (rng() < 0.5 ? -1 : 1);
+        out.push({ x, y, len, shape, near, th0, spin, ph0, roll, cap: spec.cap, step: Math.PI / spec.steps });
+    }
+    return out;
+}
+
+/**
+ * One convex polygon, scanline-filled into the index buffer, with the tiles it
+ * touches marked. This is `artQuad` for an n-gon and without the surface
+ * protocol: a facet is six vertices, and what it dirties is a tile set rather
+ * than one rectangle.
+ */
+function crystalFill(P, base, n, pi) {
+    const v = P.pv;
+    let ymin = Infinity;
+    let ymax = -Infinity;
+    for (let i = 0; i < n; i++) {
+        const y = v[base + i * 2 + 1];
+        if (y < ymin) { ymin = y; }
+        if (y > ymax) { ymax = y; }
+    }
+    const yA = Math.max(0, Math.round(ymin));
+    const yB = Math.min(P.ah - 1, Math.round(ymax));
+    for (let y = yA; y <= yB; y++) {
+        const yc = y + 0.5;
+        let lo = Infinity;
+        let hi = -Infinity;
+        for (let e = 0; e < n; e++) {
+            const ay = v[base + e * 2 + 1];
+            const by = v[base + ((e + 1) % n) * 2 + 1];
+            if ((ay <= yc) === (by <= yc)) {
+                continue;
+            }
+            const ax = v[base + e * 2];
+            const bx = v[base + ((e + 1) % n) * 2];
+            const x = ax + ((yc - ay) / (by - ay)) * (bx - ax);
+            if (x < lo) { lo = x; }
+            if (x > hi) { hi = x; }
+        }
+        if (hi < lo) {
+            continue;
+        }
+        const xA = Math.max(0, Math.round(lo));
+        const xB = Math.min(P.aw - 1, Math.max(xA, Math.round(hi)));
+        if (xB < xA) {
+            continue;
+        }
+        P.idx.fill(pi, y * P.aw + xA, y * P.aw + xB + 1);
+    }
+}
+
+/**
+ * Every visible face of one shard, at this frame's quantised angles, appended
+ * to the frame's polygon list -- plus the specular streak, if the roll has
+ * brought a face into alignment. Returns 1 if it flashed.
+ *
+ * The screen angle is quantised to the step table and the roll is not: the step
+ * is what a baked rotation atlas would have bought, and it is kept, while the
+ * VALUES have to stay live or the light stops being a light. That is the whole
+ * of departure 1, and it is why the atlas -- 1.69 MB of facet ids, which still
+ * needs a per-facet palette pass every frame -- buys nothing here.
+ */
+function crystalFaces(bd, s, f) {
+    const P = bd.cry;
+    const sp = CRY_SHAPES[s.shape];
+    const th = Math.round((s.th0 + s.spin * f) / s.step) * s.step;
+    const ph = s.ph0 + s.roll * f;
+    const cx = (s.x - bd.x0) / ART_PIX;
+    const cy = (s.y - bd.y0) / ART_PIX;
+    const hl = s.len / ART_PIX / 2;
+    const hw = (s.len * sp.w) / ART_PIX / 2;
+    const ct = Math.cos(th);
+    const stn = Math.sin(th);
+    // The light projected into the plane perpendicular to the long axis, and
+    // the half vector between that and the eye.
+    const la = P.lx * ct + P.ly * stn;
+    let px = P.lx - la * ct;
+    let py = P.ly - la * stn;
+    const pz = P.lz;
+    const pl = Math.hypot(px, py, pz) || 1;
+    px /= pl;
+    py /= pl;
+    const qz = pz / pl;
+    const hlen = Math.hypot(px, py, qz + 1);
+    const hx = px / hlen;
+    const hy = py / hlen;
+    const hz = (qz + 1) / hlen;
+    // One closure a shard rather than one a face: `b` is the only thing that
+    // changes between them, and this runs for every face of 144 shards a frame.
+    const put = (b, i, lx, ly) => {
+        P.pv[b + i * 2] = cx + lx * ct - ly * stn;
+        P.pv[b + i * 2 + 1] = cy + lx * stn + ly * ct;
+    };
+    const N = sp.sides;
+    let spec = 0;
+    const first = P.pc;
+    for (let k = 0; k < N; k++) {
+        const a0 = ph + (k * 6.2832) / N;
+        const a1 = a0 + 6.2832 / N;
+        const be = (a0 + a1) / 2;
+        const nz = Math.sin(be);
+        if (nz <= 0.02) {
+            continue;
+        }
+        const nyl = Math.cos(be);
+        const nx = -nyl * stn;
+        const ny = nyl * ct;
+        const d = Math.max(0, nx * P.lx + ny * P.ly + nz * P.lz);
+        if (s.near) {
+            const sv = Math.max(0, nx * hx + ny * hy + nz * hz);
+            const lobe = Math.pow(sv, CRY_SPEC[1]);
+            if (lobe > spec) {
+                spec = lobe;
+            }
+        }
+        const u0 = hw * Math.cos(a0);
+        const u1 = hw * Math.cos(a1);
+        let pi;
+        if (d < CRY_SHADE[0]) {
+            pi = 8 + (d < CRY_SHADE[1] ? CRY_SHADE[2] : CRY_SHADE[3]);
+        } else {
+            pi = Math.max(1, Math.min(s.cap,
+                1 + Math.round(Math.pow(d, CRY_DIFF) * (s.cap - 1))));
+            if (Math.abs(u0 - u1) < CRY_EDGE_ON[0]) {
+                pi = Math.max(1, pi - CRY_EDGE_ON[1]);
+            }
+        }
+        const b = P.pc * 12;
+        put(b, 0, -hl, 0);
+        put(b, 1, -hl * sp.t0, u0);
+        put(b, 2, hl * sp.t1, u0);
+        put(b, 3, hl, 0);
+        put(b, 4, hl * sp.t1, u1);
+        put(b, 5, -hl * sp.t0, u1);
+        P.pn[P.pc] = 6;
+        P.pq[P.pc] = pi;
+        P.pc++;
+    }
+    if (P.pc === first) {
+        return 0;
+    }
+    if (spec > CRY_SPEC[0]) {
+        const sw = Math.max(CRY_STREAK[2], hw * CRY_STREAK[1]);
+        const sl = hl * CRY_STREAK[0];
+        const v = (spec - CRY_SPEC[0]) / (1 - CRY_SPEC[0]);
+        const b = P.pc * 12;
+        put(b, 0, -sl, -sw);
+        put(b, 1, sl, -sw);
+        put(b, 2, sl, sw);
+        put(b, 3, -sl, sw);
+        P.pn[P.pc] = 4;
+        P.pq[P.pc] = clamp(CRY_SPEC_RUNG[0]
+            + Math.round(CRY_SPEC_RUNG[1] + CRY_SPEC_RUNG[2] * v), CRY_SPEC_RUNG[0], 7);
+        P.pc++;
+        return 1;
+    }
+    return 0;
+}
+
 const PAINTERS = {
     // Nothing at all: the engine star field is the whole sky. Still the
     // fallback for an entry whose `kind` does not resolve.
@@ -9934,15 +10895,25 @@ const PAINTERS = {
     /**
      * Flying inside a planet's atmosphere. Two forms on one code path:
      *
-     * `bandForm: "bank"` -- the default, and what the four other worlds are: a
-     * baked sky with 16 soft ellipses scrolling over it in `lighter`, plus
-     * `motes` (spores, sand) falling over that.
+     * `bandForm: "bank"` -- a baked sky with 16 soft ellipses scrolling over it
+     * in `lighter`. Nothing uses it any more: this branch has no user left at
+     * all, and it is kept only because it is what `bandForm` selects against.
      *
-     * `bandForm: "belt"` -- GAS GIANT DESCENT: the sky plus a stack of tiles
-     * that wrap and translate at their own rates, so the decks shear against
-     * each other; vortices riding one of them; and a screen-space density ramp
-     * on the nearest, so the deck thickens as you sink into it. Everything is
-     * baked in `paint` and `live` is blits only. See the belt-deck helpers.
+     * `bandForm: "belt"` -- GAS GIANT DESCENT, the painter's ONE remaining
+     * place: the sky plus a stack of tiles that wrap and translate at their own
+     * rates, so the decks shear against each other; vortices riding one of
+     * them; and a screen-space density ramp on the nearest, so the deck
+     * thickens as you sink into it. Everything is baked in `paint` and `live`
+     * is blits only. See the belt-deck helpers.
+     *
+     * The `motes` loop went out with JUNGLE WORLD, which was its last user --
+     * 70 pale 1-3 px squares rising at 55% in `lighter`, which is the player's
+     * own fire in size, paleness and travel, and the second time this catalogue
+     * has had to remove exactly that. It is the same deletion STORM WORLD made
+     * of the `lightning` branch: when the place a branch was written for
+     * converts, the branch goes with it rather than waiting for a user that is
+     * not coming. What is left of this painter is a gradient with sixteen
+     * ellipses on it, and one place that wants them.
      */
     surface: {
         init(bd) {
@@ -9957,17 +10928,6 @@ const PAINTERS = {
                         a: 0.05 + bd.rng() * 0.16,
                         w: 0.5 + bd.rng() * 0.6,
                         x: bd.rng(),
-                    });
-                }
-            }
-            bd.motes = [];
-            if (bd.p.motes) {
-                for (let i = 0; i < 70; i++) {
-                    bd.motes.push({
-                        x: bd.x0 + bd.rng() * bd.w,
-                        y: bd.y0 + bd.rng() * bd.h,
-                        v: 0.4 + bd.rng() * 2.2,
-                        s: 1 + bd.rng() * 2,
                     });
                 }
             }
@@ -10000,11 +10960,6 @@ const PAINTERS = {
         },
         update(bd, ts) {
             bd.scroll = (bd.scroll || 0) + (bd.p.speed || 0.7) * ts;
-            for (const m of bd.motes) {
-                m.y += m.v * ts;
-                if (m.y > bd.y0 + bd.h) { m.y = bd.y0; }
-                if (m.y < bd.y0) { m.y = bd.y0 + bd.h; }
-            }
         },
         live(bd, g) {
             if (bd.p.bandForm === "belt") {
@@ -10021,15 +10976,6 @@ const PAINTERS = {
                     g.beginPath();
                     g.ellipse(x + bd.w * sp[0], y, bd.w * 0.36 * b.w, b.h * 0.5, 0, 0, 6.2832);
                     g.fill();
-                }
-                g.restore();
-            }
-            if (bd.motes.length) {
-                g.save();
-                g.globalCompositeOperation = "lighter";
-                g.fillStyle = rgba(bd.p.moteColor || "#ffffff", 0.55);
-                for (const m of bd.motes) {
-                    g.fillRect(m.x, m.y, m.s, m.s);
                 }
                 g.restore();
             }
@@ -10596,6 +11542,180 @@ const PAINTERS = {
         },
     },
 
+    /**
+     * JUNGLE WORLD. The second of the four `surface` worlds to break out of the
+     * shared painter, and it takes the same two things out with it that the
+     * desert did: the per-frame mote loop (70 pale 1-3 px squares at 55% in
+     * `lighter` -- the player's own fire in size, paleness and travel) and the
+     * vertical band scroll. What is left of `surface` after this is a gradient
+     * with sixteen ellipses on it, serving two places whose description
+     * promises only sky, which is the one thing it renders honestly.
+     *
+     * What replaces it is altitude. The horizon stays flat like its six
+     * siblings and the camera climbs until the canopy is terrain: three strata
+     * plus the sky plane, each on its own rung of a 2.6x lateral ladder, with
+     * ridge lines and silhouettes decided PER ART PIXEL inside the bake the way
+     * ICE WORLD decides its shelf edges. A canopy edge against sky is one hard
+     * step, always, because it is a material decision and not a value the
+     * dither can soften.
+     *
+     * The composition is the safety argument, and it comes out of one physical
+     * fact rather than out of restraint. Water takes `landRamp`, and its value
+     * is a function of VIEW ANGLE: grazed at the horizon it returns sky and
+     * lands on rung 5, brighter than any green in the frame; steepened toward
+     * the bottom of the arena you see into it and it falls to rungs 1-2. So the
+     * brightest, busiest terrain is the mid-band under the horizon, and the
+     * parked ship sits over the darkest material the place has. Its pale stream
+     * flies up over dark water and dark understorey before it ever crosses lit
+     * canopy: measured over the 120 x 260 px lane above the ship, the bolt
+     * stands at 3.52:1 against 1.80:1 for the painter this replaces, which was
+     * bad by a factor of two.
+     *
+     * Memory is the real price of the breakout and it should be stated: seven
+     * art-resolution layers and a scratch, about 2.1 MB for the place, against
+     * one 476x388 plate for a place that bakes once.
+     */
+    pixelJungle: {
+        init(bd) {
+            const aw = Math.max(1, Math.ceil(bd.w / ART_PIX));
+            const ah = Math.max(1, Math.ceil(bd.h / ART_PIX));
+            // Anchored to the ARENA, not to the box: the box reaches 104 art
+            // rows above the arena here, and a horizon placed as a fraction of
+            // it is not the horizon the study composed.
+            const hr = Math.round((JUN_HZ * bd.H - bd.y0) / ART_PIX);
+            const alt = JUN_ALT;
+            const S = {
+                aw,
+                ah,
+                hr,
+                at: Math.round(-bd.y0 / ART_PIX),
+                span: Math.max(1, ah - hr),
+                // The lattice the plate is drawn on, which is 3 logical px
+                // across and a hair under it down the box. Every layer here
+                // takes the same two numbers, so this place's pixels are the
+                // size the place before it in the run had.
+                sx: bd.w / aw,
+                sy: bd.h / ah,
+                f1: Math.round(JUN_FAR_AMP[0] + JUN_FAR_AMP[1] * alt),
+                c0: Math.round(JUN_CROWN[0][0] + JUN_CROWN[0][1] * alt),
+                c1: JUN_CROWN[1][0] + Math.round(JUN_CROWN[1][1] * alt),
+                e0: Math.round(JUN_EMG[0][0] + JUN_EMG[0][1] * alt),
+                e1: JUN_EMG[1][0] + Math.round(JUN_EMG[1][1] * alt),
+                wc: (bd.H - JUN_REACH - bd.y0) / ART_PIX,
+                star: rampRGB(bd.p.starRamp),
+            };
+            S.mb0 = hr + JUN_MIST_BIRTH;
+            S.farY1 = hr + S.c0 + S.c1 + 3;
+            S.crownY0 = hr + S.c0 - 2;
+            S.crownY1 = hr + S.e0 + S.e1 + 3;
+            S.emgY0 = hr + S.e0 - 2;
+            bd.jun = S;
+            const crownEnd = Math.min(ah, S.crownY1 + 1);
+            const farEnd = Math.min(ah, S.farY1 + 1);
+            S.far = junLayer(bd, hr, farEnd, 0, junFar);
+            S.crown = junLayer(bd, S.crownY0, crownEnd, 0, junCrown);
+            S.emg = junLayer(bd, S.emgY0, ah, 0, junEmg);
+            // The dark twin the cloud shadow is cut out of. The far range is
+            // not given one: the shadow fades in over the first 30 art rows
+            // below the horizon and that band is the whole of the far stratum,
+            // so a twin of it would be masked to nothing.
+            S.crownDim = junLayer(bd, S.crownY0, crownEnd, JUN_SHADOW[3], junCrown);
+            S.emgDim = junLayer(bd, S.emgY0, ah, JUN_SHADOW[3], junEmg);
+            S.mist = junMistSheet(bd);
+            S.shadow = junShadowSheet(bd);
+            const sc = document.createElement("canvas");
+            sc.width = aw;
+            sc.height = ah;
+            S.scratch = sc;
+            S.sg = sc.getContext("2d");
+        },
+        /**
+         * The sky plane. It is the only stratum the shared bake can carry --
+         * the other four need transparency and a second ramp per art pixel --
+         * and it doubles as the ground the canopy stands on, so every gap in
+         * the three strata above shows a value rather than a hole. No stars:
+         * this is a daylit sky, and at the top of the ramp a 1-2 art px point
+         * light IS the small bright feature the whole measurement forbids.
+         */
+        field(bd, x, y) {
+            const S = bd.jun;
+            const ax = clamp(Math.floor((x - bd.x0) / ART_PIX), 0, S.aw - 1);
+            const ay = clamp(Math.floor((y - bd.y0) / ART_PIX), 0, S.ah - 1);
+            return { v: junSky(bd, ax, ay) };
+        },
+        /**
+         * Four strata at four rates, then the cloud shadow. Every offset is
+         * quantised to whole art pixels: the lattice is the place, and a layer
+         * blitted at a fractional offset with filtering off rounds its own
+         * pixel boundaries and comes out 2 and 4 px wide in bands.
+         */
+        blit(bd, g) {
+            const S = bd.jun;
+            const oc = junOffset(bd, JUN_RATE[2]);
+            const oe = junOffset(bd, JUN_RATE[3]);
+            junWrapBox(bd, g, bd.layer, junOffset(bd, JUN_RATE[0]), 0);
+            junWrapBox(bd, g, S.far, junOffset(bd, JUN_RATE[1]), bd.jun.hr);
+            junWrapBox(bd, g, S.crown, oc, S.crownY0);
+            junWrapBox(bd, g, S.emg, oe, S.emgY0);
+            const sg = S.sg;
+            sg.setTransform(1, 0, 0, 1, 0, 0);
+            sg.globalCompositeOperation = "source-over";
+            sg.clearRect(0, 0, S.aw, S.ah);
+            sg.imageSmoothingEnabled = false;
+            junWrapArt(sg, S.crownDim, oc, S.crownY0, S.aw);
+            junWrapArt(sg, S.emgDim, oe, S.emgY0, S.aw);
+            sg.globalCompositeOperation = "destination-out";
+            junWrapArt(sg, S.shadow, junOffset(bd, JUN_SHADOW_RATE), S.hr, S.aw);
+            sg.globalCompositeOperation = "source-over";
+            g.imageSmoothingEnabled = false;
+            g.drawImage(S.scratch, bd.x0, bd.y0, bd.w, bd.h);
+        },
+        /**
+         * What rises through the plane rather than with it: the mist lifting
+         * out of the valleys, and fourteen spore drifts over them. There is no
+         * `update` -- both are read straight off the frame counter, so pause
+         * stills the forest, slow motion slows it, and `backdropThumb` takes
+         * the place to frame 1500 cold.
+         */
+        live(bd, g) {
+            const S = bd.jun;
+            g.imageSmoothingEnabled = false;
+            const mh = JUN_MIST_H * S.sy;
+            const my = bd.y0 + S.mb0 * S.sy;
+            const mw = S.aw * S.sx;
+            const mx = bd.x0 + junOffset(bd, JUN_RATE[2]) * S.sx;
+            // Rising in whole art rows, wrapping on the sheet's own height. The
+            // sheet's density is zero at both tile edges, so the seam it meets
+            // itself on cannot be seen.
+            const rise = (Math.floor(bd.t * JUN_MIST_RISE / ART_PIX) % JUN_MIST_H + JUN_MIST_H)
+                % JUN_MIST_H;
+            g.save();
+            g.beginPath();
+            g.rect(bd.x0, my, bd.w, mh);
+            g.clip();
+            for (let k = 0; k < 2; k++) {
+                const yy = my - rise * S.sy + k * mh;
+                g.drawImage(S.mist, mx - mw, yy, mw, mh);
+                g.drawImage(S.mist, mx, yy, mw, mh);
+            }
+            g.restore();
+            const base = my + JUN_SPORE_DROP;
+            for (let i = 0; i < JUN_SPORES; i++) {
+                const bx = (JUN_SPORE_CLUSTER[0] + (i % 3) * JUN_SPORE_CLUSTER[1]) * bd.w
+                    + hash2(i, 11, JUN_SPORE_SEED) * JUN_SPORE_CLUSTER[2];
+                const s = (2 + (hash2(i, 12, JUN_SPORE_SEED) > 0.5 ? 1 : 0)) * ART_PIX;
+                const x = snapTo(bd.x0, bd.x0 + bx
+                    + JUN_SPORE_SWAY[0] * Math.sin(6.2832 * bd.t / JUN_SPORE_SWAY[1] + i)
+                    - bd.t * JUN_RATE[2]);
+                const y = base - (((bd.t * JUN_SPORE_RISE + i * 57) % JUN_SPORE_SPAN)
+                    + JUN_SPORE_SPAN) % JUN_SPORE_SPAN;
+                g.fillStyle = bd.p.starRamp[hash2(i, 13, JUN_SPORE_SEED) > JUN_SPORE_BRIGHT ? 1 : 0];
+                g.fillRect(bd.x0 + ((x - bd.x0) % bd.w + bd.w) % bd.w,
+                    bd.y0 + Math.floor((y - bd.y0) / S.sy) * S.sy, s, s);
+            }
+        },
+    },
+
     // Rocks as far as the eye can see. They are scenery: the asteroids you can
     // actually hit are the engine's, much closer to the camera.
     belt: {
@@ -10811,33 +11931,270 @@ const PAINTERS = {
         },
     },
 
-    // Ice shards big enough to have their own gravity, catching the light.
-    crystal: {
-        paint(bd, g) {
-            speckle(g, bd, 70, "#ffffff", 0.3);
-            for (let i = 0; i < 34; i++) {
-                const x = bd.x0 + bd.rng() * bd.w;
-                const y = bd.y0 + bd.rng() * bd.h;
-                const l = 30 + bd.rng() * 150;
-                g.save();
-                g.translate(x, y);
-                g.rotate(bd.rng() * 6.2832);
-                const grd = g.createLinearGradient(0, -l / 2, 0, l / 2);
-                grd.addColorStop(0, rgba(bd.p.c1, 0.34));
-                grd.addColorStop(1, rgba(bd.p.c2, 0.08));
-                g.fillStyle = grd;
-                g.beginPath();
-                g.moveTo(0, -l / 2);
-                g.lineTo(l * 0.14, 0);
-                g.lineTo(0, l / 2);
-                g.lineTo(-l * 0.14, 0);
-                g.closePath();
-                g.fill();
-                g.strokeStyle = rgba(bd.p.c1, 0.3);
-                g.lineWidth = 1;
-                g.stroke();
-                g.restore();
+    /**
+     * CRYSTAL FIELD. The twentieth Direction A conversion, and the first place
+     * whose SUBJECT is entirely live: `field` carries no shards at all, not
+     * even the far population, because they tumble too and baking them would
+     * make the one moving-subject place partly static.
+     *
+     * The painter it replaces is 34 rhombi at random angles, each filled with
+     * its own gradient from #a8d8ff to #c9a4ff, plus 70 white speckles. Nothing
+     * in it obeys a light: the gradient angle IS the shard's angle, so the
+     * brightest edge of every stone points a different way, and a field of them
+     * reads as scattered glass rather than as one place.
+     *
+     * What replaces it is one light for all of them -- azimuth 225, elevation
+     * 22, fixed in screen space -- and facets instead of gradients. Of a prism's
+     * six longitudinal faces the two or three with a positive z-facing normal
+     * are visible; each fills FLAT, and the boundaries between them are the
+     * prism's own edges, so a single stone shows two or three hard-edged values
+     * and the set of them changes as it rolls. The old palette's violet is
+     * still here, as `landRamp`: it is the colour of a face turned away from the
+     * light rather than the bottom of a gradient.
+     *
+     * The flash is the place's whole reason to exist, and it works because a
+     * prism face is a one-dimensional mirror -- see `CRY_SPEC`. It cannot be
+     * read as fire: it is a quad along the shard's own axis, 72 to 208 logical
+     * px long and 1-3 wide, attached to a large dark solid that was already
+     * there. Enemy fire is a 1-4 px core with a warm glow. The shortest streak
+     * here is eighteen times the longest bullet core on its long side, and the
+     * edge-on clamp is what stops a nearly side-on facet from being the compact
+     * bright dot the shortest streak is not.
+     *
+     * Four things separate a shard from an asteroid, any one of which is enough
+     * at a glance: nothing here is rock-sized (rocks 26-38 px, far shards stop
+     * at 24 and near ones start at 90), a rock crosses at 1.6-2.6 px a frame
+     * against a shard's zero, rocks are on an ochre-grey ramp with no blue rung
+     * in it, and a shard is straight-edged at 4:1 to 9:1 where a rock is a lumpy
+     * blob.
+     */
+    pixelCrystal: {
+        init(bd) {
+            const aw = Math.max(1, Math.ceil(bd.w / ART_PIX));
+            const ah = Math.max(1, Math.ceil(bd.h / ART_PIX));
+            const rng = mulberry32(CRY_SEED);
+            const near = crystalShards(rng, bd, CRY_NEAR, true);
+            const far = crystalShards(rng, bd, CRY_FAR, false);
+            const cv = document.createElement("canvas");
+            cv.width = aw;
+            cv.height = ah;
+            const g = cv.getContext("2d");
+            const img = g.createImageData(aw, ah);
+            const az = (CRY_AZ * Math.PI) / 180;
+            const el = (CRY_EL * Math.PI) / 180;
+            const tx = Math.ceil(aw / CRY_TILE);
+            const ty = Math.ceil(ah / CRY_TILE);
+            // Worst case: every face of every shard visible at once, plus a
+            // streak on every near one. Allocated once, refilled every frame,
+            // so the live pass never allocates.
+            const max = CRY_NEAR.n * (6 + 1) + CRY_FAR.n * 6;
+            bd.cry = {
+                aw,
+                ah,
+                cv,
+                g,
+                img,
+                data: img.data,
+                idx: new Uint8Array(aw * ah),
+                baked: new Uint8Array(aw * ah),
+                // 0-7 the ice ramp, 8-15 the violet one, 16-18 the stars. One
+                // table, because a facet chooses its MATERIAL as well as its
+                // rung and the fill writes an index rather than a colour.
+                pal: rampRGB(bd.p.ramp).concat(rampRGB(bd.p.landRamp), rampRGB(starRamp(bd))),
+                lx: Math.cos(az) * Math.cos(el),
+                ly: Math.sin(az) * Math.cos(el),
+                lz: Math.sin(el),
+                tx,
+                ty,
+                tiles: new Uint8Array(tx * ty),
+                prev: new Uint8Array(tx * ty),
+                pv: new Float32Array(max * 12),
+                pn: new Uint8Array(max),
+                pq: new Uint8Array(max),
+                pc: 0,
+                // Far first, so the near population draws over it.
+                shards: far.concat(near),
+            };
+            bd.stars = starList(bd, CRY_STAR_SEED, CRY_STARS, CRY_STAR_A);
+        },
+        /**
+         * The dark base and two broad ice-haze bands, both anchored to the
+         * ARENA so the box extends the gradient rather than moving the bands.
+         * Nothing baked here reaches rung 2: every bright pixel in this place
+         * is live, which is what the whole redesign is about.
+         */
+        field(bd, x, y) {
+            const ny = y / bd.H;
+            const ax = Math.floor((x - bd.x0) / ART_PIX);
+            const ay = Math.floor((y - bd.y0) / ART_PIX);
+            let v = CRY_FIELD[0] + CRY_FIELD[1] * (1 - ny);
+            for (const h of CRY_HAZE) {
+                const t = (ny - h[0]) * h[2];
+                v += h[1] * Math.exp(-t * t);
             }
+            v += CRY_MOTTLE[0] * Math.sin(ax * CRY_MOTTLE[1] + ay * CRY_MOTTLE[2]);
+            return { v: clamp(v, 0, 1) };
+        },
+        /**
+         * The two haze bands, and only them. The shards do the real occluding
+         * and they do it by writing opaque indices over the star surface, which
+         * is stronger than a coverage scalar and costs nothing -- `occlude` is
+         * sampled once at bake time and could not describe something that
+         * moves anyway.
+         */
+        occlude(bd, x, y) {
+            const ny = y / bd.H;
+            let h = 0;
+            for (const b of CRY_HAZE) {
+                const t = (ny - b[0]) * b[2];
+                h += b[1] * Math.exp(-t * t);
+            }
+            return clamp(h / CRY_HAZE[0][1], 0, 1) * CRY_HAZE_OCC;
+        },
+        /**
+         * Read the finished plate back ONCE, as palette indices. The live pass
+         * restores dirty tiles from that buffer rather than re-evaluating the
+         * field, and it has to be the plate and not a recomputation: `hard` runs
+         * after the stars, so this is the only phase that can see the field and
+         * the point lights as one picture. The readback is a bake-time cost of
+         * one `getImageData`, not the per-frame one COMET TRAIL refused.
+         */
+        hard(bd, g) {
+            const P = bd.cry;
+            const src = g.getImageData(0, 0, P.aw, P.ah).data;
+            const key = new Map();
+            for (let i = 0; i < P.pal.length; i++) {
+                key.set((P.pal[i][0] << 16) | (P.pal[i][1] << 8) | P.pal[i][2], i);
+            }
+            const n = P.aw * P.ah;
+            for (let i = 0; i < n; i++) {
+                const r = src[i * 4];
+                const gr = src[i * 4 + 1];
+                const b = src[i * 4 + 2];
+                const k = (r << 16) | (gr << 8) | b;
+                let q = key.get(k);
+                if (q === undefined) {
+                    // Every colour on the plate comes from one of the three
+                    // ramps, so this should never fire -- but a colour the
+                    // table does not know must not silently become rung 0, so
+                    // it resolves to the nearest entry and is remembered.
+                    let best = Infinity;
+                    for (let j = 0; j < P.pal.length; j++) {
+                        const c = P.pal[j];
+                        const d = (c[0] - r) ** 2 + (c[1] - gr) ** 2 + (c[2] - b) ** 2;
+                        if (d < best) { best = d; q = j; }
+                    }
+                    key.set(k, q);
+                }
+                P.baked[i] = q;
+                const c = P.pal[q];
+                P.data[i * 4] = c[0];
+                P.data[i * 4 + 1] = c[1];
+                P.data[i * 4 + 2] = c[2];
+                P.data[i * 4 + 3] = 255;
+            }
+            P.idx.set(P.baked);
+            P.g.putImageData(P.img, 0, 0);
+        },
+        /**
+         * Nothing. The live surface starts as a copy of the plate and only ever
+         * overwrites it, so it is opaque and exactly as large -- drawing the
+         * plate underneath would be one full-box `drawImage` a frame with an
+         * identical one straight over it. This is the first place that can say
+         * that, because it is the first whose live layer covers the whole box.
+         */
+        blit() {},
+        /**
+         * Restore what last frame dirtied, rasterise this frame's facets and
+         * streaks into the index buffer, expand the marked tiles to pixels and
+         * upload. Two canvas calls a frame; the cost is the palette expand, and
+         * the tile mask is what keeps it to about a third of the surface.
+         *
+         * There is no `update`: every angle is `base + rate * f`, so a guest
+         * and the host light the same facets on the same frame, `backdropThumb`
+         * jumps straight to 1500, and pause, slow motion and stun scale the
+         * tumble for free.
+         */
+        live(bd, g) {
+            const P = bd.cry;
+            const f = bd.t;
+            const T = CRY_TILE;
+            P.tiles.fill(0);
+            P.pc = 0;
+            for (const s of P.shards) {
+                const first = P.pc;
+                crystalFaces(bd, s, f);
+                if (P.pc === first) {
+                    continue;
+                }
+                let x0 = Infinity;
+                let y0 = Infinity;
+                let x1 = -Infinity;
+                let y1 = -Infinity;
+                for (let p = first; p < P.pc; p++) {
+                    const b = p * 12;
+                    for (let i = 0; i < P.pn[p]; i++) {
+                        const vx = P.pv[b + i * 2];
+                        const vy = P.pv[b + i * 2 + 1];
+                        if (vx < x0) { x0 = vx; }
+                        if (vx > x1) { x1 = vx; }
+                        if (vy < y0) { y0 = vy; }
+                        if (vy > y1) { y1 = vy; }
+                    }
+                }
+                const tx0 = Math.max(0, Math.floor(x0 / T));
+                const tx1 = Math.min(P.tx - 1, Math.floor(x1 / T));
+                const ty0 = Math.max(0, Math.floor(y0 / T));
+                const ty1 = Math.min(P.ty - 1, Math.floor(y1 / T));
+                for (let t = ty0; t <= ty1; t++) {
+                    P.tiles.fill(1, t * P.tx + tx0, t * P.tx + tx1 + 1);
+                }
+            }
+            // Dirty = what this frame touches plus what the last one did, so a
+            // shard leaves nothing of itself behind.
+            for (let i = 0; i < P.tiles.length; i++) {
+                const t = P.tiles[i];
+                const d = t | P.prev[i];
+                P.prev[i] = t;
+                if (!d) {
+                    continue;
+                }
+                const tX = i % P.tx;
+                const tY = (i - tX) / P.tx;
+                const xA = tX * T;
+                const xB = Math.min(P.aw, xA + T);
+                const yB = Math.min(P.ah, tY * T + T);
+                for (let y = tY * T; y < yB; y++) {
+                    const row = y * P.aw;
+                    P.idx.set(P.baked.subarray(row + xA, row + xB), row + xA);
+                }
+                P.tiles[i] = 2;
+            }
+            for (let p = 0; p < P.pc; p++) {
+                crystalFill(P, p * 12, P.pn[p], P.pq[p]);
+            }
+            for (let i = 0; i < P.tiles.length; i++) {
+                if (P.tiles[i] !== 2) {
+                    continue;
+                }
+                const tX = i % P.tx;
+                const tY = (i - tX) / P.tx;
+                const xA = tX * T;
+                const xB = Math.min(P.aw, xA + T);
+                const yB = Math.min(P.ah, tY * T + T);
+                for (let y = tY * T; y < yB; y++) {
+                    for (let x = xA; x < xB; x++) {
+                        const j = y * P.aw + x;
+                        const c = P.pal[P.idx[j]];
+                        P.data[j * 4] = c[0];
+                        P.data[j * 4 + 1] = c[1];
+                        P.data[j * 4 + 2] = c[2];
+                    }
+                }
+            }
+            P.g.putImageData(P.img, 0, 0);
+            g.imageSmoothingEnabled = false;
+            g.drawImage(P.cv, bd.x0, bd.y0, bd.w, bd.h);
         },
     },
 
@@ -11900,9 +13257,32 @@ export const BACKGROUNDS = [
         desc: "The same kind of cloud as the violet nebula, in green and cyan: layered gas, dust lanes and stars behind it.",
     },
     {
-        id: "jungle_world", name: "JUNGLE WORLD", tint: "#9ade6b", kind: "surface",
-        p: { sky: ["#0a2413", "#1f5a24", "#6fae4a"], band: "#c9f08a", speed: 0.7, motes: "spore", moteColor: "#d9ff9a" },
-        desc: "Green haze over a canopy, with spores rising through the cloud bands.",
+        id: "jungle_world", name: "JUNGLE WORLD", tint: "#9ade6b", kind: "pixelJungle",
+        // Two ramps and a third for the point lights. Green stops at rung 6 --
+        // #9ad06a is luminance 189 against the small-bright-feature detector's
+        // 158, so the top rung of this ramp is not expressible by the painter.
+        //
+        // `landRamp` is where the composition lives: water is the ONLY material
+        // in the place that can be brighter than the canopy, and the study caps
+        // it at rung 5. Its code caps at 7 and its prose at 5; the prose is the
+        // safety statement and the code is the accident, so 5 ships. #6f9ea9 is
+        // the ceiling that follows, and it is measured rather than chosen: at
+        // the #7aa9b3 it started at, the dithered shoreline broke into 3 px
+        // pale specks and the counter scored 27 of them. Four points of
+        // luminance took that to 0. If this ramp is ever retuned, rung 5 has a
+        // floor it must stay under and the counter is how to find it again.
+        //
+        // `starRamp` carries the spore drifts and the two bioluminescence
+        // clusters. Its top rung is reachable by neither -- both cap at rung 1
+        // -- but it came down from #5fb883 (luminance 161) anyway, because a
+        // ramp with an unusable rung in it is a trap for the next edit.
+        p: {
+            veil: 14, topRung: 6,
+            ramp: ["#071a0f", "#0e2a16", "#16401d", "#205625", "#2e6d2e", "#45883a", "#6cae4a", "#9ad06a"],
+            landRamp: ["#12232e", "#1b3644", "#2a4d5c", "#3d6a78", "#578996", "#6f9ea9", "#a6cbd0", "#d8ecec"],
+            starRamp: ["#2b5c4a", "#3f8a63", "#5bb17e"],
+        },
+        desc: "A canopy of forest to the horizon, cut by a river, with mist lifting out of the valleys.",
     },
     {
         id: "binary", name: "BINARY SUNS", tint: "#ffd66b", kind: "pixelBinary",
@@ -11994,8 +13374,35 @@ export const BACKGROUNDS = [
         desc: "A shell thrown outward and lopsided, ploughing into a dense cloud on one flank. Oxygen filaments stand cyan against the dust; the middle is empty, and a slow light echo lifts one lane of it at a time.",
     },
     {
-        id: "crystal", name: "CRYSTAL FIELD", tint: "#a8d8ff", kind: "crystal",
-        p: { c1: "#a8d8ff", c2: "#c9a4ff" },
+        id: "crystal", name: "CRYSTAL FIELD", tint: "#a8d8ff", kind: "pixelCrystal",
+        // Two ramps, and the old painter's two gradient stops are what they
+        // are: #a8d8ff became the ice ramp and #c9a4ff the violet one, which is
+        // now the material of a face turned AWAY from the light rather than the
+        // dim end of a gradient.
+        //
+        // The rung rules are not in `topRung`, because they are not rules about
+        // the field -- nothing baked in this place reaches rung 2. They are
+        // rules about the shards and they live in `CRY_NEAR` / `CRY_FAR`: a
+        // near surface stops at rung 6 and a far one at rung 4, so rungs 7 and
+        // 8 appear nowhere in the place except as a specular streak 72 px or
+        // longer. Both are measurable: raise either cap, or turn the edge-on
+        // clamp off, and the pale-feature count climbs immediately.
+        //
+        // `starRamp` is the study's own and it is the FIRST in eleven studies
+        // that needed no scaling -- #7d94b2 is luminance 145 against the
+        // detector's 158, because the study worked out for itself that a 1 px
+        // near-white star in a place this pale is exactly the feature its own
+        // count is protecting. Its departure note names #9fb8d4 instead, at
+        // 183; the code ships the safe one and the code is right.
+        p: {
+            veil: 6,
+            ramp: ["#070c16", "#0f1a2e", "#182a49", "#254069", "#365a8e", "#4d7cb0", "#7ba8d6", "#bfdefa"],
+            landRamp: ["#0a0917", "#141130", "#1f1a4a", "#2c2469", "#3e3390", "#5b4cb2", "#8a7ad2", "#c4bbee"],
+            starRamp: ["#26334a", "#4a5c7c", "#7d94b2"],
+        },
+        // Kept verbatim: the art moved to meet the line rather than the other
+        // way round. "Catching" is an event with a duration in frames now, and
+        // "down its length" is the shape of the flash.
         desc: "Ice shards big enough to hold themselves together, each one catching the light down its length.",
     },
     {
@@ -12179,7 +13586,6 @@ export class Backdrop {
         this.scroll = 0;
         this.rng = mkRng(hash(def.id));
         this.dust = [];
-        this.motes = [];
         this.bands = [];
         this.stars = [];
         this.layer = null;
