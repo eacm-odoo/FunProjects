@@ -1346,10 +1346,297 @@
  * One thing worth an owner's eye rather than a meter: GALACTIC CORE is the
  * entry immediately before this one, and a two-armed spiral crowding toward a
  * bright middle is not a thousand miles from a galaxy seen face on. They are
- * far apart in hue (gold against violet), in edge (soft blobs against hard
- * quantised ribs) and in structure (arms spreading out against ribs crowding
- * in), and the two `desc` lines say different things -- but waves 76-81 do put
- * them back to back.
+ * far apart in hue (gold against violet) and in structure (arms spreading out
+ * against ribs crowding in), and the two `desc` lines say different things --
+ * but waves 76-81 do put them back to back. The edge no longer separates them:
+ * GALACTIC CORE was soft blobs when this was written and is quantised now, so
+ * the pair is one axis closer together than the paragraph above claims. The
+ * two that are left still carry it -- see the section below.
+ *
+ * -------------------------------------------------------------------------
+ * GALACTIC CORE, Direction A (2026-08-31)
+ * -------------------------------------------------------------------------
+ * The place named in the veil comment as one of the last offenders, and the
+ * clearest case in the catalogue of brightness spent as AREA: two cream radial
+ * blobs of radius 260 and 90 in `lighter` over 920 additive motes, which is a
+ * warm haze across the middle of the arena with 1-4 px of enemy fire somewhere
+ * inside it. Its colour was a flat 25% dice roll per mote, so it had no radial
+ * structure at all, and `lighter` cannot subtract, so it could not have a dust
+ * lane.
+ *
+ * The study's headline is that the core keeps rung 7 and loses its area, and
+ * that is the whole port. The cap is applied PER ART PIXEL: nothing broad gets
+ * past rung 4 (#57371f, luminance 60), the cool ramp is allowed one rung more
+ * because blue against amber is cheap, and rungs 5-7 are reachable only inside
+ * a 22 px nucleus at 26% of the arena's width and 42% of its height. Crowding
+ * is then carried by star density, arm count and dust rather than by
+ * luminance -- which is what the glossary line promises in the first place.
+ *
+ * The structure is one logarithmic spiral sampled per art pixel: four arms
+ * (two dominant, two half-strength spurs) as Gaussians in `d * r` against a
+ * width that grows with radius, a bulge, a two-octave mottle, a disc envelope,
+ * and the SAME spiral shifted 0.45 rad onto the leading edge at half width and
+ * subtracted as dust. Subtracting is the point -- `v` clamps at zero, so a
+ * lane is an absence of stars rather than dark paint, which is the one thing
+ * the old painter's compositing structurally could not do. Turn the dust term
+ * off and the arms stop being separable.
+ *
+ * Nothing moves and there is no `update`. A galaxy turns once in 2 x 10^8
+ * years, so anything visibly rotating is a lie -- and the arms are the one
+ * shape on screen a spiralling attack could be confused with, which makes the
+ * stillness a play property and not only an honest one. The place is one
+ * `drawImage` a frame against the old painter's 922 rasterising calls.
+ *
+ * Departures from the study, and why:
+ *   1. The rung is `max(disc capped at 4 or 5, nucleus capped at 7)`, not one
+ *      quantise of one value. `_bakeField` takes a per-sample `cap`, so the
+ *      obvious port is `{ v: max(disc, nucleus), cap }` -- and it is wrong
+ *      either way round: the disc's cap flattens the nucleus, and the
+ *      nucleus's releases the whole bulge to rung 7 and puts the haze back.
+ *      Both sides go through `artRung`, which is `_bakeField`'s own quantise,
+ *      and the sample comes back already resolved as `flat`.
+ *   2. The star ramp's top is #8d97ab, not the study's #ffffff. That one is
+ *      luminance 255 on a 2-4 art pixel core, which is a bullet; this is 150,
+ *      and every other place in the catalogue sits at 152-165. Fourth study in
+ *      a row to test its stars for hue only -- correctly, since a warm point
+ *      light here would be indistinguishable from enemy fire, which is exactly
+ *      why the ramp is cool. The luminance is the axis it did not check.
+ *   3. The seven near stars are placed off a seed chosen here. Their columns
+ *      are the study's and are a safety property -- a four-pointed star in the
+ *      player's firing column is a pale vertical line where the player's own
+ *      shots go -- but the vertical placements come out of the generator, and
+ *      `mulberry32` is not the study's, so its seed clustered three of them
+ *      into one corner. The seed here spreads them: 194 px between the closest
+ *      pair, 409 px of vertical spread, and none within 139 px of the nucleus.
+ *   4. The mottle was checked against this file's noise rather than assumed.
+ *      `mkNoise` runs p05-p95 over 0.232-0.760 on this place's domain, so
+ *      `0.5 + 0.85 n` spans 0.70-1.15 through the body of the disc against the
+ *      sheet's 0.5-1.35 nominal -- close enough that the sheet's numbers
+ *      transfer unchanged. Stated because the last three ports all needed a
+ *      cut re-solved and this one did not.
+ *   5. The drift is not quantised to the lattice. Same reason as the other
+ *      three ports in this pass: one sine drifts all 28 places together.
+ *   6. The sheet says the nucleus is "left of the firing corridor" and also
+ *      defines its corridor as the middle 60% of the arena width. Those two
+ *      disagree -- 26% of the width is inside 20-80% by 41 px -- and the
+ *      measurement below reports the bounding box instead, which is the claim
+ *      that is actually checkable. What is true is the part that matters: the
+ *      core sits high and left, out of the band the player dodges in.
+ *
+ * Measured on the composed 680x540 arena at frame 1500, with the point lights
+ * masked out because they are shared engine content: **area under the 3 : 1
+ * floor 81 px2**, against the sheet's 81 -- and every bright-warm pixel in the
+ * frame fits in **one 15 x 15 box**, which is the headline claim tested
+ * directly rather than believed. Warm mass over rung 5: 135 px2 against the
+ * sheet's 144. Contrast at the single brightest pixel 1.17 : 1 against its
+ * 1.15 -- the row that goes the wrong way, and the trade taken deliberately,
+ * since a bullet is 1-4 px and what governs it is the area it can vanish into.
+ * **0 warm features under 40 px on a dark surround and 0 on the catalogue's
+ * standing detector, at veil 0, 8, 14 and 20 alike.** Arena mean 12.0 of 255,
+ * which puts the place between ORBITAL STATION and ECLIPSE. The bake is 150 ms
+ * -- fifth of 28, against SUPERNOVA's 1.4 s -- and there is no frame cost at
+ * all. The control worth keeping: counting the point lights instead of masking
+ * them takes the blind area from 81 px2 to 468, so 83% of it is the sky every
+ * place shares and none of it is the galaxy.
+ * See `tools/neon_strike_bench/probe_galaxy.mjs`.
+ *
+ * -------------------------------------------------------------------------
+ * DESERT WORLD, Direction A (2026-08-31)
+ * -------------------------------------------------------------------------
+ * The first breakout from the shared `surface` painter, which keeps its other
+ * three users. It had to be first: its 70 motes are painted #ffe2a8, which is
+ * luminance 228 and 1-3 px on a sky the same painter runs up to #e0b874, and
+ * that is an enemy core drawn seventy times.
+ *
+ * The study replaces the place with a wind you can read. Sand tears off the
+ * dune crests in plumes and shears into four stacked sheets running 0.42 /
+ * 1.09 / 2.84 / 7.40 logical px a frame -- 2.60x, 2.61x, 2.61x, the same ladder
+ * ratio the gas giant's decks use -- so one grain flow is legibly slow at the
+ * player's feet and fast overhead. Everything in the air is a filament or a
+ * grain sized off the molten world's ash: 1 art pixel tall and 3-22 long for
+ * the sheets, 2-3 art pixels square for saltation, against an enemy core's 1-4
+ * logical. Nothing behind the air moves at all, which is the whole distinction
+ * from MOLTEN WORLD -- there the structure is fixed and a distortion travels
+ * across it, here the structure is fixed and what travels is the air's cargo.
+ * One makes edges wobble, the other makes edges stream.
+ *
+ * The safety argument is the ramp and not the size. `desertDustRung` paints
+ * every dust feature as an offset from its OWN local sky rung, signed by the
+ * sky: plus two where the air is dark, plus one in the middle, minus two
+ * wherever the base is rung 4 or brighter. Sand against a pale horizon is a
+ * dark filament. A feature that imitates a bullet needs a bright core on a dark
+ * surround, and here a dark surround is exactly what forbids a bright core, so
+ * the two halves of the test can never hold at once. With `topRung` 5 the place
+ * stops at luminance 113 and the old mote colour is not expressible by this
+ * painter at all.
+ *
+ * Departures from the study, and why:
+ *   1. The wind is RASTERISED into one art-resolution surface each frame, not
+ *      baked into four scrolling tiles. The study's own departure 1 is those
+ *      tiles -- 2.9 MB of texture -- and they exist to be blitted at a
+ *      per-frame `globalAlpha` of 0.62-0.96, which is the one thing this
+ *      catalogue does not do: an opaque rung blended at 0.62 over the plate is
+ *      a colour on no ramp, and every other converted place is on-ramp by
+ *      construction. Rasterising instead puts the gust where the study's own
+ *      prose puts it -- on DENSITY, so a gust draws more grains and longer
+ *      dashes of them -- and every one of those grains is exactly on a rung.
+ *      It costs 721 KB instead of 2.9 MB, 3 650 art pixels painted a frame out
+ *      of the 114 240 cleared, and 2 rasterising calls against the study's 22
+ *      and the old painter's 86. Its departure 2 goes with it: the plumes are
+ *      12 more blocks in the same pass rather than 12 rects of their own.
+ *   2. The gust multiplier is centred on 1 (0.82-1.18) rather than being the
+ *      study's opacity (0.62-0.96). Used as a density, its number would thin
+ *      the field the four `dens` values were tuned at by a fifth at every
+ *      frame; centred, mid-gust is exactly that field and a gust thickens or
+ *      thins it around it. The per-layer half of that opacity is dropped
+ *      outright -- 0.86 for saltation against 0.62 for the sheets is the same
+ *      ordering `dens` already states at 0.92 against 0.84 / 0.80 / 0.74.
+ *   3. The veil is 8, not the study's 6. Both land on the same PLACE: this
+ *      file's scrim is rgba(6,4,12) at veil/100 and the study's is its own
+ *      rung 0 at veil/60, so the number does not transfer but the target does
+ *      -- peak 104.7 here against its 104, mean 66 against its 66, worst-case
+ *      bullet contrast 0.48 Weber against its 0.49. Swept 0-14 against both
+ *      detectors before choosing, the way the station's cliff taught.
+ *   4. No plane drift of its own. The study asks for +-6 logical px on
+ *      sin(f/540) snapped to the lattice; the engine drifts all 28 places
+ *      together on one sine and the other 22 quantised places live with it.
+ *      Fifth port in a row to make this call.
+ *   5. Its departure 5 does not exist here. The study renders 681 px so its
+ *      3 px lattice divides the arena; in this file the painter covers the
+ *      whole box the camera can reach and the arena is a crop of it.
+ *
+ * Two things the study got wrong that are worth recording, because both are
+ * about MEASURING and not about art:
+ *   - Its "before" column is the old painter with no veil. The engine shipped
+ *     that painter under the flat 30% `BG_SCRIM`, so its peak of 210 reached
+ *     the player at about 149 and its mean of 116 at about 83. The defect was
+ *     real and the direction is right; the magnitudes in that column are not
+ *     what anyone was looking at.
+ *   - Its warm-feature test is STRICTER than this catalogue's standing one,
+ *     and here that matters. The standing detector clears a feature whose
+ *     surround is bright, and this place's surround is bright everywhere -- so
+ *     it scores the OLD painter at 0 features too, motes and all. The study
+ *     fixes its surround bar at luminance 102 in absolute terms instead of
+ *     relative to the feature, which is what catches a bright speck on a
+ *     bright sky. Both are run in `probe_desert.mjs`; the gap between them is
+ *     a hole in the standing meter, not a disagreement about this place.
+ *
+ * Measured on the composed 680x540 arena: **0 warm features on the study's own
+ * detector and 0 on the catalogue's standing one, at veil 0, 4, 6, 10 and 14
+ * alike and at every frame sampled from 0 to 3600.** Peak background luminance
+ * 113.2 unveiled against the sheet's 113 and 104.7 at the shipping veil against
+ * its 104; arena mean 71.2 unveiled against its 72. Worst-case bullet contrast
+ * +50 luminance and +0.48 Weber, and **0.00% of the arena is anywhere a warm
+ * bullet drops under 0.2 Weber** -- which is the number that matters, because
+ * this place is warm over 92% of its area and no hue test can clear it. It is
+ * cleared on value instead. 2.0% of pixels change a frame at 0.50 of 255 mean,
+ * which is a sky that streams rather than one that flickers. Bake 44 ms.
+ * See `tools/neon_strike_bench/probe_desert.mjs`.
+ *
+ * -------------------------------------------------------------------------
+ * STORM WORLD, Direction A (2026-09-01)
+ * -------------------------------------------------------------------------
+ * The shared painter's `lightning` branch is deleted with this port. STORM
+ * WORLD was its only user and what it did was pulse a 600 px additive blob at
+ * 11.5 Hz over a sky that ran to #5b4e8a -- a near-fullscreen strobe with a
+ * bright surround under it, measured by its own study at 8.36 of mean arena
+ * luminance per frame. Left in the file it is a strobe waiting for the next
+ * place that sets the flag.
+ *
+ * Its design project holds three files that disagree, which is worth recording
+ * because the next one might too. `Storm World Study` is the engineering
+ * sheet: 3 px lattice, the violet ramp below, the flash as a REVEAL, one
+ * funnel, a rare rung-6 bolt, 21 live ops and a measured table with a stated
+ * build-failing cap. `v2` and `v3` are later art explorations with no
+ * measurements at all -- a 4 px lattice, cyan-white bolts at #c9f0ff
+ * (luminance 236) crossing the open sky every seven seconds, alpha-blended
+ * rain, a radial-gradient glow, and about 350 draw calls a frame. What is
+ * built here is v3's SCENE on the sheet's machinery, which is the owner's call
+ * on both axes: three funnels rather than one, and the sheet's bolt rather
+ * than v3's.
+ *
+ * The flash spends its budget on reveal. A stroke lifts one of three sources
+ * inside the cloud deck and the lit region is re-quantised through the same
+ * Bayer and the same ramp, so a flash frame is still on-ramp art: the interior
+ * lumps and the deck's underside gain rungs where the light reaches them, the
+ * silhouette does not move a pixel, and the sky, the ground and the horizon
+ * are bit-identical through it. What the eye reads is the cloud's shape
+ * arriving. One event in seven ends on a forked bolt at rung 6, three frames,
+ * roughly every 3.6 minutes.
+ *
+ * Under it three funnels patrol the ground, each with its own beat, its own
+ * faster sway and its own bend -- the top leads and the contact point lags, so
+ * a column whips rather than sliding. Rotation is a BUDGET and not a dial: one
+ * turn takes 764 frames, 12.7 s. A column of cloud spinning fast enough to see
+ * is a hazard; one this slow is weather, and the sway and the lean carry the
+ * motion instead.
+ *
+ * Departures from the study, and why:
+ *   1. The flash is computed LIVE over the lit disc, not baked as nine
+ *      variants. That is the sheet's own departure 1 and it costs 1.4 MB there
+ *      because its cloud is one 332 x 116 tower; here the deck spans the whole
+ *      box and nine variants would be 3.9 MB. Rasterising into the surface
+ *      that already carries the funnels touches ~70k art pixels on 8-18 frames
+ *      of every 1850 -- 0.8% of frames -- and keeps one Float32Array of the
+ *      deck's field (440 KB) instead. Its departure 2 goes with it: the live
+ *      layer is 5 rasterising calls, two of them the deck's wrap.
+ *   2. Three funnels, and their march is a bounded PATROL rather than a wrap.
+ *      Both halves are measured. Three waves is 6 000-18 000 frames, so a
+ *      linear march fast enough to read leaves the arena empty for 40% of a
+ *      long block, and one slow enough to avoid that is not a march. Wrapping
+ *      over the arena instead of the box would hold them for ever, but wave 70
+ *      is a colossus wave and the pulled-back camera is wider than the arena,
+ *      so that ring would show two copies of one funnel. The three beats are
+ *      chosen so no two centres ever cross, and all three are in the arena
+ *      100% of 20 000 frames.
+ *   3. The funnel's taper exponent is 1.5, not 0.85. Geometry, not taste: the
+ *      sheet's funnel hangs off a single anvil so its whole profile is on
+ *      screen, while these hang off a deck whose underside is ragged and
+ *      everything above the local cloud base is cut. Over the stretch actually
+ *      visible, 0.85 draws a pillar.
+ *   4. v3's own numbers, dropped and named. The 4 px lattice is 3, because the
+ *      other 23 converted places are. The cyan-white bolt is the sheet's
+ *      rung-6 violet -- #9b8ad2 at luminance 147 against a bullet's 190, and
+ *      violet where they are amber. The rain and the debris are rung offsets
+ *      rather than an alpha, and the glow knot is gone: an opaque rung blended
+ *      at 0.42 is a colour on no ramp, which is the one thing this catalogue
+ *      does not do. And the sky is far darker than v3's, which lights its own
+ *      top rung at the horizon -- this is the night side, and the bar here is
+ *      luminance on a dark surround.
+ *   5. The plane drift is the engine's own sine. Sixth port in a row.
+ *
+ * Four bugs this port had to find, all of them in the seam between a study's
+ * canvas and this engine, and all worth watching for again:
+ *   - The envelope index MUST BE FLOORED. `bd.t` is not an integer under slow
+ *     motion or hitstop, so `STORM_ENV[u - onset]` is `undefined`, and the
+ *     whole flash silently disappears at 0.35x and nowhere else. Same family
+ *     as ECLIPSE's `f % 10 === 0`, which never fires on a scaled clock.
+ *   - A flash source fixed in TILE space spends half of every event off
+ *     screen. The deck scrolls a whole box width every 1020 frames. The
+ *     sources are anchored to the arena; the cloud still moves under them
+ *     within a stroke, 2.8 art px over six frames.
+ *   - "Field lift" means FIELD UNITS, not rungs. +0.58 of a 0-1 field is four
+ *     rungs. Read as rungs it is a fifth of one, and the event measured 0.24
+ *     of mean arena luminance against the sheet's 2.33 -- an event that ships
+ *     and cannot be seen.
+ *   - A shape anchored as a fraction of a BOX ROW is not the shape the study
+ *     drew. The box reaches 104 art rows above the arena, so the deck's own
+ *     multiplicative spread swallowed the horizon. Anchor to the arena.
+ *
+ * Measured on the composed 680x540 arena, sweeping whole events rather than
+ * sampling frame 1500 -- the flash is 8-18 frames of every 1850, so a still
+ * measures the quiet: **1.52 of mean arena luminance per frame and 2.18 per
+ * 100 ms, against the sheet's stated build-failing cap of 3.0 and 4.0** and
+ * against the old painter's 8.36 and 9.13. Unveiled 1.61 / 2.30. At the
+ * colossus camera 0.45 / 0.64, under a third, because the lit cloud is a
+ * smaller share of a wider field. **Under slow motion 1.52 / 2.18, identical**
+ * -- which is the sheet's own claim reproduced, and only true because the
+ * envelope is a held table and not an oscillation. **0 small bright features
+ * at every case and every frame sampled**, flash and bolt frames included.
+ * Arena mean 21.1 of 255 against the old painter's 59.2, which moves the place
+ * from the bright third of the catalogue to between INNER SYSTEM and
+ * SUPERNOVA. 5 rasterising calls a frame against the old painter's 17.
+ * See `tools/neon_strike_bench/probe_storm.mjs`.
  *
  */
 
@@ -1359,12 +1646,13 @@ const LAYER_SCALE = 0.5;
 // baked box is this much taller on each side so the edge never shows.
 const DRIFT = 14;
 // Veil between the backdrop and the play field, for the places still painted
-// the old way. SEVEN of the 28 are still on it -- it was twelve before
-// SUPERNOVA, ECLIPSE and WORMHOLE were converted, and those three took the
-// worst of the offenders with them -- and the ones left (graveyard, crystal,
-// galaxy...) paint in the same warm reds and the same 1-3 px motes the enemy
-// bullets use, adding up in `lighter` until a bullet is indistinguishable from
-// scenery. One flat number fixes those and flattens the
+// the old way. FOUR of the 28 are still on it -- it was twelve before
+// SUPERNOVA, ECLIPSE and WORMHOLE were converted, and GALACTIC CORE, DESERT
+// WORLD and STORM WORLD have followed them since, taking the worst of the
+// offenders with them -- and the ones left (graveyard, crystal, PLANETARY
+// NEBULA and JUNGLE WORLD) paint in the same warm reds and the same 1-3 px
+// motes the enemy bullets use, adding up in `lighter` until a bullet is
+// indistinguishable from scenery. One flat number fixes those and flattens the
 // rest, which is why a Direction A place carries its own `p.veil` instead --
 // see `bgScrim`. The place this was invented for is no longer one of them, and
 // what it measured on the way out is worth keeping: MOLTEN WORLD's warm-feature
@@ -2810,6 +3098,288 @@ const WORM_STARS = 830;
 const WORM_STAR_SEED = 0x2f77;
 const WORM_STAR_A = 0.06;
 
+/* -- GALACTIC CORE -------------------------------------------------------- */
+
+// Where the disc sits in the arena, as a fraction of it. Left of the firing
+// corridor and above the band the player dodges in: the nucleus is the
+// brightest thing in the catalogue and nobody should have to shoot through it.
+const GC_C = { cx: 0.26, cy: 0.42 };
+// The plane the galaxy is seen on: tilted this far and flattened to this,
+// inherited from the painter it replaces. Everything below is written on the
+// face-on disc and the tilt is one transform on the way in.
+const GC_ROT = -0.35;
+const GC_SQUASH = 0.44;
+// The two radii the spiral is written between, in logical pixels.
+const GC_R_DISC = 430;
+const GC_R_BULGE = 62;
+// Four arms: two dominant and two half-strength spurs, offset by a seeded
+// fifth of a radian so the pair does not read as a cross.
+const GC_ARM_S = [1, 1, 0.55, 0.55];
+const GC_ARM_TH = [0, Math.PI, Math.PI * 0.5 + 0.2, Math.PI * 1.5 - 0.2];
+// Turns of winding over rBulge..rDisc. The logarithmic constant follows from
+// it -- th = phi + k ln r -- so the winding is one number and not two.
+const GC_TURNS = 1.45;
+const GC_K = (GC_TURNS * 2 * Math.PI) / Math.log(GC_R_DISC / GC_R_BULGE);
+// Arm width, in logical px: `(22 + 0.085 r) * GC_ARM_W`. Broad and soft far
+// out, tight against the bulge, which is the whole difference between a spiral
+// and four spokes.
+const GC_ARM_W = 1.35;
+// The dust lanes are the SAME spiral, shifted onto the leading edge of each
+// arm, half as wide, and SUBTRACTED. `v` clamps at zero, so a lane reads as an
+// absence of stars rather than as dark paint -- which is the one thing the old
+// painter's `lighter` compositing structurally could not do. They are gated
+// off inside the bulge, where there is no lane to cut.
+const GC_DUST = { phase: 0.45, width: 0.5, amp: 0.95, gate: 1.25 };
+// Where the warm ramp gives way to the cool one, in disc-space radius. Between
+// the two the choice is made per art pixel against the same Bayer threshold
+// that picks the rung, so the transition is a dithered checkerboard of the two
+// ramps instead of a blend that would need colours neither ramp has.
+const GC_MIX = [80, 250];
+// The nucleus. 11 px of radius, measured in SCREEN space rather than disc
+// space -- a nucleus that took the squash would read as a dash -- and the only
+// thing in the place allowed past the disc's cap.
+const GC_NUC = { r: 11, amp: 1.06, exp: 2.2 };
+// The cap, per art pixel rather than per place. Nothing broad in the frame
+// gets past rung 4 (#57371f, luminance 60), which puts a warm bullet at better
+// than 6 : 1 over the whole spiral. The cool ramp is allowed one rung more:
+// blue against amber is cheap, and holding it down only dims the outer arms.
+const GC_WARM_CAP = 4;
+const GC_COOL_CAP = 5;
+// How much of a baked star the disc puts out in front of it.
+const GC_OCCLUDE = 1.6;
+const GC_MOTTLE_SEED = 0x6a1a;
+const GC_STARS = 900;
+const GC_STAR_SEED = 0x23c9;
+const GC_STAR_A = 0.06;
+// Seven foreground stars, in our own galaxy rather than in that one: a 2-4 art
+// pixel core and four diffraction spikes. They are told apart from the
+// player's pale straight-up fire by having a horizontal axis at all, by being
+// static, and by placement -- these are the columns, and none is the middle.
+const GC_NEAR = 7;
+const GC_NEAR_SEED = 0x22eb;
+const GC_NEAR_COLS = [0.1, 0.3, 0.62, 0.78, 0.9, 0.22, 0.7];
+
+/* -- DESERT WORLD --------------------------------------------------------- */
+
+// The horizon, as a fraction of arena height. 0.66 leaves 183 px of ground --
+// enough for two dune ranges to overlap in front of the far one, and for the
+// ship sitting at the bottom centre to be over sand rather than against sky.
+const DES_HZ = 0.66;
+// The top rung, and both ramps take it. It is what caps the whole place at
+// luminance 113: nothing this painter can draw is as bright as the DIMMEST of
+// the three enemy bullet colours, which is 155.
+const DES_TOP = 5;
+// The sky's rung by height: `(0.06 + 0.92 t^1.9) * DES_TOP`, t running from the
+// top of the box to the horizon. Rung 0-1 overhead, reaching 5 only at the
+// horizon, so the haze is carried in VALUE rather than in a pale wash.
+const DES_SKY = [0.06, 0.92, 1.9];
+// The sun, in art pixels right of the arena's left edge and above the horizon.
+// A soft disc that tops out at rung 5 rather than a hot spot, sitting behind
+// the far crest so the silhouette has something hard to be against.
+const DES_SUN = { x: 77, y: -38, r: 21, amp: 1.9, fall: 5, squash: 1.08 };
+// How far the near range's shading runs before it saturates, and the same for
+// the mid range, in art rows. Contrast falls with distance in RUNGS, not in
+// alpha: near spans four, mid spans one, far collapses onto the sky ramp
+// entirely and reads as a flat pale shape.
+const DES_NEAR_DEPTH = 32;
+const DES_MID_DEPTH = 20;
+// The four wind sheets, bottom to top. `rate` is logical px per frame at 60 fps
+// and every one blows leeward, -x. The ladder steps by 2.60x / 2.61x / 2.61x --
+// the same ratio the gas giant's decks use, and the smallest at which the shear
+// between two sheets reads. `band` is art rows relative to the horizon, a null
+// meaning the top of the box. The study carries a per-layer opacity beside
+// `dens` -- 0.86 for saltation, 0.62 for the sheets -- which is the same
+// ordering `dens` already states, so it is not a second axis here.
+const DES_LAYERS = [
+    { n: 300, lmin: 1, lmax: 2, dens: 0.92, rate: 0.42, band: [-8, 14], grain: true },
+    { n: 210, lmin: 3, lmax: 7, dens: 0.84, rate: 1.09, band: [-34, -6], grain: false },
+    { n: 190, lmin: 7, lmax: 15, dens: 0.8, rate: 2.84, band: [-76, -28], grain: false },
+    { n: 150, lmin: 11, lmax: 22, dens: 0.74, rate: 7.4, band: [null, -68], grain: false },
+];
+// The gust, as a multiplier ON the density the study tuned rather than on an
+// opacity. It is centred on 1, so mid-gust is exactly the field the sheet's
+// four `dens` numbers describe and a gust thickens or thins it by a fifth.
+const DES_GUST_K = [0.82, 0.36];
+// The gust: three incommensurate periods, so the frame breathes on a ~2300
+// frame beat that never repeats cleanly. It is a pure function of the counter
+// and so is its integral, which is what lets every layer's scroll offset be
+// solved in closed form instead of accumulated -- `backdropThumb` can jump
+// straight to frame 1500 and two clients in a co-op match agree on the wind.
+const DES_GUST = [0.55, 197, 0, 0.3, 71, 1.7, 0.15, 29, 0.4];
+// The rate multiplier the gust drives, `DES_RATE[0] + DES_RATE[1] * g`.
+const DES_RATE = [0.72, 0.56];
+// Saltation's hard ceiling: the dashed rung line that closes the bottom layer.
+// Sand skipping along the ground stops at a height, it does not fade out.
+const DES_SALT_DASH = 0.42;
+// The slip-face plumes: how many crests carry one, how many grains each throws,
+// and the arc a grain travels before it is recycled -- 44 art px leeward, 16
+// up, over 74 frames.
+const DES_PLUME = { near: 3, mid: 1, gap: 26, per: 3, span: 74, dx: 44, dy: 16, wob: 3.4 };
+// Stars, and this is a DAYTIME sky: they exist only in the top of the box, far
+// above the arena, and the dust takes almost all of them.
+const DES_STARS = 70;
+const DES_STAR_SEED = 0x26cb;
+const DES_STAR_A = 0.06;
+// How far down the box a star can survive at all, and how much of one does at
+// the very top.
+const DES_STAR_BAND = 0.3;
+const DES_STAR_SURV = 0.55;
+const DES_WIND_SEED = 4177;
+const DES_WIND_STEP = 911;
+
+/* -- STORM WORLD ---------------------------------------------------------- */
+
+// The horizon, as a fraction of arena height, and the mean height of the cloud
+// deck's ragged underside as another. 0.80 and 0.48 leave 32% of the arena for
+// the funnels to stand in -- 174 logical px, which is what a column needs to
+// read as one -- and still keep the deck in frame when the camera pulls back.
+const STORM_HZ = 0.8;
+// Where the deck's ragged underside hangs, as a fraction of ARENA height: the
+// first number is the highest it ever gets, the second how far it can hang
+// below that. It has to be anchored to the arena and not to the box, because
+// the box reaches 104 art rows above the arena's top edge -- express the same
+// spread as a fraction of a box row and a billowing edge becomes a deck that
+// swallows the horizon.
+const STORM_DECK = [0.33, 0.24];
+// The sky, brightening downward into the horizon haze, t running from the top
+// of the box to the horizon, plus a mottle. The study this came from lights its
+// sky far higher -- it reaches its own top rung at the horizon -- but this is
+// the NIGHT side and the catalogue's bar is luminance on a dark surround, so
+// the exponent is steeper and the base lower: rung 0-1 for the top two thirds
+// of the box and rung 3 only in the last band above the horizon.
+const STORM_SKY = [0.06, 0.62, 2.2, 0.18];
+const STORM_SKY_CAP = 3;
+// The deck's underside: a big blob term that decides where the base hangs and
+// a lump term that roughens it, both periodic over the box so the layer can
+// scroll for ever. `k` is how many noise periods fit across the box, an
+// integer for exactly that reason.
+const STORM_BLOB = { k: 7, fy: 0.03, seed: 0x1b43 };
+const STORM_LUMP = { k: 13, fy: 0.06, seed: 0x29a7 };
+const STORM_FINE = { k: 26, fy: 0.11, seed: 0x3d19 };
+// How far up from its own underside the deck goes dark, in art rows, and the
+// interior curve. The deck is the darkest material in the sky.
+const STORM_DECK_DEPTH = 16;
+// A base, the lump field, how much darker the deck gets deep inside, a blob
+// term, and the coefficient on a bake-time VERTICAL DIFFERENCE of the lump
+// field, which lights the top of every lump from above. That last term is what
+// the flash has to reveal: without it the interior is flat and a stroke lights
+// a plain disc instead of a cauliflower.
+const STORM_DECK_V = [0.3, 0.55, 0.34, 0.14, 1.3];
+const STORM_DECK_DY = 3;
+// The one true claim in the glossary line, kept exactly: 1.4 logical px a
+// frame, still the fastest cloud in the catalogue. The deck is periodic over
+// the box width and the offset is snapped to whole art pixels.
+const STORM_SCROLL = 1.4;
+// The three funnels: where each starts as a fraction of ARENA width, its size,
+// how fast it marches (art px a frame, leeward is negative), its sway rate and
+// phase, and the seed its own profile noise comes from.
+// Each funnel PATROLS a bounded stretch of ground rather than marching off one
+// edge and wrapping round: `x0` is the middle of its beat as a fraction of
+// arena width, `amp` how far either way in art px, `rate` how fast in rad a
+// frame. `w` and `ph` are a second, faster sway of the whole column on top.
+//
+// Bounded, because the entry promises three funnels and the alternative does
+// not deliver them. Three waves is 6 000-18 000 frames; a linear march slow
+// enough to keep three on screen for that is not a march, and one fast enough
+// to read leaves the arena empty for 40% of a long block -- measured. Wrapping
+// over the arena instead of the box would keep them forever, but wave 70 is a
+// colossus wave and the pulled-back camera is wider than the arena, so that
+// ring would show two copies of the same funnel. The beats are chosen so no two
+// centres ever cross: 9..77, 88..144 and 162..214 art px across the arena.
+const STORM_FUNNELS = [
+    { x0: 0.19, s: 1, amp: 34, rate: 0.000698, rph: 0, w: 0.0031, ph: 0, seed: 11 },
+    { x0: 0.51, s: 1.22, amp: 28, rate: 0.000483, rph: 2.6, w: 0.0024, ph: 2.1, seed: 47 },
+    { x0: 0.83, s: 0.8, amp: 26, rate: 0.000849, rph: 4.2, w: 0.0038, ph: 4.4, seed: 83 },
+];
+// Half width down the column, in art px, flaring again into the dust foot. The
+// exponent is 1.5 and not the study's 0.85 for a geometric reason: its funnel
+// hangs off a single anvil so the whole profile is visible, while these three
+// hang off a deck whose underside is ragged, and everything above the local
+// cloud base is cut. Over the stretch that is actually on screen, 0.85 is a
+// pillar and 1.5 is a funnel -- 88 logical px across at the cloud base down to
+// 32 at the contact point.
+const STORM_FUN_W = [14, 1.5, 3.4, 1.9];
+const STORM_FUN_FLARE = [0.88, 0.55];
+// The lean, in art px: 30 logical, the top displaced downwind.
+const STORM_LEAN = 10;
+// The rung each material stops at. The deck is the darkest thing in the sky,
+// the funnels sit one rung over it, the ground is `landRamp` and near-black.
+// Nothing here is within three rungs of the top of the ramp.
+const STORM_DECK_CAP = 3;
+const STORM_FUN_CAP = 4;
+const STORM_GROUND_CAP = 5;
+// Rotation is a BUDGET, not a dial. Band period 21 art px, a revolution is two
+// of them, and 0.055 art px of band shift a frame puts one turn at 764 frames
+// -- 12.7 s. There is no rotating optical flow field here; the lean and the
+// sway carry the motion, which is what keeps a column of cloud from reading as
+// a spinning hazard.
+const STORM_ROT = 0.055;
+const STORM_BAND = 21;
+// Sway of the whole column, and the bend: the top leads and the contact point
+// lags, so the column whips instead of sliding.
+const STORM_SWAY = 5;
+const STORM_BEND = [0.85, 1.6, 2.3, 0.75];
+// Debris orbiting each contact point. 3 art px is 9 logical, against an enemy
+// core of 1-4, so the floor MOLTEN WORLD set is kept with margin -- and they
+// are drawn from the place's own violet ramp, so nothing warm is ever near the
+// ground.
+const STORM_DEBRIS = 10;
+const STORM_DEBRIS_R = [4, 22, 0.3];
+// Rain, as threads rather than points, on the same signed-by-sky rule the
+// desert's dust uses.
+const STORM_RAIN = 70;
+const STORM_RAIN_SEED = 0x7c41;
+// The flash. An event every 1850 frames -- 30.8 s, today's gate unchanged --
+// scheduled straight off the counter with no stored state, so a guest and the
+// host light the same cloud on the same frame.
+const STORM_EVENT = 1850;
+const STORM_SEED = 1013;
+const STORM_STEP = 7919;
+// The stroke envelope. The attack is spread over two frames on purpose, so no
+// single frame steps the whole way -- which is the entire difference between
+// this and the 11.5 Hz sine it replaces.
+const STORM_ENV = [0.34, 1, 0.72, 0.46, 0.3, 0.2, 0.14];
+const STORM_GAP = [27, 17];
+const STORM_DUR = [3, 4];
+// Three sources inside the deck: `x` a fraction of ARENA width, `y` a box art
+// row, `r` an exponential falloff radius in art px. A stroke picks one of the
+// three and one of three levels, so the cloud is lit from nine places and never
+// twice the same way.
+//
+// Anchored to the arena and not to the deck tile, which matters: the tile
+// scrolls a whole box width every 1020 frames, so a source fixed in tile space
+// spends half of every event off screen and the player sees nothing at all.
+// Within a stroke the cloud still moves under it -- 2.8 art px over six frames
+// -- so the light is on the cloud rather than painted on the glass.
+const STORM_SRC = [
+    { x: 0.22, y: 132, r: 58 },
+    { x: 0.5, y: 160, r: 42 },
+    { x: 0.78, y: 124, r: 48 },
+];
+const STORM_LIFT = [0.2, 0.36, 0.58];
+// One event in seven ends on a forked bolt: 3 frames, 1 art px wide, cloud base
+// to horizon, rung 6. About every 3.6 minutes, which is rare enough to be
+// worth waiting for and far too rare to read as a weapon.
+const STORM_BOLT_MOD = 7;
+const STORM_BOLT_AT = 3;
+const STORM_BOLT_FRAMES = 3;
+const STORM_BOLT_RUNG = 6;
+// The horizon glow: a band above the line, broken by a low ridge so it never
+// reads as a drawn straight edge. It exists to give the contact points
+// something to stand against.
+const STORM_GLOW_H = 4;
+const STORM_GLOW_CAP = 4;
+const STORM_RIDGE = [4.6, 2.2, 0x51c3];
+// The skyline, a broken dark ridge clustered in two places along the horizon.
+// It is a silhouette and nothing else: the study that drew it lit is a
+// different study, and a lit city on the horizon is a row of small bright
+// features by construction.
+const STORM_CITY = [0.13, 0.8];
+const STORM_CITY_SEED = 313;
+const STORM_STARS = 120;
+const STORM_STAR_SEED = 0x4e21;
+const STORM_STAR_A = 0.06;
+
 const FIELD_DARK = { v: 0 };
 // The arena the glossary thumbnails are composed in. Painters place things in
 // logical pixels, so a still has to be taken at the size they were written for
@@ -2891,6 +3461,17 @@ function clamp(v, lo, hi) {
 function smoothstep(x, e0, e1) {
     const t = clamp((x - e0) / (e1 - e0), 0, 1);
     return t * t * (3 - 2 * t);
+}
+
+/**
+ * An angle folded back into -pi..pi. `atan2(sin a, cos a)` is the usual way to
+ * write it and is two trigonometric calls; a logarithmic spiral evaluates this
+ * four times per arm per art pixel, which is 1.5 million of them at bake, so
+ * it is written out.
+ */
+function wrapPi(a) {
+    const t = (a + Math.PI) % (Math.PI * 2);
+    return (t < 0 ? t + Math.PI * 2 : t) - Math.PI;
 }
 
 /**
@@ -3056,6 +3637,383 @@ function breathe(bd, ts) {
  */
 function starRamp(bd) {
     return bd.p.starRamp || [bd.p.ramp[5], bd.p.ramp[6], bd.p.ramp[7]];
+}
+
+/**
+ * GALACTIC CORE's seven foreground stars, in box coordinates. The columns are
+ * fixed and the rest is seeded, because the columns are the safety property:
+ * a four-pointed star in the player's firing column is a straight pale line
+ * where the player's own shots go.
+ */
+function galaxyNear(bd) {
+    const rng = mulberry32(GC_NEAR_SEED);
+    const out = [];
+    for (let i = 0; i < GC_NEAR; i++) {
+        out.push({
+            x: GC_NEAR_COLS[i] * bd.W,
+            y: (0.08 + rng() * 0.84) * bd.H,
+            core: 2 + Math.floor(rng() * 3),
+            sp: 7 + Math.floor(rng() * 11),
+            hot: rng() >= 0.45,
+        });
+    }
+    return out;
+}
+
+/**
+ * DESERT WORLD's three ridge lines, in art rows, at art column `ax`. They are
+ * compared against the pixel's own row inside `field` rather than drawn, so the
+ * dither never straddles a silhouette and every crest edge is one art pixel
+ * hard -- the same way the converted ice world does its terrain.
+ */
+function desertCrestF(hz, ax) {
+    return hz - 3 + 3 * Math.sin(ax / 37) + 2 * Math.sin(ax / 13 + 1.2) + 1.2 * Math.sin(ax / 6 + 0.4);
+}
+
+function desertCrestM(hz, ax) {
+    return hz + 7 + 5 * Math.sin(ax / 23 + 0.6) + 3 * Math.sin(ax / 9.5 + 2.1);
+}
+
+function desertCrestN(hz, ax) {
+    return hz + 25 + 9 * Math.sin(ax / 31 + 2.4) + 5 * Math.sin(ax / 11.5 + 0.3)
+        + 2.5 * Math.sin(ax / 5.2 + 1.1);
+}
+
+/**
+ * Dust as an offset from its own local sky rung, never as an absolute value,
+ * and the offset is SIGNED BY THE SKY: plus two where the air is dark, plus one
+ * in the middle, minus two wherever the base is rung 4 or brighter. Sand
+ * against a pale horizon is a dark filament, not a bright one, which is what
+ * extinction actually does -- and it is also what removes the failure mode.
+ * A feature that imitates a bullet needs a bright core on a dark surround;
+ * here the surround being dark is exactly what forbids the core from being
+ * bright, so the two conditions can never hold at once.
+ */
+function desertDustRung(base, strength) {
+    let r;
+    if (base >= 3.6) {
+        r = Math.floor(base) - (strength === 2 ? 2 : 1);
+    } else if (base < 2) {
+        r = Math.min(3, Math.floor(base) + 2);
+    } else {
+        r = Math.floor(base) + strength;
+    }
+    return clamp(r, 0, DES_TOP);
+}
+
+/** The gust, 0..1, and its integral. Both pure functions of the frame counter. */
+function desertGust(f) {
+    const G = DES_GUST;
+    return 0.5 + 0.5 * (G[0] * Math.sin(f / G[1] + G[2])
+        + G[3] * Math.sin(f / G[4] + G[5])
+        + G[6] * Math.sin(f / G[7] + G[8]));
+}
+
+function desertGustInt(f) {
+    const G = DES_GUST;
+    return 0.5 * f - 0.5 * (G[0] * G[1] * Math.cos(f / G[1] + G[2])
+        + G[3] * G[4] * Math.cos(f / G[4] + G[5])
+        + G[6] * G[7] * Math.cos(f / G[7] + G[8]));
+}
+
+/**
+ * Where a sheet has scrolled to by frame `f`, in art pixels, as the closed-form
+ * integral of the rate curve rather than an accumulator. An accumulator would
+ * make the wind depend on how the frame got here, which is the one thing a
+ * co-op guest cannot reproduce.
+ */
+function desertOffset(f, rate, aw) {
+    let o = ((rate * (DES_RATE[0] * f + DES_RATE[1] * desertGustInt(f))) / ART_PIX) % aw;
+    if (o < 0) {
+        o += aw;
+    }
+    return Math.round(o);
+}
+
+/**
+ * The wind, as a flat list of streaks in tile space. Nothing in the air is a
+ * point: L1-L3 are filaments one art pixel tall and 3-22 long, tapered at both
+ * ends, and L0's saltation grains are 2-3 art pixels square -- 6-9 logical,
+ * the same floor the molten world's ash was sized to, because an enemy core is
+ * 1-4 logical and a particle has to sit clearly above that.
+ */
+function desertStreaks(bd, hz, aw) {
+    const out = [];
+    for (let L = 0; L < DES_LAYERS.length; L++) {
+        const p = DES_LAYERS[L];
+        const b0 = p.band[0] === null ? 0 : hz + p.band[0];
+        const b1 = hz + p.band[1];
+        const span = Math.max(1, b1 - b0);
+        const rng = mulberry32(DES_WIND_SEED + L * DES_WIND_STEP);
+        for (let s = 0; s < p.n; s++) {
+            // The draw order is the study's own, and so is the generator, so
+            // this is its streak field and not a lookalike.
+            const y = Math.floor(b0 + rng() * (b1 - b0));
+            const x = Math.floor(rng() * aw);
+            const len = p.grain ? 1 : Math.floor(p.lmin + rng() * (p.lmax - p.lmin));
+            const h = p.grain ? (rng() < 0.45 ? 3 : 2) : 1;
+            const w = p.grain ? (rng() < 0.5 ? 2 : 3) : 1;
+            // Saltation has a hard top and thins downward; the sheets above it
+            // are thickest through the middle of their own band.
+            const u = clamp((y - b0) / span, 0, 1);
+            const fade = p.grain ? 1 - 0.55 * u : Math.sin(Math.PI * u) * 0.75 + 0.35;
+            out.push({ L, x, y, len, w, h, k: p.dens * fade });
+        }
+    }
+    return out;
+}
+
+/**
+ * The crests a slip-face plume is thrown from: the highest points of the two
+ * near ranges inside the arena, kept apart so three plumes do not land on one
+ * dune. They are found from the ridge FUNCTION rather than hand-placed, so a
+ * change to a dune profile carries its plumes with it.
+ */
+function desertCrestPeaks(bd, hz, aw) {
+    const ax0 = Math.floor(-bd.x0 / ART_PIX);
+    const ax1 = Math.min(aw - 1, ax0 + Math.floor(bd.W / ART_PIX));
+    const out = [];
+    for (const [fn, want] of [[desertCrestN, DES_PLUME.near], [desertCrestM, DES_PLUME.mid]]) {
+        const peaks = [];
+        for (let ax = ax0 + 6; ax < ax1 - 6; ax++) {
+            const v = fn(hz, ax);
+            if (v < fn(hz, ax - 1) && v <= fn(hz, ax + 1)) {
+                peaks.push({ x: ax, y: v });
+            }
+        }
+        // Highest first, then greedily spaced.
+        peaks.sort((a, b) => a.y - b.y);
+        const kept = [];
+        for (const pk of peaks) {
+            if (kept.every((k) => Math.abs(k.x - pk.x) > DES_PLUME.gap)) {
+                kept.push(pk);
+            }
+            if (kept.length >= want) {
+                break;
+            }
+        }
+        out.push(...kept);
+    }
+    return out;
+}
+
+/**
+ * One block of art pixels into the wind surface, wrapped in x and clipped in y.
+ * Wrapping rather than clipping is what lets a sheet scroll for ever off one
+ * fixed list: the tile is the box's width and the streaks come round again.
+ */
+function desertPut(S, x, y, w, h, col) {
+    for (let j = 0; j < h; j++) {
+        const yy = y + j;
+        if (yy < 0 || yy > S.wy1) {
+            continue;
+        }
+        for (let i = 0; i < w; i++) {
+            let xx = (x + i) % S.aw;
+            if (xx < 0) {
+                xx += S.aw;
+            }
+            const o = (yy * S.aw + xx) * 4;
+            S.data[o] = col[0];
+            S.data[o + 1] = col[1];
+            S.data[o + 2] = col[2];
+            S.data[o + 3] = 255;
+        }
+    }
+}
+
+/**
+ * One octave of value noise, periodic over the box width. The deck scrolls for
+ * ever, so every term that decides its shape has to wrap exactly -- which
+ * `mkNoise` does only when a whole number of its 64-cell periods spans the
+ * tile, and only for a single octave: the summed octaves step by 2.07, on
+ * purpose, and none of them would land on an integer. So the layers are
+ * separate single-octave calls at their own integer spans.
+ */
+function stormWrapNoise(n, ax, ay, cfg, aw) {
+    return n((ax * cfg.k) / aw, ay * cfg.fy, 1);
+}
+
+/** The sky's own rung at a box art row, before anything is drawn over it. */
+function stormSkyG(S, ay) {
+    const t = clamp(ay / S.hz, 0, 1);
+    return STORM_SKY[0] + STORM_SKY[1] * Math.pow(t, STORM_SKY[2]);
+}
+
+/**
+ * Where the deck's underside hangs at a tile column, in box art rows. A big
+ * blob term decides the shape of the base and a lump term roughens it, so the
+ * cloud has a billowing edge rather than a drawn line.
+ */
+function stormDeckBottom(S, ax) {
+    const blob = stormWrapNoise(S.nBlob, ax, 0, STORM_BLOB, S.aw);
+    const lump = stormWrapNoise(S.nLump, ax, 0, STORM_LUMP, S.aw);
+    const fine = stormWrapNoise(S.nFine, ax, 0, STORM_FINE, S.aw);
+    return S.deck0 + S.deckSpan * blob + 22 * (lump - 0.5) + 7 * (fine - 0.5);
+}
+
+/**
+ * The flash, as a pure function of the frame counter. An event every 1850
+ * frames, two or three strokes inside it, each 3-6 frames on a fixed envelope
+ * -- and the attack is spread over two frames so no single frame steps the
+ * whole way. One event in seven ends on a bolt.
+ *
+ * There is no stored state and no countdown, which is what lets a co-op guest
+ * and the host light the same cloud on the same frame without a byte on the
+ * bus, and `backdropThumb` jump straight to frame 1500.
+ */
+function stormFlash(t) {
+    const e = Math.floor(t / STORM_EVENT);
+    const u = t - e * STORM_EVENT;
+    const rng = mulberry32(STORM_SEED + e * STORM_STEP);
+    const n = 2 + (rng() < 0.5 ? 1 : 0);
+    let onset = 3 + Math.floor(rng() * 7);
+    let last = onset;
+    let out = null;
+    for (let k = 0; k < n; k++) {
+        const dur = STORM_DUR[0] + Math.floor(rng() * STORM_DUR[1]);
+        const amp = k === 0 ? 0.75 + 0.25 * rng() : 0.45 + 0.5 * rng();
+        const gap = STORM_GAP[0] + Math.floor(rng() * STORM_GAP[1]);
+        const src = Math.floor(rng() * STORM_SRC.length);
+        const lift = Math.floor(rng() * STORM_LIFT.length);
+        if (!out && u >= onset && u < onset + dur) {
+            // FLOOR the index. The engine's clock is scaled -- slow motion,
+            // hitstop -- so `bd.t` is not an integer, and a fractional index
+            // into the envelope table is `undefined`, which makes the whole
+            // flash silently disappear at 0.35x and nowhere else.
+            out = {
+                env: STORM_ENV[Math.min(Math.floor(u - onset), STORM_ENV.length - 1)] * amp,
+                src, lift,
+            };
+        }
+        last = onset + dur;
+        onset = last + gap;
+    }
+    // The bolt closes the event, three frames after the last stroke lands.
+    const bolt = e % STORM_BOLT_MOD === STORM_BOLT_AT
+        && u >= last + 6 && u < last + 6 + STORM_BOLT_FRAMES;
+    return { e, env: out ? out.env : 0, src: out ? out.src : 0, lift: out ? out.lift : 0, bolt };
+}
+
+/**
+ * The bolt's channel and its forks, in box art pixels, from the deck's base to
+ * the horizon. Seeded off the event index, so the same event draws the same
+ * bolt on every client that reaches it.
+ */
+function stormBoltPath(S, e) {
+    const rng = mulberry32(STORM_SEED + e * 131);
+    const pts = [];
+    const forks = [];
+    let x = S.ax0 + (0.12 + rng() * 0.72) * S.arenaW;
+    let y = S.deckMin + rng() * 8;
+    const endY = S.hz - 2 - rng() * 10;
+    while (y < endY) {
+        const ny = y + 2.5 + rng() * 4;
+        const nx = x + (rng() - 0.5) * 9;
+        pts.push([x, y, nx, ny]);
+        if (rng() < 0.3 && y < endY - 10) {
+            let fx = nx;
+            let fy = ny;
+            const dir = rng() < 0.5 ? -1 : 1;
+            const n = 3 + Math.floor(rng() * 5);
+            for (let k = 0; k < n; k++) {
+                const gx = fx + dir * (1.5 + rng() * 6);
+                const gy = fy + 1.5 + rng() * 4;
+                forks.push([fx, fy, gx, gy]);
+                fx = gx;
+                fy = gy;
+            }
+        }
+        x = nx;
+        y = ny;
+    }
+    return { pts, forks };
+}
+
+/**
+ * A funnel, baked: the half width and lean of every row, and the two constants
+ * each art pixel needs to turn a live band phase into a rung. Everything that
+ * does not depend on the clock is resolved here, so the frame does one `sin`
+ * and one table lookup per pixel of column.
+ */
+function stormBakeFunnel(bd, S, f) {
+    const y0 = S.deckMin;
+    const y1 = S.hz + 2;
+    const rows = y1 - y0 + 1;
+    const hw = new Float32Array(rows);
+    const lean = new Float32Array(rows);
+    const start = new Int32Array(rows);
+    const count = new Int32Array(rows);
+    const off = new Int32Array(rows + 1);
+    const noise = mkNoise(0x2000 + f.seed);
+    let total = 0;
+    for (let r = 0; r < rows; r++) {
+        const u = r / (rows - 1);
+        const flare = 1 + STORM_FUN_FLARE[1]
+            * clamp((u - STORM_FUN_FLARE[0]) / (1 - STORM_FUN_FLARE[0]), 0, 1);
+        const w = (STORM_FUN_W[0] * Math.pow(1 - u, STORM_FUN_W[1]) + STORM_FUN_W[2]) * f.s * flare
+            + STORM_FUN_W[3] * (noise(r * 0.22, f.seed * 0.1, 2) - 0.5) * 2;
+        hw[r] = Math.max(0.7, w);
+        // The column leans downwind, the top displaced furthest.
+        lean[r] = STORM_LEAN * (1 - u) * (f.rph < Math.PI ? 1 : -1);
+        start[r] = Math.round(lean[r] - hw[r]);
+        count[r] = Math.round(lean[r] + hw[r]) - start[r] + 1;
+        off[r] = total;
+        total += count[r];
+    }
+    off[rows] = total;
+    const theta = new Float32Array(total);
+    const c0 = new Float32Array(total);
+    const c1 = new Float32Array(rows);
+    for (let r = 0; r < rows; r++) {
+        const u = r / (rows - 1);
+        const uk = 0.62 + 0.38 * u;
+        c1[r] = 0.4 * uk;
+        for (let i = 0; i < count[r]; i++) {
+            const x = start[r] + i;
+            const q = clamp((x - lean[r]) / hw[r], -1, 1);
+            // The helices wrap a tube: `asin` maps the flat column onto a
+            // cylinder, so the bands crowd at the edges the way they would on
+            // something round rather than sliding evenly across a ribbon.
+            theta[off[r] + i] = Math.asin(q) * 2.2 + (y0 + r) * 0.34;
+            let rim = 0;
+            if (q < -0.66) {
+                rim = 0.34;
+            } else if (q > 0.3) {
+                rim = -0.16;
+            }
+            c0[off[r] + i] = (0.14 + 0.13 * noise(x * 0.34, r * 0.34, 2)) * uk + rim;
+        }
+    }
+    return { y0, rows, hw, lean, start, count, off, theta, c0, c1, f };
+}
+
+/** Where a funnel's axis is at frame `t`, in box art px: its beat plus its sway. */
+function stormFunnelX(S, f, t) {
+    return S.ax0 + f.x0 * S.arenaW
+        + f.amp * Math.sin(t * f.rate + f.rph)
+        + STORM_SWAY * Math.sin(t * f.w + f.ph);
+}
+
+/** One block of art pixels into the storm surface, clipped both ways. */
+function stormPut(S, x, y, w, h, col) {
+    for (let j = 0; j < h; j++) {
+        const yy = y + j;
+        if (yy < S.cy0 || yy > S.cy1) {
+            continue;
+        }
+        for (let i = 0; i < w; i++) {
+            const xx = x + i;
+            if (xx < 0 || xx >= S.aw) {
+                continue;
+            }
+            const o = (yy * S.aw + xx) * 4;
+            S.data[o] = col[0];
+            S.data[o + 1] = col[1];
+            S.data[o + 2] = col[2];
+            S.data[o + 3] = 255;
+        }
+    }
 }
 
 /** Draw them: 12 rasterising calls a frame, worst case. */
@@ -8602,29 +9560,141 @@ const PAINTERS = {
         },
     },
 
-    // Looking straight into the crowded middle of the galaxy.
-    galaxy: {
-        paint(bd, g) {
-            g.save();
-            g.globalCompositeOperation = "lighter";
-            g.translate(bd.W * 0.5, bd.H * 0.35);
-            g.rotate(-0.35);
-            for (let arm = 0; arm < 2; arm++) {
-                for (let i = 0; i < 460; i++) {
-                    const t = i / 460;
-                    const ang = arm * Math.PI + t * 4.2;
-                    const r = 30 + t * 780;
-                    const sp = (bd.rng() - 0.5) * (40 + t * 150);
-                    const x = Math.cos(ang) * r + sp;
-                    const y = (Math.sin(ang) * r + sp) * 0.42;
-                    g.fillStyle = rgba(bd.rng() < 0.25 ? bd.p.c2 : bd.p.c1, 0.1 + bd.rng() * 0.4);
-                    g.fillRect(x, y, 1.4, 1.4);
-                }
+    /**
+     * GALACTIC CORE. The place whose brightness was an AREA -- two cream
+     * radial blobs of radius 260 and 90 laid over 920 additive motes, which is
+     * a warm haze across the middle of the arena and 1-4 px of enemy fire
+     * somewhere inside it.
+     *
+     * The study's answer is that the core keeps rung 7 and loses its area.
+     * Nothing broad is allowed past rung 4 -- the cap is per art pixel, so the
+     * whole spiral clears 3 : 1 against every bullet colour -- and rungs 5-7
+     * exist only inside a 22 px nucleus at 26% of the arena's width, left of
+     * the firing corridor. "Crowded" is then carried by star density, arm
+     * count and dust rather than by luminance, which is what the glossary line
+     * actually promises.
+     *
+     * The structure is one logarithmic spiral evaluated per art pixel: four
+     * arms as Gaussians in `d * r` against an r-dependent width, a bulge, a
+     * mottle, a disc envelope, and the same spiral again -- shifted onto the
+     * leading edge, half as wide -- SUBTRACTED as dust. Subtracting is the
+     * point: `v` clamps at zero, so a lane is an absence of stars, which
+     * `lighter` compositing cannot express at any alpha.
+     *
+     * Nothing moves and there is no `update`. A galaxy turns once in 2 x 10^8
+     * years; anything visibly rotating would be a lie, and the arms are the
+     * one thing on screen that a spiralling attack could be confused with.
+     * The place costs one `drawImage` a frame.
+     */
+    pixelGalaxy: {
+        init(bd) {
+            const aw = Math.max(1, Math.ceil(bd.w / ART_PIX));
+            const ah = Math.max(1, Math.ceil(bd.h / ART_PIX));
+            bd.gc = {
+                aw,
+                ah,
+                cx: bd.W * GC_C.cx,
+                cy: bd.H * GC_C.cy,
+                cs: Math.cos(-GC_ROT),
+                sn: Math.sin(-GC_ROT),
+                mottle: mkNoise(GC_MOTTLE_SEED),
+                // The density the bake actually produced, kept so `occlude`
+                // reads the number rather than evaluating the spiral a second
+                // time with a chance of disagreeing with it.
+                dens: new Float32Array(aw * ah),
+                near: galaxyNear(bd),
+            };
+            bd.stars = starList(bd, GC_STAR_SEED, GC_STARS, GC_STAR_A);
+        },
+        /**
+         * The rung is `max(disc capped at 4 or 5, nucleus capped at 7)` rather
+         * than one quantise of one value, because the two carry different
+         * caps: taking the brighter VALUE and then capping it would either
+         * cap the nucleus away or release the whole bulge to rung 7. Both
+         * sides go through `artRung`, which is `_bakeField`'s own quantise, so
+         * the sample can be returned already resolved.
+         */
+        field(bd, x, y) {
+            const P = bd.gc;
+            const ix = Math.floor((x - bd.x0) / ART_PIX);
+            const iy = Math.floor((y - bd.y0) / ART_PIX);
+            const dx = x - P.cx;
+            const dy = y - P.cy;
+            // Disc space: unrotate, then unsquash. Everything between here and
+            // the nucleus is written on the face-on galaxy.
+            const ux = dx * P.cs - dy * P.sn;
+            const uy = (dx * P.sn + dy * P.cs) / GC_SQUASH;
+            const r = Math.max(1.5, Math.sqrt(ux * ux + uy * uy));
+            const th = Math.atan2(uy, ux) + GC_K * Math.log(r);
+            const wArm = (22 + 0.085 * r) * GC_ARM_W;
+            const wDust = wArm * GC_DUST.width;
+            let arms = 0;
+            let dust = 0;
+            for (let a = 0; a < 4; a++) {
+                // `d * r` and not `d`: an angular offset is a fixed number of
+                // pixels only at one radius, and an arm of constant angular
+                // width would be a wedge.
+                const d = wrapPi(th - GC_ARM_TH[a]) * r;
+                arms += Math.exp(-(d * d) / (wArm * wArm)) * GC_ARM_S[a];
+                const dd = wrapPi(th - GC_ARM_TH[a] - GC_DUST.phase) * r;
+                dust += Math.exp(-(dd * dd) / (wDust * wDust)) * GC_ARM_S[a];
             }
-            g.scale(1, 0.42);
-            blob(g, 0, 0, 260, bd.p.c1, 0.22);
-            blob(g, 0, 0, 90, "#fff3d0", 0.4);
-            g.restore();
+            // 0.50-1.35 of the density, which is what stops four Gaussians
+            // reading as four painted stripes. Checked against this file's
+            // generator rather than the study's: `mkNoise` runs p05-p95 over
+            // 0.232-0.760 on this domain, so the mottle spans 0.70-1.15 in the
+            // body of the disc, which is the range the sheet was tuned at.
+            const mot = 0.5 + 0.85 * P.mottle(ux * 0.035, uy * 0.035, 2);
+            const env = Math.exp(-Math.pow(r / GC_R_DISC, 1.25) * 2.1);
+            const inner = 1 - Math.exp(-Math.pow(r / (GC_R_BULGE * 0.9), 2));
+            let v = mot * env * inner * (arms * 0.95 + 0.18);
+            v += 0.78 * Math.exp(-Math.pow(r / GC_R_BULGE, 1.15));
+            const gate = 1 - Math.exp(-Math.pow(r / (GC_R_BULGE * GC_DUST.gate), 2.2));
+            v = clamp(v - dust * GC_DUST.amp * gate * env * (0.6 + 0.5 * mot), 0, 1);
+            P.dens[iy * P.aw + ix] = v;
+            // Screen space, deliberately: the nucleus is the one thing in the
+            // frame that must not take the 0.44 squash, or the brightest
+            // object in the catalogue reads as a horizontal dash.
+            const nuc = GC_NUC.amp
+                * Math.exp(-Math.pow(Math.sqrt(dx * dx + dy * dy) / GC_NUC.r, GC_NUC.exp));
+            // Warm or cool, decided against the SAME Bayer threshold that
+            // picks the rung. Correlating the two costs nothing and reads
+            // cleaner at 3 px than an independent dice roll, which comes out
+            // as colour noise on top of value noise.
+            const ww = 1 - clamp((r - GC_MIX[0]) / (GC_MIX[1] - GC_MIX[0]), 0, 1);
+            const warm = ww > BAYER[(iy & 3) * 4 + (ix & 3)] / 16;
+            const disc = artRung(bd, v, ix, iy, warm ? GC_WARM_CAP : GC_COOL_CAP);
+            const core = artRung(bd, nuc, ix, iy, bd.rgb.length - 1);
+            return { flat: core > disc ? core : disc, rgb: warm ? bd.rgb : bd.rgbAlt };
+        },
+        /**
+         * The disc is in front of the far star field, so it dims it -- and
+         * that gradient is most of what says the plate has depth. A star on
+         * the bare sky keeps all of itself; one under an arm is gone.
+         */
+        occlude(bd, x, y) {
+            const P = bd.gc;
+            const ix = clamp(Math.floor((x - bd.x0) / ART_PIX), 0, P.aw - 1);
+            const iy = clamp(Math.floor((y - bd.y0) / ART_PIX), 0, P.ah - 1);
+            return Math.min(1, GC_OCCLUDE * P.dens[iy * P.aw + ix]);
+        },
+        /**
+         * The seven near stars, hard: a core square and four spikes one art
+         * pixel wide. They are in front of everything, so they are drawn after
+         * the field and after the far stars, and they never leave the place's
+         * own star ramp.
+         */
+        hard(bd, g, pix) {
+            const ramp = starRamp(bd);
+            for (const s of bd.gc.near) {
+                const x = Math.floor((s.x - bd.x0) / pix);
+                const y = Math.floor((s.y - bd.y0) / pix);
+                g.fillStyle = s.hot ? ramp[2] : ramp[1];
+                g.fillRect(x - s.sp, y, s.sp * 2 + 1, 1);
+                g.fillRect(x, y - s.sp, 1, s.sp * 2 + 1);
+                g.fillStyle = ramp[2];
+                g.fillRect(x - (s.core >> 1), y - (s.core >> 1), s.core, s.core);
+            }
         },
     },
 
@@ -8963,13 +10033,566 @@ const PAINTERS = {
                 }
                 g.restore();
             }
-            if (bd.p.lightning && Math.floor(bd.t * 0.02) % 37 === 0) {
-                const f = Math.abs(Math.sin(bd.t * 0.6));
-                g.save();
-                g.globalCompositeOperation = "lighter";
-                blob(g, bd.W * 0.3, bd.H * 0.2, 300, bd.p.band, 0.22 * f);
-                g.restore();
+        },
+    },
+
+    /**
+     * DESERT WORLD. The first of the four `surface` worlds to break out of the
+     * shared painter, and the one that most needed to: a three-stop gradient
+     * running to #e0b874 at the bottom, sixteen additive band ellipses and 70
+     * motes painted #ffe2a8 --
+     * luminance 228, warmth 1.52, 1-3 px, moving. That mote is an enemy core,
+     * and the place shipped thirty of them.
+     *
+     * What replaces it is a wind you can read. Sand tears off the dune crests
+     * in visible plumes and shears apart into four stacked sheets, each running
+     * about 2.6x faster than the one below it -- 0.42 / 1.09 / 2.84 / 7.40
+     * logical px a frame -- so the same grain flow is legibly slow at your feet
+     * and fast overhead. That ladder IS the place: the glossary line already
+     * promised air thick enough to read the wind in, and the art moved to meet
+     * the line rather than the other way round.
+     *
+     * The safety argument is the ramp, not the particle size. No dust feature
+     * has an absolute colour: `desertDustRung` paints it as an offset from its
+     * own local sky rung, signed by the sky -- brighter where the air is dark,
+     * DARKER wherever the base is rung 4 or over. A feature that imitates a
+     * bullet needs a bright core on a dark surround, and here a dark surround
+     * is exactly what forbids a bright core, so the two halves of the test can
+     * never be true at once. With `topRung` 5 the whole place stops at
+     * luminance 113 and the old mote colour is not expressible by this painter.
+     */
+    pixelDesert: {
+        init(bd) {
+            const aw = Math.max(1, Math.ceil(bd.w / ART_PIX));
+            const ah = Math.max(1, Math.ceil(bd.h / ART_PIX));
+            const hz = Math.round((DES_HZ * bd.H - bd.y0) / ART_PIX);
+            const cv = document.createElement("canvas");
+            cv.width = aw;
+            cv.height = ah;
+            const g = cv.getContext("2d");
+            const img = g.createImageData(aw, ah);
+            // The sky's rung per row, and the two dust rungs that follow from
+            // it. A streak's colour is a function of its row alone, so all
+            // three are tables and the frame does a lookup instead of a curve.
+            const sky = new Float32Array(ah);
+            const lo = new Uint8Array(ah);
+            const hi = new Uint8Array(ah);
+            for (let ay = 0; ay < ah; ay++) {
+                const t = clamp(ay / hz, 0, 1);
+                sky[ay] = (DES_SKY[0] + DES_SKY[1] * Math.pow(t, DES_SKY[2])) * DES_TOP;
+                lo[ay] = desertDustRung(sky[ay], 1);
+                hi[ay] = desertDustRung(sky[ay], 2);
             }
+            // The three ridge lines per art column. `field` walks the box row
+            // by row, so a column's crests are read 388 times and computed
+            // once -- nine sines a pixel become three lookups.
+            const cf = new Float32Array(aw);
+            const cm = new Float32Array(aw);
+            const cn = new Float32Array(aw);
+            for (let ax = 0; ax < aw; ax++) {
+                cf[ax] = desertCrestF(hz, ax);
+                cm[ax] = desertCrestM(hz, ax);
+                cn[ax] = desertCrestN(hz, ax);
+            }
+            // A filament's taper, per length. There are 22 possible lengths and
+            // the curve is one shape read at one scale, so it is a table --
+            // same trick the supernova's envelope uses.
+            const taper = [];
+            for (let len = 0; len <= DES_LAYERS[3].lmax; len++) {
+                const t = new Float32Array(Math.max(1, len));
+                for (let k = 0; k < len; k++) {
+                    t[k] = Math.sin(Math.PI * ((k + 0.5) / len));
+                }
+                taper.push(t);
+            }
+            bd.des = {
+                aw, ah, hz, cv, g, img, data: img.data, sky, lo, hi, cf, cm, cn, taper,
+                sunX: -bd.x0 / ART_PIX + DES_SUN.x,
+                sunY: hz + DES_SUN.y,
+                // The wind never reaches below saltation's own band, so the
+                // surface that carries it is the top of the box down to there
+                // -- 61% of it -- and that is also the whole of the clear. The
+                // three extra rows are a grain's own height: a 3 px grain
+                // seeded on the last row of the band has to fit.
+                wy1: clamp(hz + DES_LAYERS[0].band[1] + 3, 0, ah - 1),
+                streams: desertStreaks(bd, hz, aw),
+                peaks: desertCrestPeaks(bd, hz, aw),
+                // Saltation's ceiling scrolls with saltation, so the dashes
+                // travel rather than standing over moving sand.
+                saltY: hz + DES_LAYERS[0].band[0] - 1,
+            };
+            bd.stars = starList(bd, DES_STAR_SEED, DES_STARS, DES_STAR_A);
+        },
+        /**
+         * Sky, sun and all three dune ranges. Everything here is rigid with the
+         * plane -- the dunes do not move, and that is the point of the place:
+         * against the molten world, where the structure is fixed and the
+         * distortion travels across it, here the structure is fixed and what
+         * travels is the air's cargo. One makes edges wobble, the other makes
+         * edges stream.
+         */
+        field(bd, x, y) {
+            const S = bd.des;
+            const ax = clamp(Math.floor((x - bd.x0) / ART_PIX), 0, S.aw - 1);
+            const ay = clamp(Math.floor((y - bd.y0) / ART_PIX), 0, S.ah - 1);
+            const base = S.sky[ay];
+            let rung;
+            let land = true;
+            if (ay >= S.cn[ax]) {
+                const dep = Math.min(1, (ay - S.cn[ax]) / DES_NEAR_DEPTH);
+                rung = 0.8 + 2.9 * Math.pow(dep, 0.7)
+                    + 0.42 * Math.sin(ax / 5.5 + ay / 2.6) + 0.3 * Math.sin(ax / 17 - ay / 7);
+            } else if (ay >= S.cm[ax]) {
+                const dep = Math.min(1, (ay - S.cm[ax]) / DES_MID_DEPTH);
+                rung = 3.05 + dep + 0.26 * Math.sin(ax / 9 + ay / 4);
+            } else if (ay >= S.cf[ax]) {
+                // The far range is painted on the SKY ramp, not on the sand
+                // one: at that distance it is more air than sand, and putting
+                // it on `landRamp` is what made the old horizon a hard band.
+                rung = base + 0.9 + 0.18 * Math.sin(ax / 13);
+                land = false;
+            } else {
+                const dx = ax - S.sunX;
+                const dy = (ay - S.sunY) * DES_SUN.squash;
+                const d = Math.sqrt(dx * dx + dy * dy);
+                rung = base + (d < DES_SUN.r
+                    ? DES_SUN.amp
+                    : DES_SUN.amp * Math.exp(-(d - DES_SUN.r) / DES_SUN.fall));
+                land = false;
+            }
+            return { v: clamp(rung / (bd.rgb.length - 1), 0, 1), rgb: land ? bd.rgbAlt : bd.rgb };
+        },
+        /**
+         * A daytime sky. A star survives only in the top of the box, far above
+         * the arena, and nothing gets through below 30% of the way down.
+         */
+        occlude(bd, x, y) {
+            const u = (y - bd.y0) / (bd.h * DES_STAR_BAND);
+            return u >= 1 ? 1 : 1 - DES_STAR_SURV * (1 - u);
+        },
+        /**
+         * The wind, rasterised into an art-resolution surface: four sheets at
+         * their own offsets, then the plumes. Two rasterising calls a frame --
+         * one upload and one blit -- against the old painter's 86, and no pixel
+         * on screen is off the ramp.
+         *
+         * There is no `update`: the offsets are closed-form integrals of the
+         * gust and the plumes are a modulo of the counter, so `backdropThumb`
+         * jumps straight to frame 1500 and two clients in a co-op match see the
+         * same sand. Reading the engine's scaled clock is also what makes pause
+         * still the air and slow motion slow it.
+         */
+        live(bd, g) {
+            const S = bd.des;
+            const f = bd.t;
+            const gust = desertGust(f);
+            const gustK = DES_GUST_K[0] + DES_GUST_K[1] * gust;
+            S.data.fill(0, 0, (S.wy1 + 1) * S.aw * 4);
+            const offs = [];
+            for (let L = 0; L < DES_LAYERS.length; L++) {
+                offs.push(desertOffset(f, DES_LAYERS[L].rate, S.aw));
+            }
+            for (const st of S.streams) {
+                // The gust rides on density, not on opacity: a thicker wind
+                // draws more of its own grains and longer dashes of them, and
+                // every one of those grains is still exactly on a rung.
+                const k = st.k * gustK;
+                const tap = S.taper[st.len];
+                const off = offs[st.L];
+                const row = (st.y & 3) << 2;
+                for (let i = 0; i < st.len; i++) {
+                    const xx = (st.x + i) % S.aw;
+                    const dens = k * (0.35 + 0.65 * tap[i]);
+                    // The dither is read in TILE space, so a filament's dashes
+                    // travel with it instead of the sand flickering through a
+                    // stationary pattern.
+                    if (dens + (BAYER[row + (xx & 3)] + 0.5) / 16 < 1) {
+                        continue;
+                    }
+                    desertPut(S, xx - off, st.y,
+                        st.w, st.h, bd.rgb[dens > 0.86 ? S.hi[st.y] : S.lo[st.y]]);
+                }
+            }
+            const salt = bd.rgb[S.hi[clamp(S.saltY, 0, S.ah - 1)]];
+            const saltRow = (S.saltY & 3) << 2;
+            for (let ax = 0; ax < S.aw; ax++) {
+                if (BAYER[saltRow + (ax & 3)] / 16 >= DES_SALT_DASH) {
+                    desertPut(S, ax - offs[0], S.saltY, 1, 1, salt);
+                }
+            }
+            for (let c = 0; c < S.peaks.length; c++) {
+                const pk = S.peaks[c];
+                for (let k = 0; k < DES_PLUME.per; k++) {
+                    const u = (((f * (0.85 + 0.25 * gust)) + k * 41 + c * 17) % DES_PLUME.span)
+                        / DES_PLUME.span;
+                    const py = Math.round(pk.y - 2 - u * DES_PLUME.dy
+                        - 3 * Math.sin(u * DES_PLUME.wob + c));
+                    desertPut(S, Math.round(pk.x - u * DES_PLUME.dx), py,
+                        u < 0.45 ? 3 : 2, 2, bd.rgb[S.hi[clamp(py, 0, S.ah - 1)]]);
+                }
+            }
+            S.g.putImageData(S.img, 0, 0, 0, 0, S.aw, S.wy1 + 1);
+            g.imageSmoothingEnabled = false;
+            g.drawImage(S.cv, bd.x0, bd.y0, bd.w, bd.h);
+        },
+    },
+
+    /**
+     * STORM WORLD. The place the shared painter's `lightning` branch existed
+     * for -- a 600 px blob pulsed at 11.5 Hz over a sky that ran to #5b4e8a,
+     * which is a near-fullscreen strobe with a bright surround under it. That
+     * branch is deleted with this port; this was its only user.
+     *
+     * The redesign spends the same event on REVEAL instead of brightness. A
+     * stroke lifts one of three sources inside the cloud deck by a rung or two
+     * with an exponential falloff, and the lit patch is re-quantised through
+     * the same Bayer and the same ramp -- so a flash frame is still on-ramp
+     * art, the silhouette does not move a pixel, and the sky, the ground and
+     * the horizon are bit-identical through it. What the eye reads is the
+     * cloud's shape arriving. One event in seven ends on a forked bolt at rung
+     * 6, three frames, about every 3.6 minutes.
+     *
+     * Under it, three funnels walk the ground at 0.055, -0.034 and 0.042 art
+     * pixels a frame, each with its own sway and its own bend -- the top leads
+     * and the contact point lags, so a column whips rather than sliding.
+     * Rotation is a BUDGET and not a dial: one turn takes 764 frames, 12.7 s.
+     * A column of cloud spinning fast enough to see is a hazard; one this slow
+     * is weather, and the sway and the lean are what carry the motion.
+     *
+     * Nothing the place can draw is within three rungs of the top of its own
+     * ramp, and every rung of it is violet where the enemies fire amber.
+     */
+    pixelStorm: {
+        init(bd) {
+            const aw = Math.max(1, Math.ceil(bd.w / ART_PIX));
+            const ah = Math.max(1, Math.ceil(bd.h / ART_PIX));
+            const ax0 = -bd.x0 / ART_PIX;
+            const ay0 = -bd.y0 / ART_PIX;
+            const arenaH = bd.H / ART_PIX;
+            const hz = Math.round(ay0 + STORM_HZ * arenaH);
+            const S = {
+                aw, ah, ax0, hz,
+                arenaW: bd.W / ART_PIX,
+                deck0: ay0 + STORM_DECK[0] * arenaH,
+                deckSpan: STORM_DECK[1] * arenaH,
+                nBlob: mkNoise(STORM_BLOB.seed),
+                nLump: mkNoise(STORM_LUMP.seed),
+                nFine: mkNoise(STORM_FINE.seed),
+                nRidge: mkNoise(STORM_RIDGE[2]),
+                // `pow(s, 1.8)` is one curve read at one scale on every art
+                // pixel of every column, so it is a table.
+                spin: new Float32Array(257),
+            };
+            for (let i = 0; i <= 256; i++) {
+                S.spin[i] = Math.pow(i / 256, 1.8);
+            }
+            // The deck's own bounds, measured off the shape rather than
+            // assumed: the funnels start where the cloud can first reach and
+            // the flash never has to look above it.
+            let lo = 1e9;
+            let hi = -1e9;
+            const bottom = new Float32Array(aw);
+            for (let ax = 0; ax < aw; ax++) {
+                bottom[ax] = stormDeckBottom(S, ax);
+                if (bottom[ax] < lo) {
+                    lo = bottom[ax];
+                }
+                if (bottom[ax] > hi) {
+                    hi = bottom[ax];
+                }
+            }
+            S.bottom = bottom;
+            S.deckMin = Math.floor(lo);
+            S.deckMax = Math.min(ah - 1, Math.ceil(hi));
+            // The horizon ridge, so the glow band never reads as a ruled line,
+            // and the skyline: a broken DARK silhouette clustered in two
+            // places. Lit, it would be a row of small bright features.
+            const ridge = new Float32Array(aw);
+            const city = new Float32Array(aw);
+            const rng = mulberry32(STORM_CITY_SEED);
+            for (let ax = 0; ax < aw; ax++) {
+                ridge[ax] = STORM_RIDGE[0]
+                    * Math.pow(stormWrapNoise(S.nRidge, ax, 0, STORM_FINE, aw), STORM_RIDGE[1]);
+                let cluster = 0;
+                for (const c of STORM_CITY) {
+                    const d = (ax - (ax0 + c * S.arenaW)) / (S.arenaW * 0.11);
+                    cluster += Math.exp(-d * d);
+                }
+                city[ax] = Math.round((0.6 + 4.2 * cluster) * (0.4 + 0.6 * rng()));
+            }
+            S.ridge = ridge;
+            S.city = city;
+            // The deck, baked once as a tile that is periodic over the box, so
+            // the fastest cloud in the catalogue costs two blits a frame.
+            const cv = document.createElement("canvas");
+            cv.width = aw;
+            cv.height = S.deckMax + 1;
+            const g = cv.getContext("2d");
+            const img = g.createImageData(aw, cv.height);
+            const dv = new Float32Array(aw * cv.height);
+            const last = bd.rgb.length - 1;
+            for (let ay = 0; ay <= S.deckMax; ay++) {
+                for (let ax = 0; ax < aw; ax++) {
+                    const i = ay * aw + ax;
+                    if (ay >= bottom[ax]) {
+                        dv[i] = -1;
+                        continue;
+                    }
+                    const lump = stormWrapNoise(S.nLump, ax, ay, STORM_LUMP, aw);
+                    const up = stormWrapNoise(S.nLump, ax, ay - STORM_DECK_DY, STORM_LUMP, aw);
+                    const blob = stormWrapNoise(S.nBlob, ax, ay, STORM_BLOB, aw);
+                    const dep = clamp((bottom[ax] - ay) / STORM_DECK_DEPTH, 0, 1);
+                    const v = clamp((STORM_DECK_V[0] + STORM_DECK_V[1] * lump
+                        - STORM_DECK_V[2] * dep + STORM_DECK_V[3] * (blob - 0.5)
+                        + STORM_DECK_V[4] * (lump - up))
+                        * STORM_DECK_CAP / last, 0, 1);
+                    dv[i] = v;
+                    const c = bd.rgb[artRung(bd, v, ax, ay, STORM_DECK_CAP)];
+                    const o = i * 4;
+                    img.data[o] = c[0];
+                    img.data[o + 1] = c[1];
+                    img.data[o + 2] = c[2];
+                    img.data[o + 3] = 255;
+                }
+            }
+            g.putImageData(img, 0, 0);
+            S.deck = cv;
+            S.dv = dv;
+            S.dh = cv.height;
+            // The surface everything live is drawn into: the deck's own rows,
+            // because a flash re-lights them, down past the contact points.
+            const ov = document.createElement("canvas");
+            ov.width = aw;
+            ov.height = ah;
+            const og = ov.getContext("2d");
+            const oimg = og.createImageData(aw, ah);
+            S.cv = ov;
+            S.g = og;
+            S.img = oimg;
+            S.data = oimg.data;
+            S.cy0 = 0;
+            S.cy1 = Math.min(ah - 1, hz + 8);
+            S.funnels = STORM_FUNNELS.map((f) => stormBakeFunnel(bd, S, f));
+            bd.storm = S;
+            bd.stars = starList(bd, STORM_STAR_SEED, STORM_STARS, STORM_STAR_A);
+        },
+        /**
+         * Sky, ground, the horizon glow and the skyline. Everything here is a
+         * pure function of position: the deck scrolls and the funnels walk, so
+         * neither is in the plate.
+         */
+        field(bd, x, y) {
+            const S = bd.storm;
+            const ax = clamp(Math.floor((x - bd.x0) / ART_PIX), 0, S.aw - 1);
+            const ay = Math.floor((y - bd.y0) / ART_PIX);
+            const last = bd.rgb.length - 1;
+            if (ay >= S.hz - S.ridge[ax]) {
+                // Ground. Near-black, and the only thing in the place on the
+                // second ramp.
+                const u = clamp((ay - S.hz) / (S.ah - S.hz), 0, 1);
+                const n = S.nFine(ax * 0.09, ay * 0.5, 2);
+                const v = (0.35 + 1.1 * n * (0.4 + 0.6 * u) - 0.9 * u) * STORM_GROUND_CAP;
+                return { v: clamp(v / last, 0, 1), rgb: bd.rgbAlt };
+            }
+            if (ay >= S.hz - S.ridge[ax] - S.city[ax] - STORM_GLOW_H) {
+                // The skyline sits inside the glow band, so a tower is a bite
+                // out of the light rather than a shape drawn on top of it.
+                if (ay >= S.hz - S.ridge[ax] - S.city[ax]) {
+                    return { flat: 0, rgb: bd.rgbAlt };
+                }
+            }
+            const skyG = stormSkyG(S, ay);
+            const mot = S.nFine(ax * 0.075, ay * 0.16, 3);
+            let g = skyG + STORM_SKY[3] * (mot - 0.5) * 2;
+            let cap = STORM_SKY_CAP;
+            // A band of glow above the horizon, so the contact points have
+            // something to stand against. It is capped one rung under the sky's
+            // own top and broken by the ridge, so it is never a drawn edge.
+            const above = S.hz - S.ridge[ax] - ay;
+            if (above >= 0 && above < STORM_GLOW_H) {
+                g += 0.30 * (1 - above / STORM_GLOW_H);
+                cap = STORM_GLOW_CAP;
+            }
+            return { v: clamp((g * cap) / last, 0, 1) };
+        },
+        /**
+         * The deck is opaque and it covers the top of the box, so almost
+         * nothing gets through. What does is the handful of stars in the gaps
+         * of its ragged edge, which is the only reminder that this is the
+         * night side.
+         */
+        occlude(bd, x, y) {
+            const S = bd.storm;
+            const ax = clamp(Math.floor((x - bd.x0) / ART_PIX), 0, S.aw - 1);
+            const ay = Math.floor((y - bd.y0) / ART_PIX);
+            return ay < S.bottom[ax] || ay >= S.hz - S.ridge[ax] ? 1 : 0.55;
+        },
+        /**
+         * Two blits for the deck's wrap, then one surface carrying the flash,
+         * the three funnels, their debris, the rain and -- three frames in
+         * every 12 950 -- the bolt. Five rasterising calls a frame against the
+         * old painter's eighty-six.
+         *
+         * There is no `update`: the scroll, the march, the sway, the band
+         * phase and the whole flash schedule are functions of the counter, so
+         * `backdropThumb` jumps to frame 1500 and two clients in a co-op match
+         * watch the same stroke light the same lump.
+         */
+        live(bd, g) {
+            const S = bd.storm;
+            const t = bd.t;
+            const last = bd.rgb.length - 1;
+            let scroll = Math.round((t * STORM_SCROLL) / ART_PIX) % S.aw;
+            if (scroll < 0) {
+                scroll += S.aw;
+            }
+            g.imageSmoothingEnabled = false;
+            const dy = bd.y0;
+            const dh = S.dh * ART_PIX;
+            g.drawImage(S.deck, scroll, 0, S.aw - scroll, S.dh,
+                bd.x0, dy, (S.aw - scroll) * ART_PIX, dh);
+            if (scroll > 0) {
+                g.drawImage(S.deck, 0, 0, scroll, S.dh,
+                    bd.x0 + (S.aw - scroll) * ART_PIX, dy, scroll * ART_PIX, dh);
+            }
+            S.data.fill(0, S.cy0 * S.aw * 4, (S.cy1 + 1) * S.aw * 4);
+            const fl = stormFlash(t);
+            if (fl.env > 0.08) {
+                // Re-quantise the deck where the light reaches it, in the
+                // deck's own coordinates so the lit patch travels with the
+                // cloud. Outside the falloff nothing is written at all, which
+                // is why the sky behind it cannot change.
+                const src = STORM_SRC[fl.src];
+                // A LIFT IN FIELD UNITS, not in rungs: +0.58 of a 0-1 field is
+                // four rungs, which is what makes a lit lump arrive instead of
+                // merely warming. Read as rungs it is a fifth of one and the
+                // whole event is invisible -- measured at 0.24 of mean arena
+                // luminance against the study's 2.33.
+                const lift = STORM_LIFT[fl.lift] * fl.env;
+                const sx = S.ax0 + src.x * S.arenaW + scroll;
+                const reach = src.r * 2.6;
+                // Subtracting the value at the edge takes the falloff to
+                // exactly zero there, so the lit patch has no boundary at all.
+                const foot = Math.exp(-reach / src.r);
+                for (let ay = Math.max(0, Math.floor(src.y - reach));
+                    ay <= Math.min(S.deckMax, Math.ceil(src.y + reach)); ay++) {
+                    const ddy = ay - src.y;
+                    for (let i = -reach; i <= reach; i++) {
+                        const tx = Math.round(sx + i);
+                        const ddx = tx - sx;
+                        const d = Math.sqrt(ddx * ddx + ddy * ddy);
+                        const add = lift * (Math.exp(-d / src.r) - foot);
+                        if (add < 0.004) {
+                            continue;
+                        }
+                        let dx = tx % S.aw;
+                        if (dx < 0) {
+                            dx += S.aw;
+                        }
+                        const v = S.dv[ay * S.aw + dx];
+                        if (v < 0) {
+                            continue;
+                        }
+                        let px = dx - scroll;
+                        if (px < 0) {
+                            px += S.aw;
+                        }
+                        stormPut(S, px, ay, 1, 1,
+                            bd.rgb[artRung(bd, v + add, dx, ay, bd.p.topRung)]);
+                    }
+                }
+            }
+            // The funnels. The band phase is the only live term inside a
+            // column: everything else about a pixel was resolved at bake.
+            const bo = (t * STORM_ROT * 2 * Math.PI) / STORM_BAND;
+            for (const F of S.funnels) {
+                const bx = stormFunnelX(S, F.f, t);
+                for (let r = 0; r < F.rows; r++) {
+                    const ay = F.y0 + r;
+                    if (ay > S.cy1) {
+                        break;
+                    }
+                    const u = r / (F.rows - 1);
+                    const bend = STORM_SWAY * STORM_BEND[0]
+                        * Math.sin(t * F.f.w * STORM_BEND[1] + F.f.ph + u * STORM_BEND[2])
+                        * (1 - u * STORM_BEND[3]);
+                    const dx = Math.round(bx + bend);
+                    const o = F.off[r];
+                    const k1 = F.c1[r];
+                    for (let i = 0; i < F.count[r]; i++) {
+                        const px = dx + F.start[r] + i;
+                        if (px < 0 || px >= S.aw) {
+                            continue;
+                        }
+                        // A funnel hangs OUT of the cloud: above the deck's own
+                        // ragged underside there is nothing to draw, so the top
+                        // of the column is cut by the cloud rather than by a
+                        // line.
+                        let tx = (px + scroll) % S.aw;
+                        if (ay < S.bottom[tx]) {
+                            continue;
+                        }
+                        const sn = 0.5 + 0.5 * Math.sin(F.theta[o + i] + bo);
+                        const v = F.c0[o + i] + k1 * S.spin[(sn * 256) | 0];
+                        const rung = artRung(bd, (v * STORM_FUN_CAP) / last, px, ay, STORM_FUN_CAP);
+                        if (rung > 0) {
+                            stormPut(S, px, ay, 1, 1, bd.rgb[rung]);
+                        }
+                    }
+                }
+                // Debris orbiting the contact point, in the place's own violet:
+                // nothing warm is ever near the ground.
+                const rng = mulberry32(F.f.seed * 31 + 7);
+                const foot = Math.round(bx + F.lean[F.rows - 1]);
+                for (let k = 0; k < STORM_DEBRIS; k++) {
+                    const a = rng() * 6.2832 + t * 0.02 * (1 + F.f.s);
+                    const rad = (STORM_DEBRIS_R[0] + rng() * STORM_DEBRIS_R[1]) * F.f.s;
+                    stormPut(S, Math.round(foot + Math.cos(a) * rad),
+                        Math.round(S.hz - 2 - Math.abs(Math.sin(a)) * rad * STORM_DEBRIS_R[2]
+                            - rng() * 4),
+                        3, 3, bd.rgb[k % 4 === 0 ? 4 : 2]);
+                }
+            }
+            // Rain, in the open air between the cloud and the ground, on the
+            // same signed-by-sky rule the desert's dust uses: one rung over the
+            // air it falls through, and it can never be brighter than the sky.
+            for (let i = 0; i < STORM_RAIN; i++) {
+                const sx = Math.floor(hash2(i, 3, STORM_RAIN_SEED) * S.aw);
+                const sp = 1.6 + hash2(i, 9, STORM_RAIN_SEED) * 1.9;
+                const len = 3 + Math.floor(hash2(i, 5, STORM_RAIN_SEED) * 4);
+                const span = S.hz - S.deckMin;
+                const y0 = S.deckMin + ((hash2(i, 7, STORM_RAIN_SEED) * span + t * sp) % span);
+                for (let k = 0; k < len; k++) {
+                    const ay = Math.round(y0) + k;
+                    if (ay >= S.hz) {
+                        break;
+                    }
+                    const tx = (sx + scroll) % S.aw;
+                    if (ay < S.bottom[tx]) {
+                        continue;
+                    }
+                    const rung = artRung(bd, (stormSkyG(S, ay) * STORM_SKY_CAP) / last,
+                        sx, ay, STORM_SKY_CAP);
+                    stormPut(S, sx, ay, 1, 1, bd.rgb[Math.min(STORM_SKY_CAP, rung + 1)]);
+                }
+            }
+            if (fl.bolt) {
+                const path = stormBoltPath(S, fl.e);
+                const col = bd.rgb[STORM_BOLT_RUNG];
+                const dim = bd.rgb[STORM_BOLT_RUNG - 2];
+                for (const set of [[path.forks, dim], [path.pts, col]]) {
+                    for (const sg of set[0]) {
+                        const steps = Math.max(1,
+                            Math.round(Math.max(Math.abs(sg[2] - sg[0]), Math.abs(sg[3] - sg[1]))));
+                        for (let i = 0; i <= steps; i++) {
+                            stormPut(S, Math.round(sg[0] + ((sg[2] - sg[0]) * i) / steps),
+                                Math.round(sg[1] + ((sg[3] - sg[1]) * i) / steps), 1, 1, set[1]);
+                        }
+                    }
+                }
+            }
+            S.g.putImageData(S.img, 0, 0, 0, S.cy0, S.aw, S.cy1 - S.cy0 + 1);
+            g.drawImage(S.cv, bd.x0, bd.y0, bd.w, bd.h);
         },
     },
 
@@ -10332,8 +11955,25 @@ export const BACKGROUNDS = [
         desc: "A ring station turning slowly at the top right, its windows lit and a craft docked at the still hub at its centre. Somebody out here is still home.",
     },
     {
-        id: "desert_world", name: "DESERT WORLD", tint: "#e8c07a", kind: "surface",
-        p: { sky: ["#2a1a08", "#8a6220", "#e0b874"], band: "#ffe2a8", speed: 0.9, motes: "sand", moteColor: "#ffe2a8" },
+        id: "desert_world", name: "DESERT WORLD", tint: "#e8c07a", kind: "pixelDesert",
+        p: {
+            // Sky and dust. Rungs 6 and 7 are unreachable -- `topRung` is 5 --
+            // and they are kept in the array because the ramp is read as
+            // eight rungs everywhere in this file, not because anything uses
+            // them.
+            ramp: ["#1e1206", "#33200a", "#4b2f0f", "#653f16", "#825426", "#9a6a2b", "#b28139", "#c39a4d"],
+            // Sand. Darker than the sky at every rung, which is the whole haze
+            // model: the ground is the dimmest material on screen and distance
+            // is spent in rungs rather than in a pale wash.
+            landRamp: ["#241505", "#37220a", "#482c0d", "#5d3a12", "#77501a", "#8c5f1c", "#a37021", "#bd882d"],
+            // The first study in ten whose star ramp needed no scaling: its top
+            // is luminance 136, under the 158 the small-bright-feature detector
+            // cuts at, because the stars here are meant to be nearly washed out
+            // by daylight in the first place.
+            starRamp: ["#6b5230", "#8a6b40", "#a98452"],
+            topRung: 5,
+            veil: 8,
+        },
         desc: "Sand blowing across an ochre sky, thick enough that you can read the wind in it.",
     },
     {
@@ -10359,9 +11999,26 @@ export const BACKGROUNDS = [
         desc: "Ice shards big enough to hold themselves together, each one catching the light down its length.",
     },
     {
-        id: "storm_world", name: "STORM WORLD", tint: "#b9a8ff", kind: "surface",
-        p: { sky: ["#0a0a1e", "#2b2350", "#5b4e8a"], band: "#c9b8ff", speed: 1.4, motes: null, lightning: true },
-        desc: "The night side of a storm world: violet cloud running faster than anywhere else, and lightning that lights the whole sky from behind.",
+        id: "storm_world", name: "STORM WORLD", tint: "#b9a8ff", kind: "pixelStorm",
+        p: {
+            // Sky, cloud and funnel. `topRung` is 6 and rung 7 is never drawn:
+            // the brightest thing the place can paint is #9b8ad2, and it is
+            // violet where every enemy core is amber.
+            ramp: ["#07061a", "#141135", "#221c4e", "#342a6b", "#4d3f8c", "#6f5fae", "#9b8ad2", "#d3c6ff"],
+            // The ground, and it is the darkest material on screen. Capped at
+            // rung 5, which it only reaches in the glow just under the horizon.
+            landRamp: ["#05040f", "#0a0819", "#100c26", "#171136", "#1f1849", "#2a2160", "#372c7d", "#48399e"],
+            // The deck covers the top of the box, so these are for the handful
+            // of stars that show through the gaps in its ragged edge.
+            starRamp: ["#2e2a52", "#4a4478", "#6b638f"],
+            topRung: 6,
+            // 6, and the mean arena luminance is what justifies it rather than
+            // the flash: this backdrop is dark with a shape in it, where the
+            // old one was bright everywhere and the shared 30% scrim was doing
+            // the work. The place can be judged nearly unhelped.
+            veil: 6,
+        },
+        desc: "The night side of a storm world: violet cloud running faster than anywhere else, three funnels walking the ground under it, and lightning that lights the cloud from inside.",
     },
     {
         id: "eclipse", name: "ECLIPSE", tint: "#ffd9a0", kind: "pixelEclipse",
@@ -10386,8 +12043,26 @@ export const BACKGROUNDS = [
         desc: "A dead world dead ahead with the star behind it, so what you get is the ring of atmosphere burning around a black disc, once it lines up.",
     },
     {
-        id: "galaxy", name: "GALACTIC CORE", tint: "#ffd6a8", kind: "galaxy",
-        p: { c1: "#ffd6a8", c2: "#8fb6ff" },
+        id: "galaxy", name: "GALACTIC CORE", tint: "#ffd6a8", kind: "pixelGalaxy",
+        p: {
+            // Warm: the core and the inner disc. Rung 7 is the nucleus and
+            // nothing else in the place ever reaches it.
+            ramp: ["#05040a", "#14101d", "#241826", "#3b2622", "#57371f", "#7d5528", "#b98d45", "#fff3d0"],
+            // Cool: the outer arms. The two are mixed per art pixel by radius,
+            // so the disc goes gold at the middle and blue at the rim without
+            // a third ramp between them.
+            landRamp: ["#05040a", "#0b0f1c", "#121a30", "#1b2848", "#253a63", "#33547f", "#4d7aab", "#7fa8d8"],
+            // No place-wide `topRung`: the cap here is per art pixel -- 4 on
+            // the warm ramp, 5 on the cool one, 7 inside the nucleus -- which
+            // is the whole idea of the place. See `GC_WARM_CAP`.
+            starRamp: ["#39476e", "#6b7896", "#8d97ab"],
+            // The disc fills most of the frame, so the surround starts high
+            // for this catalogue: 14 is what pulls it under luminance 40,
+            // which is the bar the warm-feature test is set at. Past about 20
+            // the outer blue arms drop under rung 2 and the spiral stops
+            // reading at thumbnail size.
+            veil: 14,
+        },
         desc: "Looking straight into the crowded middle of the galaxy: two arms of stars wound around a core bright enough to read by.",
     },
     {
