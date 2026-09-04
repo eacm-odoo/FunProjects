@@ -159,12 +159,9 @@ export const GLOSSARY = [
     {
         title: "PLACES",
         note:
-            "The place a wave is fought in, " + WAVES_PER_PLACE + " waves each and in this " +
-            "order: wave " + BACKGROUNDS.length * WAVES_PER_PLACE + " is the last of them and " +
+            "Where a wave is fought, " + WAVES_PER_PLACE + " waves each and in this order; " +
             "wave " + (BACKGROUNDS.length * WAVES_PER_PLACE + 1) + " starts the route again. " +
-            "The name flashes over the arena the moment you cross into a new one. They are " +
-            "scenery and nothing else: no place changes what spawns, how it shoots or what " +
-            "you score, and everybody in a co-op run flies the same sky.",
+            "Scenery only: no place changes what spawns or what you score.",
         // Straight from the catalogue the engine paints from, in run order. A
         // place is not a target, so its bench is not the target bench: it pins
         // the sky and otherwise plays the normal game, which is the only way to

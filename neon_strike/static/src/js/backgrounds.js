@@ -12977,7 +12977,7 @@ export const BACKGROUNDS = [
             veil: 0, topRung: 2,
             ramp: ["#04060c", "#080c16", "#0d1322", "#131b2e", "#1a2340", "#26315a", "#3a4a7a", "#6d80b0"],
         },
-        desc: "The sky the star field has all to itself: no gas, no world, nothing painted behind you. Wave 1 is fought in the only place with nothing in it, and the only one that needs no veil between you and it.",
+        desc: "Nothing but the star field: no gas, no world, nothing painted behind you. Wave 1 is fought here.",
     },
     {
         id: "comet", name: "COMET TRAIL", tint: "#a8f0ff", kind: "pixelComet",
@@ -13004,7 +13004,7 @@ export const BACKGROUNDS = [
             // at -- so the share stops mattering.
             starRamp: ["#2c3846", "#5d6f80", "#93a8bd"],
         },
-        desc: "A comet crossing on its way in. Gold dust curves back along its path; a blue ion tail points dead away from the star and swings as it passes. It crosses, leaves and comes round again.",
+        desc: "A comet on its way in: gold dust curving behind it, a blue ion tail pointing away from the star.",
     },
     {
         id: "ice_world", name: "ICE WORLD", tint: "#bfe9ff", kind: "pixelIce",
@@ -13020,7 +13020,7 @@ export const BACKGROUNDS = [
             // and the four above them exist only because a ramp is eight long.
             landRamp: ["#050e16", "#08161f", "#0c1f2b", "#122a38", "#1a3a4a", "#244c5e", "#305f74", "#40738a"],
         },
-        desc: "Air too cold to hold any haze, so nothing here softens with distance: the farthest ridge cuts as hard as the nearest, and a ring of light stands in the crystals overhead. The slowest weather of any of the places.",
+        desc: "Air too cold to hold any haze: the farthest ridge cuts as hard as the nearest, under a ring of light.",
     },
     {
         id: "belt", name: "ASTEROID BELT", tint: "#c7b8a8", kind: "pixelBelt",
@@ -13058,7 +13058,7 @@ export const BACKGROUNDS = [
                 nav: "#209cc7", navHi: "#00c4e6", beacon: "#ef8658",
             },
         },
-        desc: "A ring station turning slowly at the top right, its windows lit and a craft docked at the still hub at its centre. Somebody out here is still home.",
+        desc: "A ring station turning at the top right, windows lit and a craft docked at its hub. Somebody is home.",
     },
     {
         id: "pulsar", name: "PULSAR", tint: "#8fd8ff", kind: "pixelPulsar",
@@ -13097,7 +13097,7 @@ export const BACKGROUNDS = [
             // behind the gas rather than in it.
             starRamp: ["#4b4470", "#7a74a4", "#b9b6d8"],
         },
-        desc: "Violet and pink gas stacked in soft layers, with dark dust lanes cutting across it and stars showing through wherever it thins out. However bright the gas gets, it stops short of the pink the enemies shoot in.",
+        desc: "Violet and pink gas in soft layers, cut by dark dust lanes, with stars showing through where it thins.",
     },
     {
         id: "system", name: "INNER SYSTEM", tint: "#ffe9a8", kind: "pixelSystem",
@@ -13133,7 +13133,7 @@ export const BACKGROUNDS = [
             ridgeRamp: ["#0d020c", "#160411", "#210718", "#2d0a1e", "#3c0e24", "#4e122a", "#631831", "#7c1f38"],
             flowRamp: ["#e0600f", "#ff9a2e", "#ffd06a"],
         },
-        desc: "Cold basalt under a red sky, with one flow still running out of the valley. The crust is nearly black and the ranges behind it fade instead of sharpening, because the air over molten ground is too hot to hold still.",
+        desc: "Cold black basalt under a red sky, with one flow still running out of the valley.",
     },
     {
         id: "moon", name: "LOW MOON ORBIT", tint: "#d6d2c8", kind: "pixelMoon",
@@ -13194,7 +13194,7 @@ export const BACKGROUNDS = [
             // the work. The place can be judged nearly unhelped.
             veil: 6,
         },
-        desc: "The night side of a storm world: violet cloud running faster than anywhere else, three funnels walking the ground under it, and lightning that lights the cloud from inside.",
+        desc: "The night side of a storm world: violet cloud, three funnels walking under it, lightning from inside.",
     },
     {
         id: "eclipse", name: "ECLIPSE", tint: "#ffd9a0", kind: "pixelEclipse",
@@ -13216,7 +13216,7 @@ export const BACKGROUNDS = [
             // are the only thing worth looking at.
             veil: 0,
         },
-        desc: "A dead world dead ahead with the star behind it, so what you get is the ring of atmosphere burning around a black disc, once it lines up.",
+        desc: "A dead world dead ahead with the star behind it: a ring of atmosphere burning around a black disc.",
     },
     {
         id: "binary", name: "BINARY SUNS", tint: "#ffd66b", kind: "pixelBinary",
@@ -13242,7 +13242,7 @@ export const BACKGROUNDS = [
             // of it, and none of the art was.
             starRamp: ["#4c5870", "#6a7a96", "#879ab8"],
         },
-        desc: "A swollen gold star pouring gas onto a small blue-white companion, where it winds into a spinning disc that burns brightest where the stream lands.",
+        desc: "A swollen gold star pouring gas onto a blue-white companion, winding into a disc where the stream lands.",
     },
     {
         id: "supernova", name: "SUPERNOVA", tint: "#3fb9a6", kind: "pixelSupernova",
@@ -13259,7 +13259,7 @@ export const BACKGROUNDS = [
             topRung: 5,
             veil: 11,
         },
-        desc: "A shell thrown outward and lopsided, ploughing into a dense cloud on one flank. Oxygen filaments stand cyan against the dust; the middle is empty, and a slow light echo lifts one lane of it at a time.",
+        desc: "A lopsided shell ploughing into a dense cloud, cyan oxygen filaments standing against the dust.",
     },
     {
         id: "galaxy", name: "GALACTIC CORE", tint: "#ffd6a8", kind: "pixelGalaxy",
@@ -13312,7 +13312,7 @@ export const BACKGROUNDS = [
             // black, which is also what a bullet is.
             starRamp: ["#232a38", "#38414f", "#5a6478"],
         },
-        desc: "A singularity hanging in the top third of the arena, its accretion disc laid out flat around it. The dust is on real orbits: grains spiral in, go bright as they pick up speed and are gone the moment they reach the horizon.",
+        desc: "A singularity with its accretion disc flat around it: dust spirals in, brightens and is gone.",
     },
     {
         id: "nebula_shell", name: "PLANETARY NEBULA", tint: "#7bffb0", kind: "pixelShell",
@@ -13353,7 +13353,7 @@ export const BACKGROUNDS = [
             // 28 small bright features to 0, at every veil from 0 to 12.
             starRamp: ["#275a6a", "#43808f", "#66a3b4"],
         },
-        desc: "A dying star's exhaled shell, lit from the inside out: concentric rings of ionised oxygen, dust columns standing against them, and a flash of light crossing the gas every few seconds.",
+        desc: "A dying star's shell lit from the inside: rings of ionised oxygen with dust columns against them.",
     },
     {
         id: "nebula_emerald", name: "EMERALD NEBULA", tint: "#7bffb0", kind: "nebula",
@@ -13412,7 +13412,7 @@ export const BACKGROUNDS = [
             starRamp: ["#202b2f", "#354247", "#4a595e"],
             dustRamp: ["#070c0e", "#0a1114", "#0d171a"],
         },
-        desc: "Charged particles hitting a magnetosphere. Curtains of green and cyan lean and swing across the whole sky, their rays flaring and dying twice a second, and the stars burn straight through them.",
+        desc: "Curtains of green and cyan leaning across the whole sky, flaring twice a second, stars burning through.",
     },
     {
         id: "ringed", name: "RINGED GIANT", tint: "#e8c98f", kind: "pixelGiant",
@@ -13448,7 +13448,7 @@ export const BACKGROUNDS = [
             // cannot be one. Third star ramp to come down for the same reason.
             starRamp: ["#3a4550", "#5e6b78", "#8e9aa6"],
         },
-        desc: "A banded giant filling the top right, its rings turning slowly through the frame: behind the body on one side, out in front of it on the other, with the planet's shadow lying across the far arc.",
+        desc: "A banded giant filling the top right, its rings turning through the frame, its shadow on the far arc.",
     },
     {
         id: "gas_giant", name: "GAS GIANT DESCENT", tint: "#ffca8a", kind: "surface",
@@ -13483,7 +13483,7 @@ export const BACKGROUNDS = [
                 ],
             },
         },
-        desc: "Falling through the cloud deck of a gas giant. Belts and zones rise past at their own speeds, tearing where they meet, and the haze thickens and brightens the further you sink.",
+        desc: "Falling through the cloud deck: belts rise past at their own speeds and the haze thickens as you sink.",
     },
     {
         id: "planet_blue", name: "BLUE MARBLE", tint: "#7fb6ff", kind: "pixelMarble",
@@ -13494,7 +13494,7 @@ export const BACKGROUNDS = [
             ramp: ["#02050c", "#061426", "#0b2a4a", "#10426e", "#1a5c8c", "#2b86b0", "#57b3cf", "#a8e0ee"],
             landRamp: ["#04070a", "#0a1410", "#132018", "#1d3020", "#2a4526", "#3d5c2c", "#587a3a", "#86a856"],
         },
-        desc: "A living world sitting low on the left, close enough to make out continents through the blue rim of its atmosphere. The star is off to one side, so the far half of it falls away into the dark.",
+        desc: "A living world low on the left, continents through the blue rim, its far half falling away into the dark.",
     },
     {
         id: "ocean_world", name: "OCEAN WORLD", tint: "#5ee1ff", kind: "pixelOcean",

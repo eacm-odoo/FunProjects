@@ -225,15 +225,26 @@ $ns-magenta: #ff2fd0;
         gap: 14px;
     }
 
+    // A column, so the practice button can be pinned to the bottom of it: the
+    // grid already makes every card in a row the same height, and a button that
+    // simply follows the text lands at a different level in each one.
     .ns_glossary_card {
+        display: flex;
+        flex-direction: column;
         background: rgba($ns-odoo-purple, 0.1);
         border: 1px solid rgba($ns-odoo-purple, 0.45);
         border-radius: 6px;
         padding: 12px;
     }
 
+    // Only the cards that end in a button need the gap above it.
+    .ns_glossary_card:has(.ns_practice_btn) .ns_glossary_desc {
+        margin-bottom: 10px;
+    }
+
     .ns_glossary_art {
         display: flex;
+        flex: none; // a fixed frame, never squeezed by a long description
         align-items: center;
         justify-content: center;
         height: 130px;
@@ -362,7 +373,7 @@ $ns-magenta: #ff2fd0;
     }
 
     .ns_practice_btn {
-        margin-top: 10px;
+        margin-top: auto; // bottom of the card, level across the row
         border-color: rgba(255, 77, 77, 0.55);
         color: #ffd7d7;
     }
