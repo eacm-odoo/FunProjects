@@ -68,6 +68,20 @@ const INPUT_MS = 50; // ~20 Hz
 // wider payload can never push the game area out of the viewport.
 const MAX_SCORES = 10;
 
+// Shown when a play button is reached with an empty nickname.
+const NICK_ERROR = "Type a nickname to play.";
+
+// The capsules the pause panel shows, in the order you meet them. It paints the
+// real sprite next to a two-word label instead of naming a letter you would
+// have to map back to a thing mid-run; the other ten stay in the glossary,
+// which is one button away. Tint and size come from the glossary entry.
+const PAUSE_CAPSULES = [
+    { sprite: "pupT", label: "Triple" },
+    { sprite: "pupS", label: "Shield" },
+    { sprite: "pupB", label: "Bomb" },
+    { sprite: "pupL", label: "Life" },
+];
+
 export class NeonStrikeGame extends Component {
     static template = "neon_strike.Game";
     static props = { "*": true };
@@ -77,6 +91,7 @@ export class NeonStrikeGame extends Component {
         this.canvasRef = useRef("canvas");
         this.menuCanvasRef = useRef("menuCanvas");
         this.glossaryRef = useRef("glossaryBody");
+        this.nickRef = useRef("nickInput");
 
         this.state = useState({
             muted: false,
@@ -126,6 +141,7 @@ export class NeonStrikeGame extends Component {
         // Glossary cards are rasterized once (see `glossaryGroups`); the enemy
         // ones are live canvases instead, driven by `_startCards`.
         this._glossary = null;
+        this._capsules = null;
         this._cards = [];
         this._cardsRaf = 0;
         this._broadcastHandle = null;
@@ -275,6 +291,29 @@ export class NeonStrikeGame extends Component {
             }));
         }
         return this._glossary;
+    }
+
+    /**
+     * The four starter capsules for the pause panel, rasterized once from the
+     * same sprite bank the field draws from.
+     */
+    get pauseCapsules() {
+        if (!this._capsules) {
+            const byId = {};
+            for (const group of GLOSSARY) {
+                for (const item of group.items) {
+                    byId[item.sprite] = item;
+                }
+            }
+            this._capsules = PAUSE_CAPSULES.map((cap) => {
+                const item = byId[cap.sprite];
+                return {
+                    label: cap.label,
+                    src: sprite(cap.sprite, item.tint, item.px, false).toDataURL(),
+                };
+            });
+        }
+        return this._capsules;
     }
 
     /**
@@ -740,15 +779,38 @@ export class NeonStrikeGame extends Component {
         return (e && e.data && e.data.message) || (e && e.message) || "Error inesperado.";
     }
 
+    /**
+     * Did the pilot type a name? The board and the lobby are anonymous: a run
+     * with no name has nothing to sign, so every entry point asks first.
+     */
+    get hasNick() {
+        return !!(this.state.nickname || "").trim();
+    }
+
     _requireNick() {
-        if (!(this.state.nickname || "").trim()) {
-            this.state.error = "Type a nickname to play.";
+        if (!this.hasNick) {
+            this.state.error = NICK_ERROR;
+            if (this.nickRef.el) {
+                this.nickRef.el.focus();
+            }
             return false;
         }
         return true;
     }
 
+    /** Typing a name drops the complaint about not having one. */
+    onNickInput() {
+        if (this.state.error === NICK_ERROR && this.hasNick) {
+            this.state.error = "";
+        }
+    }
+
     startSolo() {
+        // A practice run is a test bench that never reaches the board, so it is
+        // the one way in that does not need a name.
+        if (!this.state.practice && !this._requireNick()) {
+            return;
+        }
         this.state.error = "";
         this.state.role = "solo";
         this.state.match = null;

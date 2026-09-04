@@ -24,9 +24,15 @@
                 <p class="ns_sub mb-4" t-if="multiplayer">Co-op space shooter · up to 4 players · no sign-up</p>
                 <p class="ns_sub mb-4" t-else="">Arcade space shooter · 50 perks · no sign-up</p>
                 <div class="ns_nick mb-3">
-                    <label class="ns_nick_label" for="ns_nick_input">Your nickname</label>
-                    <input id="ns_nick_input" type="text" class="form-control ns_input_nick"
-                           placeholder="What should we call you?" maxlength="20" t-model="state.nickname"/>
+                    <label class="ns_nick_label" for="ns_nick_input">
+                        Your nickname <span class="ns_req" aria-hidden="true">*</span>
+                    </label>
+                    <input id="ns_nick_input" type="text" t-ref="nickInput" required="required"
+                           t-attf-class="form-control ns_input_nick {{ hasNick ? '' : 'ns_input_bad' }}"
+                           t-att-aria-invalid="hasNick ? 'false' : 'true'"
+                           placeholder="What should we call you?" maxlength="20"
+                           t-model="state.nickname" t-on-input="onNickInput"/>
+                    <p t-if="!hasNick" class="ns_nick_hint mb-0">Needed before you can fly: it signs your runs.</p>
                 </div>
                 <div class="ns_hulls mb-3">
                     <span class="ns_nick_label">Your ship</span>
@@ -46,18 +52,18 @@
                     <p class="ns_hull_hint mb-0">They all fly the same: pick the one you like.</p>
                 </div>
                 <div class="d-grid gap-2 mb-3">
-                    <button class="btn ns_cta" t-on-click="startSolo" t-att-disabled="state.connecting">
+                    <button class="btn ns_cta" t-on-click="startSolo" t-att-disabled="state.connecting || !hasNick">
                         <i class="fa fa-play me-2" role="img" aria-label="Play"/>
                         <t t-out="multiplayer ? 'Play solo' : 'Play'"/>
                     </button>
-                    <button t-if="multiplayer" class="btn ns_cta ns_cta_alt" t-on-click="createMatch" t-att-disabled="state.connecting">
+                    <button t-if="multiplayer" class="btn ns_cta ns_cta_alt" t-on-click="createMatch" t-att-disabled="state.connecting || !hasNick">
                         <i class="fa fa-users me-2" role="img" aria-label="Create"/>Create match
                     </button>
                 </div>
                 <div t-if="multiplayer" class="ns_join input-group mb-2">
                     <input type="text" class="form-control ns_input_code" placeholder="Room code (e.g. NEON-4F2)"
                            t-model="state.joinCode" t-on-keydown="onCodeKeydown"/>
-                    <button class="btn ns_btn" t-on-click="joinMatch" t-att-disabled="state.connecting">Join</button>
+                    <button class="btn ns_btn" t-on-click="joinMatch" t-att-disabled="state.connecting || !hasNick">Join</button>
                 </div>
                 <p t-if="state.error" class="ns_error mb-0" t-out="state.error"/>
                 <button class="btn ns_btn ns_glossary_open w-100 mt-2" t-on-click="toggleGlossary">
@@ -170,26 +176,65 @@
                 </button>
             </div>
             <div class="ns_pause_cols">
+                <!-- The help column: one line per thing you can do, keys as
+                     chips and capsules as their own sprite. It used to be a
+                     nine-line paragraph nobody read while a run waited. It owns
+                     its scroll for the same reason the board does. -->
                 <div class="ns_pause_col">
-                    <span class="ns_pause_label">CONTROLS</span>
-                    <p class="ns_hint mb-0">
-                        Drag to move · <b>Space</b> dashes (you are untouchable during it) · <b>X</b> spends a bomb · <b>1-4</b> fire your active perks.
-                        Hold <b>Shift</b> to focus: you fly slower and your hitbox is drawn — it is much smaller than the ship.
-                        Skimming past a bullet without being hit builds your combo; clearing a wave untouched pays a bonus.
-                        Every 5 waves you keep 1 of 3 permanent upgrades; a colossal boss shows up every 10.
-                        Capsules: T triple · S shield · B bomb · + life.
-                        <t t-if="multiplayer">Fly next to a downed ally to revive them.</t>
-                    </p>
-                    <t t-if="state.perks.length">
-                        <span class="ns_pause_label">PERKS YOU KEEP</span>
-                        <ul class="ns_pause_perks list-unstyled mb-0">
-                            <li t-foreach="state.perks" t-as="p" t-key="p_index"
-                                t-attf-style="--ns-perk: {{ p.tint }}">
-                                <span t-out="p.name"/>
-                                <span class="ns_pause_key" t-if="p.key">key <t t-out="p.key"/></span>
+                    <div class="ns_pause_scroll ns_pause_help">
+                        <span class="ns_pause_label">CONTROLS</span>
+                        <ul class="ns_keymap list-unstyled mb-0">
+                            <li>
+                                <span class="ns_keys_row"><span class="ns_key">Drag</span></span>
+                                <span>Move. You fire on your own.</span>
+                            </li>
+                            <li>
+                                <span class="ns_keys_row"><span class="ns_key">Space</span></span>
+                                <span>Dash. Nothing can touch you.</span>
+                            </li>
+                            <li>
+                                <span class="ns_keys_row"><span class="ns_key">Shift</span></span>
+                                <span>Focus. Slower, and your hitbox shows — it is tiny.</span>
+                            </li>
+                            <li>
+                                <span class="ns_keys_row"><span class="ns_key">X</span></span>
+                                <span>Bomb. Wipes the screen.</span>
+                            </li>
+                            <li>
+                                <span class="ns_keys_row"><span class="ns_key">1</span>–<span class="ns_key">4</span></span>
+                                <span>Fire your perks.</span>
                             </li>
                         </ul>
-                    </t>
+
+                        <span class="ns_pause_label">FLY OVER THESE</span>
+                        <ul class="ns_capsules list-unstyled mb-0">
+                            <li t-foreach="pauseCapsules" t-as="cap" t-key="cap.label">
+                                <img t-att-src="cap.src" alt=""/>
+                                <span t-out="cap.label"/>
+                            </li>
+                        </ul>
+                        <p class="ns_pause_note mb-0">Ten more of them live in the Glossary.</p>
+
+                        <span class="ns_pause_label">GOOD TO KNOW</span>
+                        <ul class="ns_tips list-unstyled mb-0">
+                            <li>Skim past a bullet <b>→</b> your combo climbs.</li>
+                            <li>Clear a wave untouched <b>→</b> bonus points.</li>
+                            <li>Every <b>5</b> waves <b>→</b> keep 1 of 3 upgrades.</li>
+                            <li>Every <b>10</b> waves <b>→</b> a colossal boss.</li>
+                            <li t-if="multiplayer">Fly next to a downed ally <b>→</b> they are back.</li>
+                        </ul>
+
+                        <t t-if="state.perks.length">
+                            <span class="ns_pause_label">PERKS YOU KEEP</span>
+                            <ul class="ns_pause_perks list-unstyled mb-0">
+                                <li t-foreach="state.perks" t-as="p" t-key="p_index"
+                                    t-attf-style="--ns-perk: {{ p.tint }}">
+                                    <span t-out="p.name"/>
+                                    <span class="ns_pause_key" t-if="p.key">key <t t-out="p.key"/></span>
+                                </li>
+                            </ul>
+                        </t>
+                    </div>
                 </div>
                 <div class="ns_pause_col ns_pause_board">
                     <span class="ns_pause_label">LEADERBOARD</span>

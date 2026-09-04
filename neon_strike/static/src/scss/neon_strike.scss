@@ -573,6 +573,16 @@ $ns-magenta: #ff2fd0;
         color: #5b608a;
     }
 
+    .ns_req {
+        color: #ff8f8f;
+    }
+
+    .ns_nick_hint {
+        margin-top: 0.35rem;
+        font-size: 11px;
+        color: #5b608a;
+    }
+
     .ns_input_nick {
         background: #0c0e1a;
         border: 1px solid #2a2d44;
@@ -580,6 +590,13 @@ $ns-magenta: #ff2fd0;
 
         &::placeholder {
             color: #5b608a;
+        }
+
+        // Empty is not an error yet, only unfinished: a dashed edge marks the
+        // one field the play buttons are waiting on, without shouting red.
+        &.ns_input_bad {
+            border-style: dashed;
+            border-color: rgba(255, 143, 143, 0.55);
         }
 
         &:focus {
@@ -713,11 +730,6 @@ $ns-magenta: #ff2fd0;
         }
     }
 
-    .ns_hint {
-        color: #8d93b8;
-        font-size: 12px;
-    }
-
     /* -------------------------------------------------------------------- */
     /* Esc overlay                                                           */
     /* -------------------------------------------------------------------- */
@@ -779,6 +791,87 @@ $ns-magenta: #ff2fd0;
         margin-left: 6px;
         font-size: 10px;
         color: #8d93b8;
+    }
+
+    // Help column: a stack of labelled blocks, each one a list of short rows.
+    .ns_pause_help {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding-right: 6px; // room for its scrollbar
+
+        .ns_pause_label {
+            margin-top: 6px;
+        }
+
+        > .ns_pause_label:first-child {
+            margin-top: 0;
+        }
+    }
+
+    // One row per action: the keys ride in a fixed-width column of their own so
+    // the sentences line up and the eye can run down the chips alone. The
+    // wrapper is what gets the width -- a chip sized to the column would
+    // stretch into a bar.
+    .ns_keymap li {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        margin-bottom: 5px;
+        font-size: 12px;
+        line-height: 1.5;
+        color: #e8ecff;
+
+        > .ns_keys_row {
+            flex: 0 0 76px;
+            text-align: right;
+            color: #8d93b8;
+        }
+
+        .ns_key {
+            margin: 0 0 0 2px;
+        }
+    }
+
+    // Capsules as the sprite you actually see in the field, not as a letter.
+    .ns_capsules {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+
+        li {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 8px 3px 5px;
+            background: rgba($ns-odoo-purple, 0.14);
+            border: 1px solid rgba($ns-odoo-purple, 0.4);
+            border-radius: 6px;
+            font-size: 12px;
+            color: #e8ecff;
+        }
+
+        img {
+            height: 18px;
+            image-rendering: pixelated;
+        }
+    }
+
+    .ns_pause_note {
+        font-size: 11px;
+        color: #8d93b8;
+    }
+
+    .ns_tips li {
+        margin-bottom: 4px;
+        font-size: 12px;
+        line-height: 1.4;
+        color: #a9b0d4;
+
+        b {
+            color: $ns-cyan;
+            font-weight: 600;
+        }
     }
 
     // This is the column that owns its own scroll. See `.ns_pause_cols`.
