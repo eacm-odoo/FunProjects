@@ -29,7 +29,7 @@ export const COLOSSI = [
         // `aegis_motion.js`, whose `descend.restY` mirrors the `y` below.
         y: 150,
         speed: 0.9,
-        desc: "Siege slab wider than the arena. It leans toward whoever is still flying, plants itself before sweeping a curtain of fire with a single gap, and answers with twin siege salvos.",
+        desc: "Siege slab wider than the arena. It plants itself, sweeps a curtain with a single gap, then answers with twin salvos.",
     },
     {
         id: "hydra",
@@ -43,7 +43,7 @@ export const COLOSSI = [
         val: 24000,
         y: 165,
         speed: 1.15,
-        desc: "Three heads on one chest, and the two on the arms can be shot off. The crown spits spirals you thread a route through; the side heads spray aimed fans that punish standing still. They take turns until it enrages, then run at once -- and every head you destroy takes its fan out of the fight but tightens the spiral, until it grows back fifteen seconds later.",
+        desc: "Three heads: the crown spits spirals, the two arms spray aimed fans and can be shot off. Each one you take tightens the spiral, and grows back.",
     },
     {
         id: "vulcan",
@@ -66,7 +66,7 @@ export const COLOSSI = [
         // (see `vulcan_motion.js`) and the profile takes over from the entrance.
         y: 160,
         speed: 0.75,
-        desc: "A walking foundry on a heat cycle: two forge beams that heat it until it overheats and cuts them off, molten rings out of the shoulder vents with the core left open and worth double, then an asteroid volley whose charge tells you how many are coming. Damage spent on a shoulder fan buys heat and brings the overheat forward -- break one and it seizes, the window shrinks and the heat blows out of the core instead.",
+        desc: "A walking foundry on a heat cycle: forge beams, an overheat that leaves the core open, then molten rings and asteroids. Hit a shoulder to bring the overheat forward.",
     },
     {
         id: "nyx",

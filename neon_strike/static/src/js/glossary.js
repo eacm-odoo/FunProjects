@@ -2,7 +2,9 @@
 /* Part of Odoo. See LICENSE file for full copyright and licensing details.
  * Neon Strike - glossary of ships, enemies, boss, asteroids and power-ups.
  *
- * Data-only catalogue: name, sprite, tint and one line of behaviour. The tints
+ * Data-only catalogue: name, sprite, tint and one line of behaviour -- one line
+ * is the budget, and it buys the tell you cannot read off the card art. How the
+ * thing actually behaves lives in `game_engine.js`, not here. The tints
  * and sprites are the same ones the engine uses in game, so what you see here
  * is literally what shows up while playing. The behaviour lines describe the
  * real AI in `game_engine.js`: if the engine changes, review them.
@@ -50,55 +52,55 @@ export const GLOSSARY = [
     },
     {
         title: "ENEMIES",
-        note: "Enemy fire is colour coded, and the colour tells you what to do about it. Pink is a spread that was not aimed at anybody: read the gaps. Amber was fired at where you were: keep moving sideways. Cyan is fast and precise, it is already where it is going. Violet is a slow heavy curtain: find the hole, you cannot outrun it.",
+        note: "Enemy fire is colour coded: pink is an unaimed spread (read the gaps), amber went where you were (keep moving), cyan is fast and precise, violet is a slow curtain (find the hole).",
         items: [
             {
                 sprite: "drone0", tint: "#ff5d8f", px: 8, kit: "drone",
                 label: "DRONE · A", sub: "diamond chassis · 100 pts",
                 practice: { type: "drone", v: 0 },
-                desc: "Drifts down in a gentle zigzag, leaning into it. One shot kills it early on; it grows a point of hull every 9 waves, and you can read how many it has left off the hull itself: the brighter the core, the more it is going to take. The lamps on one side light up just before it turns that way.",
+                desc: "Zigzags down, leaning into the turn. The lamps light up on the side it is about to take.",
             },
             {
                 sprite: "drone1", tint: "#ff5d8f", px: 8, kit: "drone",
                 label: "DRONE · B", sub: "cross chassis · 100 pts",
                 practice: { type: "drone", v: 1 },
-                desc: "Same threat as A on a cross chassis, and it moves like one: instead of leaning it turns, fastest across the middle of a sweep and almost stopped just before it reverses. The tips of the two arms on one side light up before it goes that way, and when it dies the four arms let go first and the core folds last. It reads the same as A: brighter core, more hull left.",
+                desc: "Same threat as A: it turns instead of leaning, and the lit arm tips point where it is going.",
             },
             {
                 sprite: "speedy0", tint: "#ffd166", px: 9, kit: "speedy",
                 label: "SPEEDY · A", sub: "dart, recessed nozzle · 150 pts",
                 practice: { type: "speedy", v: 0 },
-                desc: "Falls fast and steers towards you, and it points where it is going: the hull leans into the run it is making, so you can read the crossing before it happens. Its exhaust is sunk into the tail, which makes the flame a hard bright stutter at ten beats a second. One shot kills it early on; it grows a point of hull every 10 waves, and pits along the plating as it loses them.",
+                desc: "Falls fast and steers into you. It leans into the run, so the crossing is readable early.",
             },
             {
                 sprite: "speedy1", tint: "#ffd166", px: 9, kit: "speedy",
                 label: "SPEEDY · B", sub: "delta, flush tail · 150 pts",
                 practice: { type: "speedy", v: 1 },
-                desc: "The same threat as A flying a different engine. Its tail is a flush plate rather than a sunk nozzle, so the burn is broad, soft and half the rhythm: at a glance it is the slow flame in a pack of fast ones. Everything else reads the same, lean included.",
+                desc: "Same threat as A, broad soft burn: the slow flame in a pack of fast ones.",
             },
             {
                 sprite: "tank0", tint: "#9b5de5", px: 6, kit: "tank",
                 label: "TANK · A", sub: "armoured hex · 300 pts",
                 practice: { type: "tank", v: 0 },
-                desc: "Slow, with 4 armour and a point more every 5 waves, holding itself down on two heavy engines at three beats a second. Its aimed shot is telegraphed twice over: a line points at you, and the hull itself goes quiet -- the flames throttle down to a single ember, the eyes come up in two steps and the whole body turns towards whoever it has picked. When it fires it kicks back off the shot.",
+                desc: "Slow and armoured. Before the aimed shot it goes quiet: flames down to an ember, eyes up, and it turns on you.",
             },
             {
                 sprite: "tank1", tint: "#9b5de5", px: 6, kit: "tank",
                 label: "TANK · B", sub: "railed hex · 300 pts",
                 practice: { type: "tank", v: 1 },
-                desc: "Same threat as A, on a hull with metal rails down its flanks and its two exhausts set a little wider. It tells you the same way: the engines drop to an ember, the eyes light and it squares up on its target.",
+                desc: "Same threat as A on a railed hull, and the same tell: ember, eyes, and it squares up.",
             },
             {
                 sprite: "sniper0", tint: "#4de3c1", px: 8, kit: "sniper",
                 label: "SNIPER", sub: "aimed cannon · 400 pts",
                 practice: { type: "sniper", v: 0 },
-                desc: "Stops mid-screen and shoots accurately. It is not travelling, it is holding a position, so it runs no main engine: one side thruster puffs, then the other, while it slides a pixel off centre and back. The charge climbs its cannon as a bead of light, and the last warning is the quietest one -- the thrusters cut and it goes dead still, unpowered, just before the dashed sight line settles on you.",
+                desc: "Holds a spot and aims. The light climbs its cannon, then it goes dead still -- that is the shot.",
             },
             {
                 sprite: "kami0", tint: "#ff8f3d", px: 9, kit: "kami",
                 label: "KAMIKAZE", sub: "unstable core · 350 pts",
                 practice: { type: "kami", v: 0 },
-                desc: "Chases you, accelerating, and blows up on contact. It has no idle: it is under full thrust from the moment it spawns, and the burn is the speedometer -- the trail grows and brightens as it winds up, and the core throbs faster the closer it is to the cap. When it dies there is no wreck, only the detonation. Dodge it or shoot it down first; it toughens up every 8 waves.",
+                desc: "Chases you and detonates on contact. The brighter the trail, the faster it is already going.",
             },
             {
                 // Not a wave enemy: it only ever exists because LANCER planted
@@ -107,7 +109,7 @@ export const GLOSSARY = [
                 sprite: "lnode0", tint: "#ffd166", px: 7,
                 label: "LANCE EMPLACEMENT", sub: "LANCER's furniture · 260 pts",
                 practice: { boss: 2 },
-                desc: "Not an enemy so much as a wall LANCER leaves behind. It never shoots and it does no damage if you touch it; what it does is hold a lance beam across the arena, and the beam dies the instant the emplacement does. It never expires -- four more are planted every dive, up to twelve, and each one re-arms forever. Read the pips under it: they count down to the moment it goes live, and they count back up while it is dark, which is the only warning that one which looks spent is coming back. Only four beams exist at once however many are standing, so a crowded arena means more targets and a shorter wait between beams, never a fifth beam.",
+                desc: "Harmless in itself: it anchors one of LANCER's beams, which dies with it. The pips count down to the beam coming back.",
             },
         ],
     },

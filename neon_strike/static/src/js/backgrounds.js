@@ -13029,7 +13029,7 @@ export const BACKGROUNDS = [
             veil: 8, topRung: 6,
             ramp: ["#05050a", "#0e0c12", "#1a161c", "#282029", "#3a2f34", "#544344", "#7a6058", "#a8877a"],
         },
-        desc: "Rocks as far out as you can see, in two layers: five hundred baked into the haze, a couple of dozen nearer ones drifting down over it. They are scenery and cannot be shot -- the asteroids that can kill you are the near ones the wave spawns, and they come at you five times faster and five times bigger.",
+        desc: "Rocks as far out as you can see, in two drifting layers. They are scenery: only the ones the wave spawns can hit you.",
     },
     {
         id: "graveyard", name: "SHIP GRAVEYARD", tint: "#9aa6c4", kind: "graveyard",

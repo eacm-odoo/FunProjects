@@ -42,7 +42,7 @@ export const BOSSES = [
         // Same trade VULCAN's 800 -> 1000 paid for its vent window.
         hp: 1.10,
         val: 1.3,
-        desc: "Fights in cycles: behind its armour it fires nothing at all and rams you instead, backing off along the line it has chosen before it comes through. Then the armour drops and it answers with aimed fans. The ring around it spins while it has picked nobody and locks its gap onto the charge it has committed to. Hurt it while the shield is down: the pips on its hull count out how long you have.",
+        desc: "Cycles between armoured rams and open, aimed fans. Hurt it while the shield is down -- the pips count the window.",
     },
     {
         id: "lancer",
@@ -56,7 +56,7 @@ export const BOSSES = [
         // hull: it is out of hover for 140 of every 290 frames now.
         hp: 0.8,
         val: 1.2,
-        desc: "Light and aggressive. Dives through the arena firing, and plants lance emplacements as it passes. They never leave on their own -- each one anchors a beam until it is destroyed, and the beam dies with it.",
+        desc: "Light and aggressive. Dives through firing and plants lance emplacements, one beam each until you break them.",
     },
     {
         id: "hive",
@@ -79,7 +79,7 @@ export const BOSSES = [
         // faster, lower, more present hull, which is the whole trade.
         hp: 1.15,
         val: 1.3,
-        desc: "Carrier: five bays, each waiting for its own brood to thin before it opens again. Break one and that much of the swarm never exists -- but it spits what was inside straight at you, and the doors that are left open faster. Then it comes down, which is the only time the bays are in reach.",
+        desc: "Carrier with five bays feeding the swarm. Break one and that brood never exists; they are only in reach when it comes down.",
     },
     {
         id: "prism",
