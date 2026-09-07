@@ -57,6 +57,14 @@ const HULL_LEVELS = [
     [1, "ship1lv3", "III", 3, "Four cannons over a swept delta, a fin on each shoulder, and a nacelle hung outboard of it."],
     [1, "ship1lv4", "IV", 4, "Shoulder fins squared into plates, grey nacelles slung under the wings, and a slash vent cut into each."],
     [1, "ship1lv5", "V", 5, "Fins carried out to the full span, two nacelles a side with lit ports, and the longest spine of the five."],
+    [2, "ship2lv2", "II", 2, "The fuselage lengthened, a chevron over each wing root and a second pair below, and the tail grown into a fan."],
+    [2, "ship2lv3", "III", 3, "A third chevron a side, the canopy carried up the nose, and vents cut into the fan."],
+    [2, "ship2lv4", "IV", 4, "Four chevrons a side swept back, a lit rail down each flank, and the widest fan of the four."],
+    [2, "ship2lv5", "V", 5, "Shoulder pods above the chevrons, the longest nose of the five, and the fan split into blades."],
+    [3, "ship3lv2", "II", 2, "The wing lenses grown to full rings behind a silver bar, and a bronze horseshoe closed under the tail."],
+    [3, "ship3lv3", "III", 3, "The rings lit at their cores, arcs carried over the shoulders, and vents cut into the flanks."],
+    [3, "ship3lv4", "IV", 4, "Two ring assemblies a side, pods slung under the wings, and the hoop closed into a full circle."],
+    [3, "ship3lv5", "V", 5, "The widest lenses of the five, vents down the whole hull, and beads lit around the hoop."],
 ];
 
 export const GLOSSARY = [
