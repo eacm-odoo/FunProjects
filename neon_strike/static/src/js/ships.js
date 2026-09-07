@@ -45,3 +45,17 @@ export function hullIndex(id) {
     const i = SHIPS.findIndex((s) => s.id === id);
     return i < 0 ? 0 : i;
 }
+
+/**
+ * Hull levels are **cosmetic**, like the hulls themselves: a levelled ship
+ * flies, shoots and dies exactly the same. Level 0 is the base sprite and 1-4
+ * are the `lv2`..`lv5` art the catalogue shows.
+ */
+export const MAX_HULL_LEVEL = 4;
+
+/** The bank sprite for a hull at a level, clamped to what actually exists. */
+export function hullSprite(hull, level) {
+    const s = SHIPS[hull] || SHIPS[0];
+    const l = Math.max(0, Math.min(MAX_HULL_LEVEL, Math.round(level || 0)));
+    return l ? s.sprite + "lv" + (l + 1) : s.sprite;
+}

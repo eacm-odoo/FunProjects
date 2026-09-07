@@ -368,6 +368,20 @@ const CARD_PATH = { ax: 140, wx: 9, wm: 0.65, envPow: 8, envBase: 0.28, ay: 55, 
 const CARD_FRAMES = 480;
 
 /**
+ * Probed boxes, by `sprite|px`. Finding a card's box means flying the whole
+ * loop into a scratch canvas and reading its bounds back, which is ~99% of what
+ * building a card costs (the rasterizing is 5% of it and the bounds scan 1%),
+ * and the catalogue now asks for twenty of them at once.
+ *
+ * Keyed without the tint on purpose: the tint changes what is painted, never
+ * where, so the four slot colours and the enemy variants all share one probe.
+ * Sampling fewer frames would be the other way to make this cheap and is wrong
+ * -- drawing every 4th frame of the path loses up to 9 px of the box, which
+ * clips the hull at the extremes of its roll.
+ */
+const cardBoxes = new Map();
+
+/**
  * The card art for the catalogue: the hull flying, on a canvas cut to what the
  * whole loop paints. Same contract as `fryCard` and `droneCard` -- a size and
  * one function that paints a frame -- so the glossary drives all of them off
@@ -403,15 +417,20 @@ export function shipCard(o) {
         flight.draw(g, { sprite: name, tint: o.tint, px });
         g.restore();
     };
-    const probe = document.createElement("canvas");
-    probe.width = W;
-    probe.height = H;
-    const pg = probe.getContext("2d");
-    const measure = new ShipFlight();
-    for (let i = 0; i < CARD_FRAMES; i++) {
-        step(measure, pg, i / 60, 1 / 60, W / 2, H / 2);
+    const boxKey = name + "|" + px;
+    let box = cardBoxes.get(boxKey);
+    if (!box) {
+        const probe = document.createElement("canvas");
+        probe.width = W;
+        probe.height = H;
+        const pg = probe.getContext("2d");
+        const measure = new ShipFlight();
+        for (let i = 0; i < CARD_FRAMES; i++) {
+            step(measure, pg, i / 60, 1 / 60, W / 2, H / 2);
+        }
+        box = canvasBounds(probe, Math.round(px)) || { x: 0, y: 0, w: W, h: H };
+        cardBoxes.set(boxKey, box);
     }
-    const box = canvasBounds(probe, Math.round(px)) || { x: 0, y: 0, w: W, h: H };
     const ox = W / 2 - box.x;
     const oy = H / 2 - box.y;
     const flight = new ShipFlight();

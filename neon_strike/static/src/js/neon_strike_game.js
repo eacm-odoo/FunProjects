@@ -14,7 +14,7 @@ import { MenuBackdrop } from "./menu_backdrop";
 import { GLOSSARY } from "./glossary";
 import { PERKS } from "./perks";
 import { shipCard } from "./ship_flight";
-import { SHIPS, hullIndex } from "./ships";
+import { MAX_HULL_LEVEL, SHIPS, hullIndex } from "./ships";
 import { sprite } from "./sprites";
 
 /**
@@ -114,6 +114,10 @@ export class NeonStrikeGame extends Component {
             practice: null,      // descriptor from the glossary item
             practiceLabel: "",
             paused: false,
+            // Hull level of the local ship, mirrored from the engine while the
+            // pause panel is open so the practice button can label itself. The
+            // engine owns it; this copy is never read back.
+            hullLevel: 0,
             // The perks you own, read once when the pause overlay opens. They
             // used to be sixteen dots on the play screen; this is the moment
             // somebody actually reads them.
@@ -564,6 +568,7 @@ export class NeonStrikeGame extends Component {
             onPause: (paused) => {
                 this.state.paused = paused;
                 this.state.perks = paused ? this._readPerks() : [];
+                this.state.hullLevel = paused && this.engine ? this.engine.localLevel() : 0;
                 if (!paused) {
                     // Esc resumes even while the glossary is layered over the
                     // pause overlay, and a running game under an open panel is
@@ -607,10 +612,18 @@ export class NeonStrikeGame extends Component {
     }
 
     /**
-     * Start the glossary's enemy cards. Each `<canvas data-kit>` in the panel is
+     * Start the glossary's live cards. Each `<canvas data-kit>` in the panel is
      * handed to its own animator, which measures the canvas it needs and returns
      * the one function that paints a frame of its loop; one rAF drives all of
-     * them, because eight cards are one animation, not eight.
+     * them, because 28 cards are one animation, not 28.
+     *
+     * Measuring is what costs: an animator flies its whole loop into a scratch
+     * canvas to find the box its art needs, ~99% of what building a card takes,
+     * and the catalogue holds 20 hulls alone. Building them all when the panel
+     * opened held it off screen for a second or more. Two things fix that, and
+     * neither changes a pixel of what is finally drawn: a card is not built
+     * until it is scrolled near, and building is sliced across frames so the
+     * panel is up and scrollable on the first one.
      *
      * The clock is wall time normalised to 60 fps, so a 120 Hz screen does not
      * run the burns twice as fast, and `prefers-reduced-motion` gets a single
@@ -622,36 +635,96 @@ export class NeonStrikeGame extends Component {
             return;
         }
         this._cards = [];
-        for (const cv of root.querySelectorAll("canvas[data-kit]")) {
-            const d = cv.dataset;
-            const item = { sprite: d.sprite, kit: d.kit, tint: d.tint, px: Number(d.px) };
-            const card = CARD_KITS[d.kit] ? CARD_KITS[d.kit](item) : fryCard(item);
-            cv.width = card.width;
-            cv.height = card.height;
-            const g = cv.getContext("2d");
-            g.imageSmoothingEnabled = false;
-            this._cards.push({ card, g });
-        }
-        if (!this._cards.length) {
+        const all = [...root.querySelectorAll("canvas[data-kit]")];
+        if (!all.length) {
             return;
         }
-        this._paintCards(0);
         const reduced =
             typeof window.matchMedia === "function" &&
             window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        if (reduced) {
-            return;
+        const pending = [];
+        const queued = new Set();
+        this._cardOf = new Map();
+        // Reduced motion keeps building every card: its loop paints once and
+        // stops, so there is no later frame to notice a card scrolled into view.
+        if (reduced || typeof IntersectionObserver !== "function") {
+            pending.push(...all);
+        } else {
+            // `root` is the scrolling body, so this is intersection inside the
+            // panel and not the window. The margin starts a card just before it
+            // is scrolled to, so it is already running when it arrives.
+            this._cardSeen = new IntersectionObserver(
+                (entries) => {
+                    if (!this._cardOf) {
+                        return; // the panel closed with a callback still queued
+                    }
+                    for (const e of entries) {
+                        const built = this._cardOf.get(e.target);
+                        if (built) {
+                            built.on = e.isIntersecting;
+                        } else if (e.isIntersecting && !queued.has(e.target)) {
+                            queued.add(e.target);
+                            pending.push(e.target);
+                        }
+                    }
+                },
+                { root, rootMargin: "200px" }
+            );
+            for (const cv of all) {
+                this._cardSeen.observe(cv);
+            }
         }
+        const BUILD_SLICE_MS = 6;
+        const build = () => {
+            const until = performance.now() + BUILD_SLICE_MS;
+            let made = 0;
+            while (pending.length && performance.now() < until) {
+                const cv = pending.shift();
+                const d = cv.dataset;
+                const item = { sprite: d.sprite, kit: d.kit, tint: d.tint, px: Number(d.px) };
+                const card = CARD_KITS[d.kit] ? CARD_KITS[d.kit](item) : fryCard(item);
+                cv.width = card.width;
+                cv.height = card.height;
+                const g = cv.getContext("2d");
+                g.imageSmoothingEnabled = false;
+                const rec = { card, g, on: true };
+                this._cardOf.set(cv, rec);
+                this._cards.push(rec);
+                made++;
+            }
+            return made;
+        };
         const t0 = performance.now();
         const loop = () => {
+            const made = build();
+            if (reduced) {
+                // One painted frame per card, on the frame it was built.
+                if (made) {
+                    this._paintCards(0);
+                }
+                if (!pending.length) {
+                    this._cardsRaf = 0;
+                    return;
+                }
+            } else {
+                this._paintCards((performance.now() - t0) / 16.667);
+            }
             this._cardsRaf = requestAnimationFrame(loop);
-            this._paintCards((performance.now() - t0) / 16.667);
         };
         this._cardsRaf = requestAnimationFrame(loop);
     }
 
+    /**
+     * Paint the cards that are on screen. A card scrolled out of the panel is
+     * left alone: 20 hulls flying at once is 6x the per-frame cost of the four
+     * this loop was written for, and most of them are not being looked at.
+     * `on` is false only where an observer is actually reporting visibility.
+     */
     _paintCards(t) {
         for (const c of this._cards) {
+            if (!c.on) {
+                continue;
+            }
             c.g.clearRect(0, 0, c.card.width, c.card.height);
             c.card.draw(c.g, t);
         }
@@ -662,6 +735,12 @@ export class NeonStrikeGame extends Component {
             cancelAnimationFrame(this._cardsRaf);
             this._cardsRaf = 0;
         }
+        if (this._cardSeen) {
+            // The canvases go with the panel; the observer would outlive them.
+            this._cardSeen.disconnect();
+            this._cardSeen = null;
+        }
+        this._cardOf = null;
         this._cards = [];
     }
 
@@ -958,6 +1037,34 @@ export class NeonStrikeGame extends Component {
         if (this.engine) {
             this.engine.togglePause();
         }
+    }
+
+    /**
+     * Practice only: take the hull up one level from the pause panel.
+     *
+     * Hull levels are art -- the five sprites the catalogue shows -- and
+     * nothing in a real run promotes a ship into one yet. This is the way to
+     * see them flying, with their flame and their roll, without a mechanic
+     * behind them: it changes what is drawn and nothing else.
+     */
+    levelUpShip() {
+        if (!this.engine) {
+            return;
+        }
+        const level = this.engine.levelUpLocal();
+        if (level >= 0) {
+            this.state.hullLevel = level;
+        }
+    }
+
+    /** True while the practice hull still has a level above it. */
+    get canLevelUp() {
+        return this.state.hullLevel < MAX_HULL_LEVEL;
+    }
+
+    /** Roman numeral of the hull level on screen, for the button's label. */
+    get hullLevelLabel() {
+        return ["I", "II", "III", "IV", "V"][this.state.hullLevel] || "I";
     }
 
     /** Clicking the dark backdrop resumes, the way it closes the glossary. */

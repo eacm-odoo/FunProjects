@@ -20,7 +20,7 @@ import { MAX_ACTIVES, PERKS, PERK_INDEX, rollOffers } from "./perks";
 import { PerkScreen } from "./perk_screen";
 import { BOSSES, bossForWave } from "./bosses";
 import { COLOSSI, colossusForWave } from "./colossi";
-import { SHIPS, SHIP_COLORS } from "./ships";
+import { MAX_HULL_LEVEL, SHIPS, SHIP_COLORS, hullSprite } from "./ships";
 import { ShipFlight } from "./ship_flight";
 import {
     BossAnimator, HIVE_DEATH, WARDEN_DEATH, bossParts, drawBossWreck,
@@ -690,11 +690,18 @@ const BEAM_FORGE = {
     // where it crosses rather than at its far end, which is off screen.
     bloom: { at: 0.42, rx: 0.85, ry: 0.5, a: 0.3 },
 };
-// Ship pixel size, per hull: they no longer share a grid (the needle's art is
-// 19 columns where the other three are 16), and one shared size would have
-// scaled three hulls by the fourth one's grid.
-const HULL_PX = SHIPS.map((s) => pxFor(s.sprite, 30));
+// Ship pixel size, per hull *and level*: no two of these grids are the same
+// width -- the needle's base art is 19 columns where the other three are 16,
+// and the levelled art runs to 54 -- so one shared size would scale every hull
+// by whichever one it was derived from. Measured once here rather than per
+// frame, because `drawShip` needs it every frame for every ship on screen.
+const HULL_PX = SHIPS.map((_s, hull) =>
+    Array.from({ length: MAX_HULL_LEVEL + 1 }, (_v, lvl) => pxFor(hullSprite(hull, lvl), 30))
+);
 const PUP_PX = pxFor("pupT", 30);
+// The level-up flourish: long enough to read as an event, short enough that it
+// never hides what is shooting at you. Purely cosmetic, like the level itself.
+const LEVEL_FX = { frames: 46, r0: 10, r1: 44, sparks: 16, trickle: 3 };
 // The simulation ticks in 60 fps frames (`ts`); the flight animation wants
 // seconds, and going through `ts` is what makes it slow down with slow motion.
 const FRAME_SECONDS = 1 / 60;
@@ -1309,6 +1316,35 @@ export class NeonStrikeEngine {
         }
     }
 
+    /**
+     * Take the local ship up one hull level, for the practice pause menu.
+     *
+     * Cosmetic only: the level chooses which of the five sprites is drawn and
+     * nothing else, so nothing about the run changes and nothing is sent to a
+     * guest. Returns the level it landed on, or -1 if there was no ship to
+     * level or it was already at the top -- the panel reads that to keep its
+     * button honest.
+     */
+    levelUpLocal() {
+        const sp = this.ships.find((s) => !s.down) || this.ships[0];
+        if (!sp || sp.level >= MAX_HULL_LEVEL) {
+            return -1;
+        }
+        sp.level++;
+        sp.levelFx = LEVEL_FX.frames;
+        this.burst(sp.x, sp.y, "#ffffff", LEVEL_FX.sparks, 5);
+        this.burst(sp.x, sp.y, sp.color, LEVEL_FX.sparks, 3.5);
+        this.pop(sp.x, sp.y - 34, "LEVEL " + (sp.level + 1), sp.color, 18, 70);
+        this.sPup();
+        return sp.level;
+    }
+
+    /** The local ship's hull level, for the panel that offers to raise it. */
+    localLevel() {
+        const sp = this.ships.find((s) => !s.down) || this.ships[0];
+        return sp ? sp.level : 0;
+    }
+
     /** Record a cosmetic event to replay on the guests. */
     _ev(obj) {
         if (this.role === "host") {
@@ -1407,6 +1443,11 @@ export class NeonStrikeEngine {
             // dash charges and lights an envelope wherever one moved, so a
             // guest gets them off the snapshot for free.
             hudFx: new HudFx(),
+            // Hull level (0-4). Cosmetic: it only chooses which of the five
+            // sprites is drawn. It is deliberately absent from the snapshot --
+            // levelling is a practice-mode toy, and practice is solo.
+            level: 0,
+            levelFx: 0,                   // frames left of the level-up flourish
             inv: 0, invMax: 1, shield: 0,
             weapon: "single", weaponT: 0, fireT: 0,
             lives: 3, down: false, reviveProgress: 0,
@@ -3001,6 +3042,25 @@ export class NeonStrikeEngine {
     _updateShipTimers(sp, ts) {
         if (sp.inv > 0) {
             sp.inv -= ts;
+        }
+        if (sp.levelFx > 0) {
+            sp.levelFx -= ts;
+            // A few sparks keep lifting off the hull for the whole flourish, so
+            // it reads as the hull glittering rather than one burst at the top.
+            for (let i = 0; i < LEVEL_FX.trickle; i++) {
+                const a = Math.random() * 6.2832;
+                const d = 8 + Math.random() * 16;
+                this.parts.push({
+                    x: sp.x + Math.cos(a) * d,
+                    y: sp.y + Math.sin(a) * d,
+                    vx: Math.cos(a) * 0.7,
+                    vy: Math.sin(a) * 0.7 - 0.5,
+                    r: Math.random() * 1.6 + 0.6,
+                    c: Math.random() < 0.5 ? "#ffffff" : sp.color,
+                    life: 18,
+                    ml: 18,
+                });
+            }
         }
         for (const k of BUFF_KEYS) {
             if (sp.buffs[k] > 0) {
@@ -7094,9 +7154,9 @@ export class NeonStrikeEngine {
             const sp = this._shipBySlot(d.sl);
             g.save();
             g.globalAlpha = 0.35 + Math.sin(this.frame * 0.2) * 0.15;
-            drawSprite(g, SHIPS[sp ? sp.hull : 0].sprite, d.x, d.y, {
+            drawSprite(g, hullSprite(sp ? sp.hull : 0, sp ? sp.level : 0), d.x, d.y, {
                 tint: "#8be9ff",
-                px: HULL_PX[sp ? sp.hull : 0],
+                px: HULL_PX[sp ? sp.hull : 0][(sp && sp.level) || 0],
             });
             g.restore();
         }
@@ -7142,10 +7202,28 @@ export class NeonStrikeEngine {
             // own hull and the frames are tinted with sp.color, same as the
             // flat sprite was; the pose comes from the motion `_moveShip` made.
             sp.flight.draw(g, {
-                sprite: SHIPS[sp.hull].sprite,
+                sprite: hullSprite(sp.hull, sp.level),
                 tint: sp.color,
-                px: HULL_PX[sp.hull],
+                px: HULL_PX[sp.hull][sp.level || 0],
             });
+            if (sp.levelFx > 0) {
+                // A ring opening out of the hull, brightest as it leaves.
+                const k = 1 - sp.levelFx / LEVEL_FX.frames;
+                g.globalCompositeOperation = "lighter";
+                g.globalAlpha = (1 - k) * 0.85;
+                g.strokeStyle = "#ffffff";
+                g.lineWidth = 2;
+                g.beginPath();
+                g.arc(0, 0, LEVEL_FX.r0 + k * (LEVEL_FX.r1 - LEVEL_FX.r0), 0, 6.2832);
+                g.stroke();
+                g.globalAlpha = (1 - k) * 0.5;
+                g.strokeStyle = sp.color;
+                g.beginPath();
+                g.arc(0, 0, LEVEL_FX.r0 + k * (LEVEL_FX.r1 - LEVEL_FX.r0) * 0.7, 0, 6.2832);
+                g.stroke();
+                g.globalAlpha = 1;
+                g.globalCompositeOperation = "source-over";
+            }
             if (sp.shield > 0) {
                 g.strokeStyle = "rgba(123,255,176," + (0.5 + Math.sin(this.frame * 0.15) * 0.3) + ")";
                 g.lineWidth = 2;
