@@ -37,6 +37,7 @@ import { BACKGROUNDS, WAVES_PER_PLACE } from "./backgrounds";
 import { BOSSES } from "./bosses";
 import { COLOSSI } from "./colossi";
 import { SHIPS } from "./ships";
+import { pxFor } from "./sprites";
 
 export const GLOSSARY = [
     {
@@ -45,10 +46,26 @@ export const GLOSSARY = [
         // Straight from the same catalogue the picker and the engine read.
         // `kit: "ship"` makes the card a live canvas `ship_flight.js` flies,
         // the same way the enemies' cards are flown by their animators.
-        items: SHIPS.map((s) => ({
-            sprite: s.sprite, tint: s.tint, px: 8, kit: "ship",
-            label: s.label, sub: s.sub, desc: s.desc,
-        })),
+        items: [
+            ...SHIPS.map((s) => ({
+                // Measured, not fixed: the hull grids run from 16 to 34 columns
+                // wide, and a shared `px` would print some cards wider than
+                // others.
+                sprite: s.sprite, tint: s.tint, px: pxFor(s.sprite, 128), kit: "ship",
+                label: s.label, sub: s.sub, desc: s.desc,
+            })),
+            // The hull levels are art only for now: the catalogue shows what
+            // the Needle grows into, and nothing yet promotes a ship into one.
+            ...[
+                ["ship0lv2", "II", 2, "A second pair of swept wings, shoulder pods, and a canopy down the whole fuselage."],
+                ["ship0lv3", "III", 3, "Vertical fins over a second pair of canards, and the swept wings grown into a full delta."],
+                ["ship0lv4", "IV", 4, "Tall fins, mid-set cyan wings, and twin nacelles that carry a burn of their own."],
+                ["ship0lv5", "V", 5, "Wings from edge to edge, the longest fuselage of the five, and the nacelles at full size."],
+            ].map(([sprite, numeral, level, desc]) => ({
+                sprite, tint: SHIPS[0].tint, px: pxFor(sprite, 128), kit: "ship",
+                label: "NEEDLE · " + numeral, sub: "interceptor · level " + level, desc,
+            })),
+        ],
     },
     {
         title: "ENEMIES",

@@ -690,8 +690,10 @@ const BEAM_FORGE = {
     // where it crosses rather than at its far end, which is off screen.
     bloom: { at: 0.42, rx: 0.85, ry: 0.5, a: 0.3 },
 };
-// Ship pixel size: a 16 px grid -> ~32 logical px wide.
-const SHIP_PX = pxFor("ship0", 30);
+// Ship pixel size, per hull: they no longer share a grid (the needle's art is
+// 19 columns where the other three are 16), and one shared size would have
+// scaled three hulls by the fourth one's grid.
+const HULL_PX = SHIPS.map((s) => pxFor(s.sprite, 30));
 const PUP_PX = pxFor("pupT", 30);
 // The simulation ticks in 60 fps frames (`ts`); the flight animation wants
 // seconds, and going through `ts` is what makes it slow down with slow motion.
@@ -7094,7 +7096,7 @@ export class NeonStrikeEngine {
             g.globalAlpha = 0.35 + Math.sin(this.frame * 0.2) * 0.15;
             drawSprite(g, SHIPS[sp ? sp.hull : 0].sprite, d.x, d.y, {
                 tint: "#8be9ff",
-                px: SHIP_PX,
+                px: HULL_PX[sp ? sp.hull : 0],
             });
             g.restore();
         }
@@ -7142,7 +7144,7 @@ export class NeonStrikeEngine {
             sp.flight.draw(g, {
                 sprite: SHIPS[sp.hull].sprite,
                 tint: sp.color,
-                px: SHIP_PX,
+                px: HULL_PX[sp.hull],
             });
             if (sp.shield > 0) {
                 g.strokeStyle = "rgba(123,255,176," + (0.5 + Math.sin(this.frame * 0.15) * 0.3) + ")";

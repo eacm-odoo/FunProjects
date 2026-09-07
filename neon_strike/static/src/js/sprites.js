@@ -10,6 +10,13 @@
  *   3 metal          4 TINT              5 dark tint      6 light tint
  *   7 glass          8 neon accent       9 dark accent
  *
+ * A sprite may also carry a `ramp`: a core cell plus, per index, an RGB slope
+ * per unit of distance from it (`at` slides the base along it, `k` scales it,
+ * `unit` says how many cells one unit is, so the same table fits any grid),
+ * so a zone shades across the hull instead of being one flat tone. It is the
+ * model the player hulls were designed in, and it costs nothing at draw time --
+ * the raster is cached like any other.
+ *
  * 4/5/6 are re-tinted at draw time with the ship/enemy colour, so one sprite
  * serves the 4 player slots and the enemy variants alike. Sprites are rasterized
  * once to an offscreen canvas and cached by (name, colour, scale, flash).
@@ -94,15 +101,258 @@ export function rungFold(used) {
 /* Sprite data                                                         */
 /* ------------------------------------------------------------------ */
 
+/**
+ * The Needle's shading, shared by every level of that hull.
+ *
+ * The design it is ported from stores flat symbols and ramps their colour by
+ * distance from a core cell; this is that ramp, per palette index, in RGB per
+ * unit of distance. It lives out here as one constant because the hull has five
+ * levels on progressively larger grids, and the gradient has to be *identical*
+ * across them -- one table referenced five times cannot drift, five copies
+ * would. `ramp.unit` is what makes that work: it is the grid's size relative to
+ * level 1's, so a distance of one unit covers the same fraction of the hull
+ * whatever the level, and the same slopes paint the same gradient.
+ */
+const NEEDLE_SHADING = {
+    // Tinted zones take the slot colour as their base, so the ramp
+    // rides on top of whichever hull colour the player is flying.
+    // `at` is where along the ramp that base sits: 6 is the mean
+    // distance of the tinted cells, which makes the slot colour the
+    // hull's AVERAGE rather than one of its ends -- the ship still
+    // reads as its colour in co-op, and the shading works both ways
+    // around it. (Measured against the design: anchoring at 0 costs
+    // 18.6 mean RGB error, at 6 it is 13.6.)
+    // `k` is the design file's own "ramp strength" slider. The
+    // slopes are its measured ones, but they were drawn for a
+    // 378 px canvas with bloom: at the 28 px this hull is actually
+    // flown at, the tint's own ramp spans 8% of luminance end to
+    // end and simply is not there. x5 puts it at 43%, which reads
+    // in the arena without the hull leaving its colour. The other
+    // two zones need none: the accent's ramp already spans 36% and
+    // the hull tones' 180%. Scaling the accent was tried and makes
+    // it WORSE -- its cells all sit far from the core, so a bigger
+    // slope pushes both ends into the clamp and flattens the tip.
+    4: { slope: [2.38, 1.97, 0.14], at: 6, k: 5 },
+    // The canopy's ramp is RE-ANCHORED, not just steepened, and the
+    // reason is in `_drawHitbox`: over this hull the engine paints
+    // an additive white disc of radius 13 at 0.16 and then a near
+    // opaque white dot of radius 4, on a hull 28.5 px wide. The
+    // middle of the ship is therefore covered by the dot and
+    // everything within 13 px of it is lifted by ~41 luminance
+    // before the player sees it. The design's own canopy tones
+    // (29..58 flat, 51..92 under its preview bloom) land inside
+    // that wash and come out as one flat slab -- which is exactly
+    // what four rounds of "I still cannot see it" were about.
+    // Widening the ends instead of the gain is what survives it:
+    // 22..129 is 14 luminance per cell row against the 5 the
+    // design's own numbers give, and it is still darker at the
+    // core than the reference's darkest canopy pixel.
+    1: { base: [16, 22, 37], slope: [12.3, 14.2, 18.1] },
+    // The wings are the accent, a fixed colour here as everywhere
+    // else in the bank, so they carry the design's own base and
+    // slope -- but anchored at the wing root (`at: 5`, the nearest
+    // wing cell) and stretched, or the whole zone sits so far out
+    // that both its ends clamp and the tip stops being the bright
+    // one. Root to tip is now 40..91 in luminance against the
+    // design's 63..86, and the root stays inside the magenta
+    // family rather than going plum.
+    9: { base: [138, 3, 118], slope: [11.93, 1.84, 11.73], at: 5, k: 2.6 },
+};
+
 export const SPRITES = {
     /* --- Player ships (16x18) --------------------------------------- */
 
-    // Slot 0 - "Needle": sharp interceptor, swept wing with a neon edge.
-    ship0: { mir: true, rows: [
-        ".......6", "......16", "......16", "......17", ".....117", ".....147",
-        "....1147", "....1147", "...81147", "..881447", ".8814447", "88814447",
-        ".8114445", "...11445", ".....145", ".....115", "......15", "......9.",
-    ] },
+    // Slot 0 - "Needle": the design's own grid, ported whole -- flat symbols
+    // plus a ramp, which is how that art is built and why it is the one sprite
+    // here with a `ramp`. Baking the ramp into palette steps was tried and is
+    // wrong: the cyan varies by 15 luminance over the hull and the nearest two
+    // bank steps are 86 apart, so every quantisation either flattened it or
+    // banded it into arcs (measured: flat 29.6 mean RGB error, banded 39.7).
+    //
+    // Two departures from the design file. It is cut at row 20, where the
+    // hull's dark edges stop -- the six rows under that are the exhaust and
+    // `ship_flight.js` draws the flame, so keeping them would paint it twice.
+    // And it is NOT mirrored: the art is symmetric about a *column*, a one
+    // pixel white spine that a half-width grid cannot express. 19 columns, so
+    // it draws at px 1.5 -- see `HULL_PX` in the engine.
+    ship0: {
+        ramp: { row: 13, col: 9, unit: 1, by: NEEDLE_SHADING },
+        rows: [
+            ".........0.........", ".........0.........", ".........0.........",
+            "........404........", "........404........", "........404........",
+            "......1140411......", "......1140411......", "......1444441......",
+            ".....114111411.....", ".....114111411.....", "....91141114119....",
+            "...9911411141199...", "..999144111441999..", "..999144111441999..",
+            ".99991441114419999.", "999...4400044...999", "9......10001......9",
+            ".......10001.......", ".......14441.......", ".......14441.......",
+        ],
+    },
+
+    // Slot 0, level 2 - the Needle after its first upgrades: a second pair of
+    // swept wings, shoulder pods and lights, on a 34x40 grid measured at 8.4 px
+    // a cell, cut where the hull ends and the exhaust begins.
+    //
+    // It is shaded DIFFERENTLY from level 1, and that is measured, not chosen.
+    // Level 1's art is a ramp: four flat symbols whose colour is a function of
+    // distance from a core. Level 2's is not -- correlating its cells against
+    // distance gives r = +0.02 for the plating and -0.05 for the tint, i.e.
+    // nothing. Its hull is shaded panel by panel, the way a pixel artist
+    // shades, so the tone lives in the GRID here (the bank's own ramp of
+    // indices: 1/2/3 dark, 5/4/6 tinted, 7/0 white) rather than in a formula.
+    //
+    // The one zone that does ramp is the accent: r = +0.51 against distance,
+    // brightening toward the wingtips. So the wings keep the ramp, and keep it
+    // by REFERENCE -- `NEEDLE_SHADING[9]`, the same object level 1 uses, so the
+    // two hulls cannot drift. `unit` and the core row are fitted so the wing
+    // cells span 5.00..9.84 of it against level 1's 5.00..9.85: the wings of
+    // both levels walk the same stretch of the same gradient.
+    //
+    // The accent is split by SHAPE: the two big connected runs of magenta are
+    // the wings and take index 9 (ramped); the seven small ones -- shoulder
+    // pods, wing tips, the light in the middle of the canopy -- are lights and
+    // take index 8, flat. Ramping those is what a radial gradient gets wrong on
+    // this hull: they sit near the core, where the wing's slope paints black.
+    ship0lv2: {
+        ramp: { row: 15.5, col: 16.5, unit: 2.3, by: { 9: NEEDLE_SHADING[9] } },
+        rows: [
+            "................00................", "................00................", "................00................",
+            "................00................", "...............6006...............", "...............4004...............",
+            "...............4004...............", "..............460064..............", "..............440044..............",
+            ".............24600642.............", "............2244004422............", "............2144774412............",
+            "...........221442244122...........", "...........215422224512...........", ".........1121142222411211.........",
+            ".........8821141771411288.........", ".........8821551441551288.........", ".........8211421221241128.........",
+            "........542154222222451245........", ".......83211442122124411238.......", "......2232114411221144112322......",
+            "......9222114411881144112229......", ".....999221144347743441122999.....", "....99992211443400434411229999....",
+            "...9999964411426006241144699999...", "...9999944411426006241144499999...", "..999999444114260062411444999999..",
+            ".99999944441142400424114444999999.", "9999...14441142466424114441...9999", "999.....445114246642411544.....999",
+            "9........4511454444541154........9", "9.........42115444451124.........9", "..........82121544512128..........",
+            "..........82121544512128..........", "..........82121144112128..........", ".............21111112.............",
+            ".............21211212.............", ".............52222225.............", ".............44122144.............",
+            ".............04222240.............",
+        ],
+    },
+
+    // Slot 0, level 3 - vertical fins over a second pair of canards, and the swept wings grown into a full delta. Ported the same way as level 2: the
+    // design's own grid (44x53, measured at 7.38 px a cell), cut where the
+    // hull ends and the exhaust begins, folded to be symmetric, and shaded cell
+    // by cell with the bank's own ramp of indices rather than by a formula --
+    // every level past the first is shaded panel by panel in the source art.
+    //    // The wings keep the shared accent ramp: `unit` and the core row are fitted
+    // so their cells span 5.00..9.85 of it against level 1's 5.00..9.85, which is
+    // what keeps one gradient across all five hulls.
+    ship0lv3: {
+        ramp: { row: 46.5, col: 21.5, unit: 2.55, by: { 9: NEEDLE_SHADING[9] } },
+        rows: [
+            ".....................77.....................", ".....................00.....................",
+            ".....................00.....................", ".....................00.....................",
+            "....................1001....................", "....................6006....................",
+            "....................6006....................", "...................140041...................",
+            "....................4004....................", "...................140041...................",
+            "..................24400442..................", "..................14477441..................",
+            "..................14700741..................", "..............17..14700741..71..............",
+            "..............87..24700742..78..............", "..............88..24700742..88..............",
+            "..............888.54700745.888..............", ".............8888.44700744.8888.............",
+            ".............8888.44700744.8888.............", ".............8822.44700744.2288.............",
+            ".............8821.44477444.1288.............", ".............2221.44422444.1222.............",
+            ".............2221.44222244.1222.............", ".............222144422224441222.............",
+            ".............121144112211441121.............", ".......71....111444212212444111....17.......",
+            "......199....114444222222444411....991......", ".......99....544444288882444445....99.......",
+            "......9991...544442212212244445...1999......", "......9991...544422227722224445...1999......",
+            "......9991...544422270072224445...1999......", "......9991..34154222700722245143..1999......",
+            ".....99291..25454212700721245452..19299.....", ".....9922119223542157007512453229112299.....",
+            ".....9922999222221447007441222229992299.....", "....299229992222214470074412222299922992....",
+            "....222299992222254470074452222299992222....", "...22229999922222544700744522222999992222...",
+            "..2222999999222225444774445222229999992222..", ".122299999922222254470074452222229999992221.",
+            ".121999999922222254440044452222229999999121.", "..1999999992222224444004444222222999999991..",
+            "..9999992244222214414004144122224422999999..", ".999999.2244422214414004144122244422.999999.",
+            "9999.....2444421.4412002144.1244442.....9999", "999.......54441..4521771254..14445.......999",
+            "99........54441..2222772222..14445........99", "..........14741..2222662222..14741..........",
+            "...........5781..2222662222..1875...........", "...........8881..1222442221..1888...........",
+            "...........888....45222254....888...........", "............88....44222244....88............",
+            "............11....44222244....11............",
+        ],
+    },
+
+    // Slot 0, level 4 - tall fins, mid-set cyan wings and twin nacelles that carry their own burn. Ported the same way as level 2: the
+    // design's own grid (36x39, measured at 9.97 px a cell), cut where the
+    // hull ends and the exhaust begins, folded to be symmetric, and shaded cell
+    // by cell with the bank's own ramp of indices rather than by a formula --
+    // every level past the first is shaded panel by panel in the source art.
+    //
+    // Its nacelles carry a burn of their own in the design. The engine draws
+    // one flame, at the ship's centre, so the central exhaust is cut as on
+    // every level and the two side ones stay baked into the art: nothing can
+    // animate them, and removing them costs the hull a signature.
+    // The wings keep the shared accent ramp: `unit` and the core row are fitted
+    // so their cells span 5.01..9.83 of it against level 1's 5.00..9.85, which is
+    // what keeps one gradient across all five hulls.
+    ship0lv4: {
+        ramp: { row: 5.5, col: 17.5, unit: 2.98, by: { 9: NEEDLE_SHADING[9] } },
+        rows: [
+            ".................00.................", ".................77.................",
+            "................1001................", "................2002................",
+            "................5005................", "................4004................",
+            "................4004................", "...............240042...............",
+            "...............240042...............", "..........88...340043...88..........",
+            "..........88...240042...88..........", ".........888...240042...888.........",
+            ".........888..15477451..888.........", ".........1221.24422442.1221.........",
+            ".........5421.44222244.1245.........", ".........4421.64222246.1244.........",
+            ".........2421.64122146.1242.........", "........92511244188144211529........",
+            "........92211444188144411229........", ".......9911116445225446111199.......",
+            "......199211164411114461112991......", "......999111164412214461111999......",
+            ".....99992552644111144625529999.....", "....9999946415444224445146499999....",
+            "...999344462214547745412264443999...", "..99944444611144400444111644444999..",
+            ".1944454446111444004441116444544491.", ".9991..2216211544004451126122..1999.",
+            "999......172125440044521271......999", "91.......112225540045522211.......19",
+            ".........122221420024122221.........", ".........222121420024121222.........",
+            ".........552111627726111255.........", ".........5582.16222261.2855.........",
+            ".........5885..612216..5885.........", ".........2385..612216..5832.........",
+            "..........878..512215..878..........", "..........808..152251..808..........",
+            "..........88....4224....88..........",
+        ],
+    },
+
+    // Slot 0, level 5 - wings from edge to edge, the longest fuselage of the five, and the nacelles at full size. Ported the same way as level 2: the
+    // design's own grid (45x45, measured at 9.40 px a cell), cut where the
+    // hull ends and the exhaust begins, folded to be symmetric, and shaded cell
+    // by cell with the bank's own ramp of indices rather than by a formula --
+    // every level past the first is shaded panel by panel in the source art.
+    //
+    // Its nacelles carry a burn of their own in the design. The engine draws
+    // one flame, at the ship's centre, so the central exhaust is cut as on
+    // every level and the two side ones stay baked into the art: nothing can
+    // animate them, and removing them costs the hull a signature.
+    // The wings keep the shared accent ramp: `unit` and the core row are fitted
+    // so their cells span 4.99..9.84 of it against level 1's 5.00..9.85, which is
+    // what keeps one gradient across all five hulls.
+    ship0lv5: {
+        ramp: { row: 42, col: 22, unit: 3.13, by: { 9: NEEDLE_SHADING[9] } },
+        rows: [
+            ".....................202.....................", ".....................303.....................",
+            ".....................505.....................", ".....................606.....................",
+            ".....................606.....................", "....................14041....................",
+            "....................14041....................", "....................44044....................",
+            "...................1440441...................", "...................1440441...................",
+            "..................114404411..................", "..................144474441..................",
+            "...............9.22444244422.9...............", "..............99.22444244422.99..............",
+            ".............999.12445254421.999.............", ".............999.11442224411.999.............",
+            "............999222542222245222999............", "............992224422222224422299............",
+            "............991224422777224422199............", "............999124422707224421999............",
+            "..........9.999124411707114421999.9..........", "..........9.911154441707144451119.9..........",
+            ".........19.122154602707206451221.91.........", ".........99.233254602707206452332.99.........",
+            "........19922335447427072474453322991........", "........99222212447427072474421222299........",
+            ".......9992211124474122214744211122999.......", "......999922121244721222127442121229999......",
+            ".....99999229212444212221244421292299999.....", "....9999991992124444122214444212991999999....",
+            "...999999999921244445111544442129999999999...", "...99999..9122111244511154421112219..99999...",
+            "..99999...1222111.445222544.1112221...99999..", ".19999....8222288.445888544.8822228....99991.",
+            ".9999......82222..445222544..22228......9999.", "9999.......04441..545121545..14440.......9999",
+            "99.........4122....4512154....2214.........99", "9...........822....4522254....228...........9",
+            "............222....4522254....222............", "............425....4525254....524............",
+            "............375....4456544....573............", "............808.....44644.....808............",
+            "............808.....44044.....808............", "............108.....46064.....801............",
+            "....................47074....................",
+        ],
+    },
 
     // Slot 1 - "Hammer": heavy gunship with two forward cannons.
     ship1: { mir: true, rows: [
@@ -843,6 +1093,27 @@ export function rgba(hex, a) {
     return `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 }
 
+/** RGB triple out of either form `palette()` produces: "#rrggbb" or "rgb(r,g,b)". */
+function toRgb(css) {
+    if (css[0] === "#") {
+        return hexToRgb(css);
+    }
+    return css.slice(4, -1).split(",").map((n) => parseInt(n, 10));
+}
+
+/**
+ * A ramp step: `base` walked along `slope` by how far the cell sits from the
+ * ramp's core, clamped. This is the whole of the shading model the hull art is
+ * drawn in -- flat symbols in the grid, the gradient applied here, once, into
+ * the cached raster. `at` slides the base along the ramp (so it can be the
+ * zone's middle rather than its end) and `k` scales the slope.
+ */
+function shade(step, base, dist) {
+    const d = (dist - (step.at || 0)) * (step.k || 1);
+    const v = [0, 1, 2].map((c) => Math.max(0, Math.min(255, Math.round(base[c] + step.slope[c] * d))));
+    return `rgb(${v[0]},${v[1]},${v[2]})`;
+}
+
 function mix(a, b, t) {
     const A = hexToRgb(a);
     const B = hexToRgb(b);
@@ -941,12 +1212,18 @@ export function sprite(name, tint, px, flash) {
     cv.height = Math.max(1, Math.round(h * px));
     const g = cv.getContext("2d");
     const pal = palette(tint);
+    const ramp = def.ramp;
     for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
             const ch = grid[y][x];
-            const col = pal[ch];
+            let col = pal[ch];
             if (!col) {
                 continue;
+            }
+            const step = ramp && ramp.by[ch];
+            if (step) {
+                const dist = Math.hypot(y - ramp.row, x - ramp.col) / (ramp.unit || 1);
+                col = shade(step, step.base || toRgb(col), dist);
             }
             g.fillStyle = flash ? (ch === "1" || ch === "9" ? "#ffb9f2" : "#ffffff") : col;
             g.fillRect(Math.round(x * px), Math.round(y * px), Math.ceil(px), Math.ceil(px));

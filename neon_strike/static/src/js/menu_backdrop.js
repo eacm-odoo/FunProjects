@@ -243,7 +243,9 @@ export class MenuBackdrop {
             this._halo(x, sp.y, 34 * this.zoom, sp.tint);
             drawSprite(g, "ship" + sp.slot, x, sp.y, {
                 tint: sp.tint,
-                px: pxFor("ship0", 30 * this.zoom),
+                // Per hull, not per ship0: the four grids are no longer the
+                // same width, and they must still fly at the same size.
+                px: pxFor("ship" + sp.slot, 30 * this.zoom),
             });
         }
         g.restore();
