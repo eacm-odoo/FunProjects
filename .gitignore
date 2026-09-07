@@ -1,0 +1,22 @@
+# Python bytecode and build leftovers
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Generated output of the local benches (renders, probe dumps)
+tools/*/shots/
+
+# Editor and OS noise
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+
+# Claude Code: settings.json is shared, the local override is not
+.claude/settings.local.json

@@ -39,6 +39,26 @@ import { COLOSSI } from "./colossi";
 import { SHIPS } from "./ships";
 import { pxFor } from "./sprites";
 
+/**
+ * Hull levels: `[hull index, sprite, numeral, level, blurb]`.
+ *
+ * Art only for now -- the catalogue shows what a hull grows into, and nothing
+ * yet promotes a ship into one. The hull index is first so the cards can be
+ * grouped under the hull they belong to, and it is what makes the name, colour
+ * and class come from the same `SHIPS` entry the base card uses rather than
+ * being repeated here.
+ */
+const HULL_LEVELS = [
+    [0, "ship0lv2", "II", 2, "A second pair of swept wings, shoulder pods, and a canopy down the whole fuselage."],
+    [0, "ship0lv3", "III", 3, "Vertical fins over a second pair of canards, and the swept wings grown into a full delta."],
+    [0, "ship0lv4", "IV", 4, "Tall fins, mid-set cyan wings, and twin nacelles that carry a burn of their own."],
+    [0, "ship0lv5", "V", 5, "Wings from edge to edge, the longest fuselage of the five, and the nacelles at full size."],
+    [1, "ship1lv2", "II", 2, "Both cannons raised clear of the hull, wings swept out to a lit pod on each tip, and glass the length of the spine."],
+    [1, "ship1lv3", "III", 3, "Four cannons over a swept delta, a fin on each shoulder, and a nacelle hung outboard of it."],
+    [1, "ship1lv4", "IV", 4, "Shoulder fins squared into plates, grey nacelles slung under the wings, and a slash vent cut into each."],
+    [1, "ship1lv5", "V", 5, "Fins carried out to the full span, two nacelles a side with lit ports, and the longest spine of the five."],
+];
+
 export const GLOSSARY = [
     {
         title: "PLAYER SHIPS",
@@ -46,26 +66,23 @@ export const GLOSSARY = [
         // Straight from the same catalogue the picker and the engine read.
         // `kit: "ship"` makes the card a live canvas `ship_flight.js` flies,
         // the same way the enemies' cards are flown by their animators.
-        items: [
-            ...SHIPS.map((s) => ({
-                // Measured, not fixed: the hull grids run from 16 to 34 columns
+        // One hull per row: the base card followed by its levels in order, so a
+        // hull and everything it grows into read left to right instead of the
+        // levels piling up after all four hulls.
+        items: SHIPS.flatMap((s, hull) => [
+            {
+                // Measured, not fixed: the hull grids run from 16 to 46 columns
                 // wide, and a shared `px` would print some cards wider than
                 // others.
                 sprite: s.sprite, tint: s.tint, px: pxFor(s.sprite, 128), kit: "ship",
                 label: s.label, sub: s.sub, desc: s.desc,
+            },
+            ...HULL_LEVELS.filter((l) => l[0] === hull).map(([, sprite, numeral, level, desc]) => ({
+                sprite, tint: s.tint, px: pxFor(sprite, 128), kit: "ship",
+                label: s.label + " · " + numeral,
+                sub: s.sub + " · level " + level, desc,
             })),
-            // The hull levels are art only for now: the catalogue shows what
-            // the Needle grows into, and nothing yet promotes a ship into one.
-            ...[
-                ["ship0lv2", "II", 2, "A second pair of swept wings, shoulder pods, and a canopy down the whole fuselage."],
-                ["ship0lv3", "III", 3, "Vertical fins over a second pair of canards, and the swept wings grown into a full delta."],
-                ["ship0lv4", "IV", 4, "Tall fins, mid-set cyan wings, and twin nacelles that carry a burn of their own."],
-                ["ship0lv5", "V", 5, "Wings from edge to edge, the longest fuselage of the five, and the nacelles at full size."],
-            ].map(([sprite, numeral, level, desc]) => ({
-                sprite, tint: SHIPS[0].tint, px: pxFor(sprite, 128), kit: "ship",
-                label: "NEEDLE · " + numeral, sub: "interceptor · level " + level, desc,
-            })),
-        ],
+        ]),
     },
     {
         title: "ENEMIES",
