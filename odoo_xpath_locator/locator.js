@@ -216,7 +216,19 @@ function toPosition(starts, offset) {
     return { row: low, column: offset - starts[low] };
 }
 
-function parseArchitecture(text) {
+/**
+ * The expression to evaluate for what the user typed: hasclass() rewritten,
+ * a whole `<xpath>` tag reduced to its expr.
+ */
+export function prepareExpression(input) {
+    const expression = translateHasclass(extractExpression(input));
+    if (!expression) {
+        throw new LocatorError("Paste an xpath first.");
+    }
+    return expression;
+}
+
+export function parseArchitecture(text) {
     const doc = new DOMParser().parseFromString(text, "text/xml");
     const error = doc.getElementsByTagName("parsererror")[0];
     if (error) {
@@ -248,17 +260,35 @@ function evaluate(doc, expression) {
 }
 
 /**
- * @param {string} text the architecture as shown in the editor
- * @param {string} input the xpath, bare or as an `<xpath>` tag
- * @returns {{row: number, column: number, openEndRow: number, endRow: number, tag: string}[]}
- *      every matched element in document order, rows being 0-based; the
- *      first one is the node Odoo uses
+ * The elements an expression selects, in document order. An attribute or a
+ * text node stands for the element holding it.
  */
-export function locate(text, input) {
-    const expression = translateHasclass(extractExpression(input));
-    if (!expression) {
-        throw new LocatorError("Paste an xpath first.");
+export function selectElements(doc, expression) {
+    const snapshot = evaluate(doc, expression);
+    const elements = new Set();
+    for (let index = 0; index < snapshot.snapshotLength; index++) {
+        let node = snapshot.snapshotItem(index);
+        if (node.nodeType === Node.ATTRIBUTE_NODE) {
+            node = node.ownerElement;
+        } else if (node.nodeType !== Node.ELEMENT_NODE) {
+            node = node.parentElement;
+        }
+        if (node) {
+            elements.add(node);
+        }
     }
+    return [...elements];
+}
+
+/**
+ * Parse an architecture and tell where each of its elements is in the text.
+ *
+ * @param {string} text
+ * @returns {{doc: Document, nodes: Element[], positions: Map<Element, Position>}}
+ *      nodes in document order; a Position is {row, column, openEndRow,
+ *      endRow, tag}, rows being 0-based
+ */
+export function mapArchitecture(text) {
     const doc = parseArchitecture(text);
     const nodes = [...doc.getElementsByTagName("*")];
     const elements = scanElements(text);
@@ -268,32 +298,34 @@ export function locate(text, input) {
     ) {
         throw new LocatorError("Could not map the architecture text to its XML tree.");
     }
-    const elementIndex = new Map(nodes.map((node, index) => [node, index]));
-    const snapshot = evaluate(doc, expression);
-
     const starts = lineStarts(text);
-    const matches = [];
-    const seen = new Set();
-    for (let index = 0; index < snapshot.snapshotLength; index++) {
-        let node = snapshot.snapshotItem(index);
-        if (node.nodeType === Node.ATTRIBUTE_NODE) {
-            node = node.ownerElement;
-        } else if (node.nodeType !== Node.ELEMENT_NODE) {
-            node = node.parentElement;
-        }
-        if (!elementIndex.has(node) || seen.has(node)) {
-            continue;
-        }
-        seen.add(node);
-        const element = elements[elementIndex.get(node)];
-        const start = toPosition(starts, element.start);
-        matches.push({
-            row: start.row,
-            column: start.column,
-            openEndRow: toPosition(starts, element.openEnd - 1).row,
-            endRow: toPosition(starts, element.end - 1).row,
-            tag: text.slice(element.start, element.openEnd),
-        });
-    }
-    return matches;
+    const positions = new Map(
+        nodes.map((node, index) => {
+            const element = elements[index];
+            const start = toPosition(starts, element.start);
+            return [
+                node,
+                {
+                    row: start.row,
+                    column: start.column,
+                    openEndRow: toPosition(starts, element.openEnd - 1).row,
+                    endRow: toPosition(starts, element.end - 1).row,
+                    tag: text.slice(element.start, element.openEnd),
+                },
+            ];
+        })
+    );
+    return { doc, nodes, positions };
+}
+
+/**
+ * @param {string} text the architecture as shown in the editor
+ * @param {string} input the xpath, bare or as an `<xpath>` tag
+ * @returns {object[]} the position of every matched element, in document
+ *      order (see mapArchitecture); the first one is the node Odoo uses
+ */
+export function locate(text, input) {
+    const expression = prepareExpression(input);
+    const { doc, positions } = mapArchitecture(text);
+    return selectElements(doc, expression).map((node) => positions.get(node));
 }

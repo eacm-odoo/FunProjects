@@ -6,6 +6,7 @@
     --o-surface: #f4f2f3;
     --o-border: #d7d2d5;
     --o-error: #b42318;
+    --o-warning: #fff4dc;
     color-scheme: light dark;
 }
 
@@ -18,6 +19,7 @@
         --o-surface: #2f2b2e;
         --o-border: #4a4448;
         --o-error: #ff8a80;
+        --o-warning: #3d3220;
     }
 }
 
@@ -110,9 +112,39 @@ button:hover {
     border-radius: 4px;
 }
 
+.o_locator_origin {
+    margin: 2px 0 0;
+    font-weight: 600;
+}
+
 .o_locator_note {
     margin: 8px 0 0;
     color: var(--o-muted);
+}
+
+.o_locator_origin + .o_locator_note {
+    margin-top: 0;
+}
+
+.o_locator_open {
+    margin-top: 10px;
+    color: var(--o-accent);
+    background: transparent;
+    border: 1px solid var(--o-accent);
+}
+
+.o_locator_open:hover {
+    color: #ffffff;
+    background: #714b67;
+}
+
+.o_locator_warning {
+    margin: 10px 0 0;
+    padding: 8px 10px;
+    color: var(--o-text);
+    background: var(--o-warning);
+    border-left: 3px solid #e89b00;
+    border-radius: 4px;
 }
 
 .o_locator_message {

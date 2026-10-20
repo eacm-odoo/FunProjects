@@ -12,15 +12,16 @@ export function pageAction(action, matches) {
     const GUTTER_CLASS = "o_xpath_locator_gutter";
 
     const isUsable = (el) => el.env?.editor && el.getClientRects().length > 0;
-    const container =
-        [...document.querySelectorAll('[name="arch_base"].ace_editor, [name="arch_base"] .ace_editor')].find(isUsable) ||
-        [...document.querySelectorAll(".ace_editor")].find(isUsable);
+    const archEditor = [
+        ...document.querySelectorAll('[name="arch_base"].ace_editor, [name="arch_base"] .ace_editor'),
+    ].find(isUsable);
+    const container = archEditor || [...document.querySelectorAll(".ace_editor")].find(isUsable);
     if (!container) {
         return { error: "no-editor" };
     }
     const editor = container.env.editor;
     if (action === "read") {
-        return { text: editor.getValue() };
+        return { text: editor.getValue(), isArchField: Boolean(archEditor) };
     }
 
     const state = (editor.oXpathLocator ??= { markers: [], gutterRows: [] });
@@ -104,4 +105,70 @@ export function pageAction(action, matches) {
         el.scrollTop += top + lineHeight / 2 - (box.top + box.height / 2);
     }
     return {};
+}
+
+/**
+ * Read ir.ui.view through the web client's JSON-RPC endpoint, with the
+ * session of the open tab. Only these read methods can be called, on that
+ * one model: nothing here writes. Injected with executeScript, like
+ * pageAction, so it must stay self-contained.
+ *
+ * Runs in the isolated world, out of the page's reach. The address is
+ * built from the tab's real origin, not resolved against the document,
+ * which a `<base href>` could point elsewhere.
+ *
+ * @param {"search_read"|"combined"} method
+ * @param {object} params
+ * @param {string} origin the tab's origin, as Chrome reports it
+ * @returns {Promise<{result: any}|{error: string}>}
+ */
+export async function pageRpc(method, params, origin) {
+    if (location.origin !== origin) {
+        return { error: "the tab is not on the expected site" };
+    }
+    const callKw = async (name, args, kwargs) => {
+        const response = await fetch(new URL(`/web/dataset/call_kw/ir.ui.view/${name}`, location.origin), {
+            method: "POST",
+            credentials: "same-origin",
+            redirect: "error",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                jsonrpc: "2.0",
+                method: "call",
+                id: Date.now(),
+                params: { model: "ir.ui.view", method: name, args, kwargs },
+            }),
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const reply = await response.json();
+        if (reply.error) {
+            throw new Error(reply.error.data?.message || reply.error.message);
+        }
+        return reply.result;
+    };
+    try {
+        if (method === "search_read") {
+            const { domain, fields, limit } = params;
+            return { result: await callKw("search_read", [], { domain, fields, limit, context: {} }) };
+        }
+        if (method === "combined") {
+            const context = { inherit_branding: true };
+            try {
+                return { result: await callKw("get_combined_arch", [[params.id]], { context }) };
+            } catch (error) {
+                // 14.0 only has read_combined.
+                try {
+                    const view = await callKw("read_combined", [[params.id]], { fields: ["arch"], context });
+                    return { result: view.arch };
+                } catch {
+                    throw error;
+                }
+            }
+        }
+        return { error: `unsupported call ${method}` };
+    } catch (error) {
+        return { error: error.message };
+    }
 }
