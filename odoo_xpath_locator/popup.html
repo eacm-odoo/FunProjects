@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="author" content="Odoo">
+    <title>Odoo XPath Locator</title>
+    <link rel="stylesheet" href="popup.css">
+    <script type="module" src="popup.js"></script>
+</head>
+<body>
+    <header class="o_locator_header">
+        <img src="icons/icon32.png" alt="" width="20" height="20">
+        <span>Odoo XPath Locator</span>
+    </header>
+    <form id="form" class="o_locator_form" autocomplete="off">
+        <label for="xpath">XPath</label>
+        <div class="o_locator_row">
+            <input id="xpath" type="text" spellcheck="false" placeholder="/t/t/div/h2[3]" autofocus>
+            <button type="submit">Locate</button>
+        </div>
+    </form>
+    <section id="result" class="o_locator_result" aria-live="polite" hidden></section>
+</body>
+</html>

@@ -182,6 +182,66 @@ const VULCAN_FAN = {
     jam: 720,           // 12 s seized
     ventShare: 0.3,     // of the vent window one jammed fan takes away
 };
+// NYX's ring phase. The base fight -- four beams turning like clock hands while
+// the rim launches interceptors -- is what shipped; the ring is the study's, and
+// it asks a question none of the other hulls do. The curtain and the shutter both
+// ask *where is the hole*: you read the wall, get to the spot and hold still. The
+// ring asks *can you stay with it*: the hole is lit, obvious and already moving,
+// and standing still is what kills you.
+const N_BASE = 0;       // the fight that shipped
+const N_ARRIVAL = 1;    // the whole rim charging at once
+const N_CIRCLE = 2;     // armour up, one pocket orbiting the hull
+const N_EXPOSED = 3;    // the reward for closing it
+const NYX = {
+    // The rim's own count. `colossus3` paints exactly six collars in the neon
+    // accent -- two end blocks on the horizontal axis, one at each corner of the
+    // ring -- so six is what the art says, the same way HYDRA's heads and
+    // VULCAN's fans are counted off the sprite rather than written down. The
+    // sheet plays eight, measured on a circular hull this bank does not have.
+    lances: 6,
+    clockSpin: 0.0075,  // 838 f a turn: the four beams that already shipped
+    lanceSpin: 0.0016,  // 3927 f a turn, so the fan is held rather than swept
+    warn: 90,           // telegraph, both families
+    w: 22,
+    reach: 1400,        // how far past the rim a ray carries
+    interval: 1400,     // frames of base fight between rings
+    live: 2400,         // hard end regardless of progress -- about 2.2 laps
+    lap: 1084,          // frames for one lap of the pocket
+    plate: 32,          // how far the drums stand off the rim
+    clear: 56,          // and the clearance the path keeps outside them
+    pocket: 52,         // the hole's radius; the carve is this plus the beam
+    grace: 42,          // 0.7 s outside it -- one dash correction
+    // A hit halves progress rather than failing the circle: failure is for
+    // leaving, not for bleeding.
+    hitProg: 0.5,
+    // What a hit does while the ring is up. Visible chip damage on purpose, so
+    // the player can tell shots are landing and being refused.
+    armour: 0.06,
+    exposed: 210,
+    // The second damage multiplier in the game, and unlike VULCAN's vent it is a
+    // state rather than a place -- because the place is the whole lap you just
+    // flew to earn it. Measured against the chip: a lap is worth about a seventh
+    // of what closing it pays, which is what makes the phase a trade and not a tax.
+    exposedMul: 2.2,
+    // The one engine ask of the study, answered with the lever the colossus
+    // already pulls: the field widens for the phase and is handed back at its
+    // end. Without it the path does not fit -- see `_nyxPath`.
+    field: 1.62,
+    rageLap: 1 / 1.18,  // the circle gets faster before it gets longer
+    rageInterval: 0.7,
+    intercept: 260,
+    rageIntercept: 170,
+    // Both families share the hull's teal and are separated by rung and cadence
+    // instead of by hue: the sprite bank paints this station in teal and magenta
+    // only, the accent is already the core's colour and a third colour on the
+    // wall would read as a third thing. (The sheet's prose says this; its own
+    // harness draws the lances magenta. Prose wins here for the reason it gives.)
+    ramp: ["#0a1320", "#122536", "#16404a", "#1c6058", "#288d78", "#37b39a", "#4de3c1", "#c9fff2"],
+    lanceRungs: [3, 5, 6, 7],
+    lanceCad: 30,
+    clockRungs: [1, 2, 3, 5],
+    clockCad: 58,
+};
 // Hulls a practice wave queues when the target is a regular enemy. Small on
 // purpose: the point is to watch one of them, not to survive a swarm.
 const PRACTICE_ENEMIES = 6;
@@ -572,6 +632,17 @@ const PERK_TIMEOUT = 1200;
 const DASH_FRAMES = 11;
 const DASH_CD = 105;
 const DASH_SPEED = 15;
+// Frames the dash stays intangible for AFTER its travel ends.
+//
+// The dash used to be intangible for exactly as long as it moved, so the frame
+// it landed on was already lethal -- you cleared the wall and were clipped
+// putting your feet down. This is the landing grace, and it is deliberately a
+// window of its own rather than a longer `DASH_FRAMES`: the travel, the ram and
+// the reflect all key off `sp.dash`, and the ask was for invulnerability, not
+// for a longer burst or a stronger perk. It is also NOT scaled by `mods.inv`,
+// whose perk says "the invulnerability window after a hit" and has to stay
+// true.
+const DASH_INV = 10;
 // Neutral modifiers of a ship with no perks. `_recalcPerks` rebuilds this
 // object by summing the `mods` of every perk owned.
 const BASE_MODS = {
@@ -1099,7 +1170,16 @@ export class NeonStrikeEngine {
      */
     _updateCamera(ts) {
         const boss = this.enemies.find((e) => e.type === "colossus");
+        // NYX's ring phase is the one thing in the game that moves the field
+        // off the catalogue value, and it is the study's single engine ask
+        // answered with the lever the colossus already pulls: an 820 x 335 hull
+        // has no orbit inside a 979 px box, so the box widens for the phase and
+        // is handed straight back at its end. Derived from `ph`, which travels,
+        // so a guest pulls back on the same frame.
         this.fieldTo = boss ? boss.field || 1 : 1;
+        if (boss && this._nyxRinging(boss)) {
+            this.fieldTo = Math.max(this.fieldTo, NYX.field);
+        }
         this.zoomTo = this._fitZoom(boss);
         // The easing is exponential, so it never quite lands: snap once it is
         // close enough, otherwise the walls keep a fractional offset forever.
@@ -1448,7 +1528,7 @@ export class NeonStrikeEngine {
             // levelling is a practice-mode toy, and practice is solo.
             level: 0,
             levelFx: 0,                   // frames left of the level-up flourish
-            inv: 0, invMax: 1, shield: 0,
+            inv: 0, invMax: 1, dashInv: 0, shield: 0,
             weapon: "single", weaponT: 0, fireT: 0,
             lives: 3, down: false, reviveProgress: 0,
             // Bombs (X): the emergency exit. You start with a couple and the
@@ -1533,6 +1613,19 @@ export class NeonStrikeEngine {
      */
     _hitR(sp) {
         return Math.max(2, SHIP_HIT_R * (1 + sp.mods.hitbox));
+    }
+
+    /**
+     * Can this ship be touched at all right now?
+     *
+     * The one answer, for the same reason `_hitR` is the one hitbox: three
+     * places ask it -- bullets, hulls and beams -- and a fourth state of
+     * intangibility that only two of them knew about would be a bug nobody
+     * could see. Down, inside a hit window, mid-dash, or inside the dash's
+     * landing grace.
+     */
+    _untouchable(sp) {
+        return !!(sp.down || sp.inv > 0 || sp.dash > 0 || sp.dashInv > 0);
     }
 
     /**
@@ -2111,6 +2204,14 @@ export class NeonStrikeEngine {
         // HYDRA's does, so the fan you can hit is the housing that lights up,
         // the core box the vent window doubles damage in is the white middle,
         // and the beams leave from the ends of the bottom lip.
+        // NYX runs the ring phase, and its state is created here rather than
+        // lazily so the wire never carries an undefined angle while it arrives.
+        if (k === 3) {
+            Object.assign(e, {
+                ph: N_BASE, pt: NYX.interval, pa: -Math.PI / 2,
+                pg: 0, po: 0, pl: 0,
+            });
+        }
         if (k === 2) {
             const parts = hullParts(d.sprite);
             const fanHp = Math.max(1, Math.round(hp * VULCAN_FAN.hp));
@@ -2626,12 +2727,20 @@ export class NeonStrikeEngine {
     }
 
     hurtShip(sp) {
-        // Dashing is intangible: that is what makes the Space bar a real dodge.
-        if (sp.down || sp.inv > 0 || sp.dash > 0) {
+        // Dashing is intangible, and so is the grace it lands in: that is what
+        // makes the Space bar a real dodge rather than a way to arrive somewhere.
+        if (this._untouchable(sp)) {
             return;
         }
         sp.hurtT = 240; // Adrenaline window (also feeds the HUD)
         sp.regenT = 0;
+        // NYX: being hit halves the circle rather than breaking it. Failure is
+        // for leaving the pocket, not for bleeding -- and it belongs here rather
+        // than at each damage source so nothing can hit a ship without paying it.
+        const nyx = this.enemies.find((e) => e.type === "colossus" && e.k === 3);
+        if (nyx && nyx.ph === N_CIRCLE) {
+            nyx.pg *= NYX.hitProg;
+        }
         // Being touched at all forfeits the wave bonus and the grazes banked
         // towards the next combo step: they are paid for staying untouched.
         this.waveClean = false;
@@ -2907,7 +3016,7 @@ export class NeonStrikeEngine {
                     // Intangible ships neither take the hit nor bank the graze:
                     // dashing through a curtain is already free, and paying it
                     // twice would make the safest move the best-scoring one.
-                    if (sp.down || sp.inv > 0 || sp.dash > 0) {
+                    if (this._untouchable(sp)) {
                         continue;
                     }
                     const dx = b.x - sp.x;
@@ -3082,6 +3191,11 @@ export class NeonStrikeEngine {
         }
         if (sp.dash > 0) {
             sp.dash -= ts;
+            if (sp.dash <= 0) {
+                sp.dashInv = DASH_INV;
+            }
+        } else if (sp.dashInv > 0) {
+            sp.dashInv -= ts;
         }
         if (sp.dashCharges < sp.dashMax) {
             sp.dashCd -= ts;
@@ -3191,6 +3305,7 @@ export class NeonStrikeEngine {
         sp.dashVx = dx;
         sp.dashVy = dy;
         sp.dash = DASH_FRAMES;
+        sp.dashInv = 0;
         sp.dashCharges--;
         // A dash is exactly the brusque move the barrel roll is for, but it is
         // too short for the speed trigger to catch it on its own.
@@ -3368,14 +3483,30 @@ export class NeonStrikeEngine {
                 return false;
             }
             // The vent window: while the slot is open, the white middle of it
-            // counts double. This is the only damage multiplier in the game and
-            // it is deliberately a *place* rather than a state -- the invitation
-            // is worth nothing if it does not ask you to fly somewhere.
+            // counts double. It is deliberately a *place* rather than a state --
+            // the invitation is worth nothing if it does not ask you to fly
+            // somewhere. NYX's exposed window is the other multiplier in the
+            // game and it is a state, because the place it asks for is the whole
+            // lap already flown to open it.
             if (this._ventOpen(e) && this._coreHit(e, hx, hy)) {
                 dmg *= VULCAN.vent.coreMul;
             }
         }
-        e.hp -= e.armor ? dmg * 0.35 : dmg;
+        if (e.k === 3 && e.type === "colossus") {
+            // NYX. The ring refuses hits at 6% rather than at WARDEN's 35%: the
+            // circle is a long phase and the chip has to stay visible without
+            // making enduring it a competitive way to spend it. The window that
+            // follows is the second damage multiplier in the game, and the
+            // place it asks you to fly to is the lap you flew to open it.
+            if (e.armor) {
+                dmg *= NYX.armour;
+            } else if (e.ph === N_EXPOSED) {
+                dmg *= NYX.exposedMul;
+            }
+            e.hp -= dmg;
+        } else {
+            e.hp -= e.armor ? dmg * 0.35 : dmg;
+        }
         if (e.hp <= 0) {
             this.killEnemy(e, killer);
             return true;
@@ -3791,7 +3922,11 @@ export class NeonStrikeEngine {
      */
     mkBeam(o) {
         return Object.assign(
-            { x: 0, y: 0, ox: 0, oy: 0, a: Math.PI / 2, len: 1200, w: 26, warn: 60, life: 120, spin: 0, src: 0, hot: 0, c: "#ff4d4d" },
+            // `pf` is the draw profile (0 plain, 1 NYX clock, 2 NYX lance);
+            // `hot` stays the VULCAN forge flag it already was. `g0`/`g1` are
+            // the hole NYX's pocket carves, as distances along the ray, and are
+            // 0 on every other beam -- see `_nyxCarve`.
+            { x: 0, y: 0, ox: 0, oy: 0, a: Math.PI / 2, len: 1200, w: 26, warn: 60, life: 120, spin: 0, src: 0, hot: 0, pf: 0, g0: 0, g1: 0, c: "#ff4d4d" },
             o
         );
     }
@@ -3799,8 +3934,9 @@ export class NeonStrikeEngine {
     _updateBeams(ts) {
         for (let i = this.beams.length - 1; i >= 0; i--) {
             const b = this.beams[i];
+            let owner = null;
             if (b.src) {
-                const owner = this.enemies.find((e) => e.id === b.src);
+                owner = this.enemies.find((e) => e.id === b.src);
                 if (!owner) {
                     this.beams.splice(i, 1);
                     continue;
@@ -3809,6 +3945,12 @@ export class NeonStrikeEngine {
                 b.y = owner.y + b.oy;
             }
             b.a += b.spin * ts;
+            // The hole in a NYX lance moves with the pocket, so it is recomputed
+            // here -- after the origin and the angle have been updated and
+            // before anything is tested against it.
+            if (b.pf === 2 && owner) {
+                this._nyxCarve(owner, b);
+            }
             if (b.warn > 0) {
                 b.warn -= ts;
                 if (b.warn <= 0) {
@@ -3821,15 +3963,23 @@ export class NeonStrikeEngine {
                 this.beams.splice(i, 1);
                 continue;
             }
-            // Damage: distance from the ship to the beam segment.
-            const ex = b.x + Math.cos(b.a) * b.len;
-            const ey = b.y + Math.sin(b.a) * b.len;
-            for (const sp of this.ships) {
-                if (sp.down || sp.inv > 0 || sp.dash > 0) {
-                    continue;
-                }
-                if (this._distToSeg(sp.x, sp.y, b.x, b.y, ex, ey) < b.w * 0.5 + this._hitR(sp)) {
-                    this.hurtShip(sp);
+            // Damage: distance from the ship to the beam's lethal runs. A beam
+            // with no hole is one run over its whole length, which is what
+            // every beam but a carved lance is.
+            const ux = Math.cos(b.a);
+            const uy = Math.sin(b.a);
+            for (const [s0, s1] of this._beamSegs(b)) {
+                const ax = b.x + ux * s0;
+                const ay = b.y + uy * s0;
+                const ex = b.x + ux * s1;
+                const ey = b.y + uy * s1;
+                for (const sp of this.ships) {
+                    if (this._untouchable(sp)) {
+                        continue;
+                    }
+                    if (this._distToSeg(sp.x, sp.y, ax, ay, ex, ey) < b.w * 0.5 + this._hitR(sp)) {
+                        this.hurtShip(sp);
+                    }
                 }
             }
             if (this.frame % 3 === 0) {
@@ -3899,7 +4049,10 @@ export class NeonStrikeEngine {
             });
             e.x = p.x;
             e.y = p.y;
-        } else {
+        } else if (!this._nyxRinging(e)) {
+            // NYX stops patrolling while the rim is lit: the path is centred on
+            // the hull, so a drifting centre both moves the lap under the player
+            // and leaves the hull 9 px off the settle it is easing towards.
             e.x += e.vx * mv * 0.55;
             if (e.x > W / 2 + 105) {
                 e.vx = -Math.abs(e.vx);
@@ -3962,24 +4115,7 @@ export class NeonStrikeEngine {
         } else if (e.k === 2) {
             this._vulcan(e, mv, rage);
         } else if (e.k === 3) {
-            // NYX: four beams turning like clock hands + interceptors.
-            this._tel(e, e.a2, "spawn");
-            if (!this.beams.some((b) => b.src === e.id)) {
-                for (let k = 0; k < 4; k++) {
-                    this.beams.push(this.mkBeam({
-                        src: e.id, a: (k / 4) * 6.2832, warn: 90,
-                        life: 100000, w: 22, spin: 0.0075, c: "#4de3c1", len: 1400,
-                    }));
-                }
-            }
-            if (e.a2 <= 0) {
-                e.a2 = rage ? 170 : 260;
-                for (const off of [-e.w * 0.42, e.w * 0.42]) {
-                    const spawn = this.mkEnemy(Math.random() < 0.5 ? "speedy" : "drone", e.x + off, e.y + e.hh);
-                    this.enemies.push(spawn);
-                }
-                this.sTick();
-            }
+            this._nyx(e, mv, rage);
         } else {
             // OMEGA: sweeping eye beam, kamikaze seeding, ring bursts and it
             // closes in once it is hurt.
@@ -4575,6 +4711,308 @@ export class NeonStrikeEngine {
             && Math.abs(y - (e.y + b.y * e.h)) < b.hh * e.h;
     }
 
+    /* ------------------------------------------------------------------ */
+    /* NYX                                                                 */
+    /* ------------------------------------------------------------------ */
+
+    /**
+     * NYX's ring phase: the fourth sheet, and the fourth time the engine had to
+     * move to meet one.
+     *
+     * The base fight is what shipped -- four clock beams and interceptors off
+     * the rim -- and every `interval` frames the whole rim charges at once, the
+     * clock beams are absorbed into a held fan of lances, and one pocket is
+     * carved out of it and set orbiting the hull. Fly the pocket all the way
+     * round and the armour drops for `exposed` frames at `exposedMul`; fail it
+     * and it restarts from the entry; sit it out and the phase expires and pays
+     * nothing. That last case is the whole design: shooting during the ring is
+     * never pointless (the chip is visible), and closing it is worth about seven
+     * laps of chip, so the phase is a trade rather than a tax.
+     *
+     * `ph`, `pa` and `pg` travel (`nq`, `na`, `nr`): the pocket, the armour
+     * shell and the lit drums are read off them and none of it can be derived
+     * from a position. `pt`/`pl` deliberately do not -- a guest reads the
+     * telegraph and the beams, which do.
+     */
+    _nyx(e, mv, rage) {
+        if (e.ph == null) {
+            e.ph = N_BASE;
+            e.pt = NYX.interval;
+            e.pa = -Math.PI / 2;
+            e.pg = 0;
+            e.po = 0;
+            e.pl = 0;
+        }
+        // The escorts run through every phase: a lap spans four of their cycles,
+        // so they are a constant of the ring rather than an event in it.
+        this._tel(e, e.a2, "spawn");
+        if (e.a2 <= 0) {
+            e.a2 = rage ? NYX.rageIntercept : NYX.intercept;
+            for (const off of [-e.w * 0.42, e.w * 0.42]) {
+                const spawn = this.mkEnemy(Math.random() < 0.5 ? "speedy" : "drone", e.x + off, e.y + e.hh);
+                this.enemies.push(spawn);
+            }
+            this.sTick();
+        }
+        // The station plants for the phase. It has to: the path is the hull's
+        // own ellipse pushed out, so where the hull sits decides whether the lap
+        // is inside the box the ship is clamped to -- at NYX's patrol height the
+        // top of the path lands 45 px above the ceiling the ship may reach. The
+        // widened field pays for the width, the settle pays for the height, and
+        // both are handed back together.
+        if (e.ph === N_ARRIVAL || e.ph === N_CIRCLE) {
+            e.x += (this.W / 2 - e.x) * Math.min(1, 0.035 * mv);
+            e.y += (this.H / 2 - e.y) * Math.min(1, 0.035 * mv);
+        } else if (Math.abs(e.y - e.ty) > 0.5) {
+            e.y += (e.ty - e.y) * Math.min(1, 0.02 * mv);
+        }
+        e.pt -= mv;
+        switch (e.ph) {
+            case N_BASE:
+                this._nyxClock(e);
+                if (e.pt <= 0) {
+                    this._nyxRing(e, rage);
+                }
+                break;
+            case N_ARRIVAL:
+                // The tell is the whole rim lighting at once, which is exactly
+                // what the four clock beams never do: they telegraph one at a
+                // time as they sweep. `warn` on the lances draws the sight
+                // lines, so the phase and the charge are the same beat.
+                this._tel(e, e.pt, "ring");
+                e.pl -= mv;
+                if (e.pt <= 0) {
+                    e.ph = N_CIRCLE;
+                    e.pt = 0;
+                    e.armor = 1;
+                }
+                break;
+            case N_CIRCLE:
+                this._nyxCircle(e, mv, rage);
+                break;
+            case N_EXPOSED:
+                if (e.pt <= 0) {
+                    e.ph = N_BASE;
+                    e.pt = NYX.interval * (rage ? NYX.rageInterval : 1);
+                }
+                break;
+        }
+    }
+
+    /** The four permanent clock beams, rebuilt whenever the ring hands back. */
+    _nyxClock(e) {
+        if (this.beams.some((b) => b.src === e.id)) {
+            return;
+        }
+        for (let k = 0; k < 4; k++) {
+            this.beams.push(this.mkBeam({
+                src: e.id, a: (k / 4) * 6.2832, warn: NYX.warn,
+                life: 100000, w: NYX.w, spin: NYX.clockSpin, c: "#4de3c1",
+                len: NYX.reach, pf: 1,
+            }));
+        }
+    }
+
+    /**
+     * Light the rim. The clock beams are absorbed into the fan rather than
+     * deleted -- the lances share their base angle -- so the picture the phase
+     * opens on is never the same twice: 1084 frames of circle against 838 of
+     * clock rotation is deliberately not a whole fraction.
+     */
+    _nyxRing(e, rage) {
+        this.beams = this.beams.filter((b) => b.src !== e.id);
+        this._nyxLances(e, (e.t * NYX.clockSpin) % 6.2832);
+        e.ph = N_ARRIVAL;
+        e.pt = NYX.warn;
+        e.pl = NYX.live;
+        e.pg = 0;
+        e.po = 0;
+        // Enter where the ships are, so the pocket does not open across the
+        // arena from the only people who can fly into it.
+        const sp = this._aimShip();
+        e.pa = sp ? Math.atan2(sp.y - e.y, sp.x - e.x) : Math.PI / 2;
+        this._colossusCue(e, "arm");
+        this.pop(e.x, e.y - e.hh - 24, "RIM LIVE", e.c, 20, 90);
+    }
+
+    /**
+     * One lap of the pocket. Progress is an angle travelled and not a timer, so
+     * a player who drops out and gets back in resumes rather than restarts, and
+     * a hit costs half of it rather than the whole phase.
+     */
+    _nyxCircle(e, mv, rage) {
+        // The lances are the phase. Anything that clears the beam list wholesale
+        // -- the perk phase does, and it cannot open while a colossus is alive,
+        // which is exactly the kind of "cannot happen" worth two lines -- would
+        // otherwise leave a circle with no wall to carve and no way to lose it.
+        if (!this.beams.some((b) => b.src === e.id && b.pf === 2)) {
+            this._nyxLances(e, this.beams.length ? 0 : (e.t * NYX.clockSpin) % 6.2832);
+        }
+        const w = (6.2832 / NYX.lap) * (rage ? 1 / NYX.rageLap : 1);
+        e.pa += w * mv;
+        e.pl -= mv;
+        if (e.pl <= 0) {
+            // §6.3's stall. The lances never expire on their own -- they are
+            // created permanent, like the clock beams -- so without a live cap
+            // both "restart" and "escalate" loop for ever: `po` climbs to the
+            // grace, the circle fails, `po` climbs again. Expiry pays no window,
+            // so sitting the phase out costs the reward as well as the time.
+            this._nyxEnd(e, rage, false);
+            return;
+        }
+        const pk = this._nyxPocket(e);
+        const rin = NYX.pocket * 1.25;
+        let inside = false;
+        for (const sp of this.ships) {
+            if (!sp.down && (sp.x - pk.x) ** 2 + (sp.y - pk.y) ** 2 < rin * rin) {
+                inside = true;
+                break;
+            }
+        }
+        if (inside) {
+            e.pg += w * mv;
+            e.po = 0;
+        } else {
+            e.po += mv;
+            if (e.po > NYX.grace) {
+                this._nyxFail(e);
+            }
+        }
+        if (e.pg >= 6.2832) {
+            this._nyxEnd(e, rage, true);
+        }
+    }
+
+    /**
+     * Left the pocket for longer than the grace: back to the entry, armour up.
+     *
+     * Restart, not escalation. The sheet ships restart and offers escalation
+     * (+2 lances a failure) as an alternative; measured here it fires every 43
+     * frames -- the grace plus one -- on a pilot who is dodging for their life
+     * rather than coasting, so it is a spiral and not a difficulty knob. The
+     * live cap is what bounds the stall, and it already does.
+     */
+    _nyxFail(e) {
+        e.pg = 0;
+        e.po = 0;
+        this._colossusCue(e, "arm");
+        this.pop(e.x, e.y - e.hh - 24, "CIRCLE BROKEN", "#ff6b6b", 18, 80);
+    }
+
+    /** The circle closed (or ran out): the rim withdraws and the armour drops. */
+    _nyxEnd(e, rage, won) {
+        this.beams = this.beams.filter((b) => b.src !== e.id);
+        e.armor = 0;
+        e.pg = 0;
+        // The clock beams come back either way, and for the reward they come
+        // back *inside* the window: a fresh 90 f telegraph against a 210 f
+        // window means the last 120 of it are flown under live beams, so the
+        // prize is a window and not a holiday.
+        this._nyxClock(e);
+        if (won) {
+            e.ph = N_EXPOSED;
+            e.pt = NYX.exposed;
+            this._colossusCue(e, "open");
+            this.pop(e.x, e.y - e.hh - 24, "CORE EXPOSED", "#ffd166", 22, 110);
+        } else {
+            e.ph = N_BASE;
+            e.pt = NYX.interval * (rage ? NYX.rageInterval : 1);
+        }
+    }
+
+    /**
+     * The pocket's path: the hull's own ellipse pushed out past the drums.
+     *
+     * A circle round an 820 x 335 hull either cuts through the ring or leaves
+     * the field, which is the study's own reason for deriving the path from the
+     * hull rather than choosing a radius. It is also why the phase widens the
+     * field: at NYX's shipping 1.44 the box is 979 x 683 and the path's 498 px
+     * half-width does not fit inside it.
+     */
+    _nyxPath(e) {
+        const k = NYX.plate + NYX.clear;
+        return { rx: e.w / 2 + k, ry: e.h / 2 + k };
+    }
+
+    /** The fan itself: `NYX.lances` rays out of the core, sharing a base angle. */
+    _nyxLances(e, base) {
+        const n = NYX.lances;
+        for (let k = 0; k < n; k++) {
+            this.beams.push(this.mkBeam({
+                src: e.id, a: base + (k / n) * 6.2832, warn: NYX.warn,
+                life: 100000, w: NYX.w, spin: NYX.lanceSpin, c: "#4de3c1",
+                len: NYX.reach, pf: 2,
+            }));
+        }
+    }
+
+    /** Where the hole in the fan is this frame. */
+    _nyxPocket(e) {
+        const p = this._nyxPath(e);
+        return {
+            x: e.x + Math.cos(e.pa) * p.rx,
+            y: e.y + Math.sin(e.pa) * p.ry,
+            r: NYX.pocket,
+        };
+    }
+
+    /** Is the ring up, i.e. are the lances out and the armour on? */
+    _nyxRinging(e) {
+        return e.k === 3 && (e.ph === N_ARRIVAL || e.ph === N_CIRCLE);
+    }
+
+    /**
+     * Carve the pocket out of whichever lance crosses it.
+     *
+     * Written onto the beam rather than derived at the two ends, because a guest
+     * does not simulate: `_updateBeams` never runs there, so the hole has to
+     * travel with the beam it is a hole in. The interval is clamped to the
+     * beam's own length rather than skipped when the pocket sits at or behind
+     * the muzzle, or a pocket passing close to the rim is silently lethal.
+     */
+    _nyxCarve(e, b) {
+        b.g0 = 0;
+        b.g1 = 0;
+        if (e.ph !== N_CIRCLE) {
+            return;
+        }
+        const pk = this._nyxPocket(e);
+        const wx = pk.x - b.x;
+        const wy = pk.y - b.y;
+        const ux = Math.cos(b.a);
+        const uy = Math.sin(b.a);
+        const proj = wx * ux + wy * uy;
+        const perp2 = wx * wx + wy * wy - proj * proj;
+        // The hole is the pocket plus the beam's own half-width, so the cue the
+        // player flies at and the gap in the wall are the same circle.
+        const r = pk.r + b.w * 0.5 + 5;
+        if (perp2 >= r * r) {
+            return;
+        }
+        const half = Math.sqrt(r * r - perp2);
+        const g1 = Math.min(b.len, proj + half);
+        if (g1 <= 0) {
+            return;
+        }
+        b.g0 = Math.max(0, proj - half);
+        b.g1 = g1;
+    }
+
+    /** The lethal runs along a beam: the whole ray, or the two sides of a hole. */
+    _beamSegs(b) {
+        if (!(b.g1 > b.g0)) {
+            return [[0, b.len]];
+        }
+        const segs = [];
+        if (b.g0 > 2) {
+            segs.push([0, b.g0]);
+        }
+        if (b.g1 < b.len) {
+            segs.push([b.g1, b.len]);
+        }
+        return segs;
+    }
+
     /**
      * Same as `_updateBossAnims` for the colossi. Only the indexes with a
      * section in `COLOSSUS_ANIM_KINDS` get one, so adding the animation of the
@@ -4633,6 +5071,18 @@ export class NeonStrikeEngine {
                 // `telK` outlives the telegraph that set it (see _updateColossus).
                 telK: e.tel > 0 ? e.telK : "",
                 gapX: e.gap,
+                // NYX only. The ring phase, and the live rays as angles: a drum
+                // lights because a ray leaves through it, so nothing has to be
+                // matched up and nothing can lag. The beams travel and `pf`
+                // marks them on both roles, which is what lets the filter work
+                // on a guest -- there is no `src` to key on there. The second
+                // slot is the telegraph 0..1, or -1 once the ray is live.
+                ring: e.k === 3 ? e.ph || 0 : null,
+                rays: e.k === 3
+                    ? this.beams.filter((b) => b.pf).map((b) => [
+                        b.a, b.warn > 0 ? 1 - b.warn / NYX.warn : -1,
+                    ])
+                    : null,
                 // Centre of mass of whoever is still flying, so the hull can
                 // tip towards them. Same ships `_updateColossus` presses, and a
                 // guest has them from the snapshot: no new bytes on the bus.
@@ -6680,7 +7130,12 @@ export class NeonStrikeEngine {
                 gz: s.graze % GRAZE_PER_COMBO,
                 // Perks (indexes), dash and active cooldowns for the HUD.
                 pk: s.perks.map((id) => PERK_INDEX[id]),
-                ds: s.dashCharges, dm: s.dashMax, dt: s.dash > 0 ? 1 : 0,
+                // `dt` is 2 while the burst travels and 1 through the landing
+                // grace that follows it, so a guest draws the halo shrinking
+                // instead of cutting. An older reader sees a truthy value for
+                // both, which is what it always meant.
+                ds: s.dashCharges, dm: s.dashMax,
+                dt: s.dash > 0 ? 2 : s.dashInv > 0 ? 1 : 0,
                 // How full the recharging dash pip is, 0-100. The fill and not
                 // the clock, because the length of the cooldown comes off perks
                 // the HUD would otherwise have to be told about as well.
@@ -6779,6 +7234,21 @@ export class NeonStrikeEngine {
                 // position.
                 np: e.type === "lnode" ? this._nodeStage(e)[0] : undefined,
                 nt: e.type === "lnode" ? Math.round(this._nodeStage(e)[1]) : undefined,
+                // NYX's ring. `nq` is the phase, `na` the pocket's angle and
+                // `nr` how much of the lap is banked -- the armour shell, the
+                // lit drums, the pocket cue and the progress arc are all read
+                // off those three, and not one of them can be derived from a
+                // position. The phase timer deliberately does not travel: a
+                // guest reads the telegraph and the beams, which do.
+                nq: e.k === 3 && e.type === "colossus" ? e.ph || 0 : undefined,
+                na: e.k === 3 && e.type === "colossus" ? Math.round(e.pa * 100) / 100 : undefined,
+                nr: e.k === 3 && e.type === "colossus"
+                    ? Math.round((e.pg / 6.2832) * 100) : undefined,
+                // The grace running out is the one number the player has to
+                // feel, and it is drawn on the hole rather than in the HUD, so
+                // it has to reach a guest as well.
+                no: e.k === 3 && e.type === "colossus" && e.po > 0
+                    ? Math.round(e.po) : undefined,
             })),
             // 3rd slot = style bits: 1 critical, 2 explosive.
             bu: this.bullets.map((b) => [Math.round(b.x), Math.round(b.y), (b.cr ? 1 : 0) | (b.ex ? 2 : 0)]),
@@ -6799,10 +7269,14 @@ export class NeonStrikeEngine {
             // 8th slot = the forge profile flag. Appended at the end, so a
             // reader that does not know about it sees `undefined` and draws the
             // plain beam instead of breaking.
+            // 9th-11th slots = NYX's draw profile and the hole its pocket
+            // carves, appended at the end for the same reason the 8th was.
             bm: this.beams.map((b) => [
                 Math.round(b.x), Math.round(b.y), Math.round(b.a * 1000) / 1000,
                 Math.round(b.len), Math.round(b.w), Math.round(Math.max(0, b.warn)), b.c,
-                b.hot ? 1 : 0,
+                b.hot ? 1 : 0, b.pf || 0,
+                b.g1 > b.g0 ? Math.round(b.g0) : 0,
+                b.g1 > b.g0 ? Math.round(b.g1) : 0,
             ]),
             // Perk phase (offers per slot, picks already made, countdown).
             pf: this.perkPhase
@@ -6886,7 +7360,8 @@ export class NeonStrikeEngine {
             });
             sp.dashCharges = s.ds != null ? s.ds : sp.dashCharges;
             sp.dashMax = s.dm != null ? s.dm : sp.dashMax;
-            sp.dash = s.dt ? 1 : 0;
+            sp.dash = s.dt === 2 ? 1 : 0;
+            sp.dashInv = s.dt === 1 ? 1 : 0;
             // The host sent the fill; rebuild a cooldown that reads the same,
             // so one code path draws the pip on both roles.
             sp.dashCdMax = 100;
@@ -6954,6 +7429,16 @@ export class NeonStrikeEngine {
                         sa: e.sa || 0,
                     });
                 }
+                if (e.nq != null) {
+                    // NYX. The path and the pocket are pure functions of the
+                    // hull's own size and this angle, so only the angle travels.
+                    Object.assign(en, {
+                        ph: e.nq,
+                        pa: e.na || 0,
+                        pg: ((e.nr || 0) / 100) * 6.2832,
+                        po: e.no || 0,
+                    });
+                }
                 if (e.ht != null) {
                     // VULCAN, same unpacking for the fans as HYDRA's heads.
                     const mhp = Math.max(1, Math.round((e.mh || 1) * VULCAN_FAN.hp));
@@ -6980,7 +7465,8 @@ export class NeonStrikeEngine {
         this.decoys = (snap.dc || []).map((d) => ({ x: d[0], y: d[1], sl: d[2], life: 1, ml: 360 }));
         this.beams = (snap.bm || []).map((b) => ({
             x: b[0], y: b[1], a: b[2], len: b[3], w: b[4], warn: b[5], c: b[6],
-            hot: b[7] || 0, life: 1, spin: 0, src: 0,
+            hot: b[7] || 0, pf: b[8] || 0, g0: b[9] || 0, g1: b[10] || 0,
+            life: 1, spin: 0, src: 0,
         }));
         for (const ev of snap.ev || []) {
             this._playEvent(ev);
@@ -6998,11 +7484,164 @@ export class NeonStrikeEngine {
      * of the plain two-stroke one -- three concentric layers with a jittering
      * white core, a width that waves along its length, a per-frame flicker and
      * a bloom where it lands. It is a flag rather than a restyle of every beam
-     * because NYX and OMEGA were not part of this pass and their beams are
-     * tuned as they are; and it is only cosmetic, so it needs nothing from the
-     * simulation beyond the beam the engine already owns and already damages
-     * with. `hot` travels in `bm`, so a guest draws the same beam.
+     * because OMEGA was not part of that pass and its beam is tuned as it is;
+     * and it is only cosmetic, so it needs nothing from the simulation beyond
+     * the beam the engine already owns and already damages with. `hot` travels
+     * in `bm`, so a guest draws the same beam.
+     *
+     * NYX's two families take the same route through a second flag, `pf`, and
+     * add the one thing no other beam here has: a **hole**. A carved lance is
+     * painted over its lethal runs only (`_beamSegs`), so the gap the player
+     * flies through is a gap in the picture as well as in the damage -- which
+     * is the whole reason the carve travels rather than being derived at the
+     * two ends.
      */
+    /**
+     * NYX's two beam families, from the study's own geometry: five quantised
+     * bands across the lethal width, a diamond chain whose positions are a
+     * function of the beam's own length (so they never crawl), a muzzle bloom
+     * at the origin and a pointed tip. The chain and the bloom stay inside the
+     * lethal width -- the drawing must never overstate the hitbox -- and the
+     * shards that ride outside it are the one thing here that is decoration.
+     *
+     * A carved lance is painted over its lethal runs only, so the hole the
+     * player flies through is a hole in the picture as well as in the damage.
+     */
+    _drawNyxBeam(b) {
+        const g = this.g;
+        const lance = b.pf === 2;
+        const R = NYX.ramp;
+        const lo = lance ? NYX.lanceRungs : NYX.clockRungs;
+        const cad = lance ? NYX.lanceCad : NYX.clockCad;
+        const hw = b.w * 0.5;
+        g.save();
+        g.translate(b.x, b.y);
+        g.rotate(b.a);
+        const dia = (t, h, col) => {
+            g.fillStyle = col;
+            g.beginPath();
+            g.moveTo(t - h, 0);
+            g.lineTo(t, -h);
+            g.lineTo(t + h, 0);
+            g.lineTo(t, h);
+            g.closePath();
+            g.fill();
+        };
+        const segs = this._beamSegs(b);
+        for (const [s0, s1] of segs) {
+            const run = s1 - s0;
+            if (run <= 0) {
+                continue;
+            }
+            g.fillStyle = R[lo[0]];
+            g.fillRect(s0, -hw, run, b.w);
+            g.fillStyle = R[lo[1]];
+            g.fillRect(s0, -hw * 0.72, run, b.w * 0.72);
+            g.fillStyle = R[lo[2]];
+            g.fillRect(s0, -hw * 0.38, run, b.w * 0.38);
+            g.fillStyle = R[lo[3]];
+            g.fillRect(s0, -1.5, run, 3);
+            // Chain positions come off the beam's own length, so a lance that is
+            // being carved does not slide its diamonds as the hole moves.
+            for (let t = Math.ceil((s0 + 18) / cad) * cad; t < s1 - 8; t += cad) {
+                dia(t, hw, R[lo[1]]);
+                dia(t, hw * 0.68, R[lo[2]]);
+                dia(t, hw * 0.3, "#ffffff");
+                if (lance && t % (cad * 3) < cad) {
+                    const off = b.w * 0.92;
+                    g.save();
+                    g.translate(0, -off);
+                    dia(t, 5, R[lo[1]]);
+                    g.restore();
+                    g.save();
+                    g.translate(0, off);
+                    dia(t, 5, R[lo[1]]);
+                    g.restore();
+                }
+            }
+            // Muzzle bloom: it sits at the run's own start, so a carved lance
+            // shows the light leaving the far lip of the hole as well as the drum.
+            g.fillStyle = R[lo[2]];
+            g.fillRect(s0, -b.w * 0.85, 10, b.w * 1.7);
+            g.fillStyle = R[lo[3]];
+            g.fillRect(s0, -b.w * 0.55, 6, b.w * 1.1);
+            g.fillStyle = "#ffffff";
+            g.fillRect(s0, -b.w * 0.25, 3, b.w * 0.5);
+        }
+        const last = segs[segs.length - 1];
+        if (last && last[1] >= b.len - 1) {
+            g.fillStyle = R[lo[2]];
+            g.beginPath();
+            g.moveTo(b.len, 0);
+            g.lineTo(b.len - 30, -hw);
+            g.lineTo(b.len - 30, hw);
+            g.closePath();
+            g.fill();
+        }
+        g.restore();
+    }
+
+    /**
+     * The ring phase's cue: the route, the hole and how much of the lap is
+     * banked. Drawn from the phase's own pocket position -- no prediction and no
+     * easing -- at the real carve radius rather than at the pocket radius, so
+     * the circle the player aims at is the circle the wall actually opens.
+     */
+    _drawNyxRing() {
+        const e = this.enemies.find((q) => q.type === "colossus" && q.k === 3);
+        if (!e || !this._nyxRinging(e)) {
+            return;
+        }
+        const g = this.g;
+        const path = this._nyxPath(e);
+        const arm = e.ph === N_ARRIVAL;
+        g.save();
+        g.globalCompositeOperation = "lighter";
+        // The route. Faint, because it is information and not a hazard.
+        g.strokeStyle = NYX.ramp[4];
+        g.globalAlpha = arm ? 0.3 : 0.5;
+        g.lineWidth = 2;
+        g.beginPath();
+        g.ellipse(e.x, e.y, path.rx, path.ry, 0, 0, 6.2832);
+        g.stroke();
+        // What is banked, drawn along the route from where the lap started.
+        if (e.pg > 0.01) {
+            g.strokeStyle = NYX.ramp[6];
+            g.globalAlpha = 0.75;
+            g.lineWidth = 4;
+            g.beginPath();
+            g.ellipse(e.x, e.y, path.rx, path.ry, 0, e.pa - e.pg, e.pa);
+            g.stroke();
+        }
+        if (!arm) {
+            const pk = this._nyxPocket(e);
+            const r = pk.r + NYX.w * 0.5 + 5;
+            g.globalAlpha = 1;
+            g.strokeStyle = NYX.ramp[7];
+            g.lineWidth = 2;
+            g.beginPath();
+            g.arc(pk.x, pk.y, r, 0, 6.2832);
+            g.stroke();
+            g.strokeStyle = NYX.ramp[4];
+            g.globalAlpha = 0.6;
+            g.beginPath();
+            g.arc(pk.x, pk.y, r + 6, 0, 6.2832);
+            g.stroke();
+            // The grace running out is the one number the player has to feel,
+            // so it is on the hole rather than in the HUD.
+            if (e.po > 0) {
+                g.strokeStyle = "#ff6b6b";
+                g.globalAlpha = 0.9;
+                g.lineWidth = 3;
+                g.beginPath();
+                g.arc(pk.x, pk.y, r + 12, -1.5708,
+                    -1.5708 + 6.2832 * Math.min(1, e.po / NYX.grace));
+                g.stroke();
+            }
+        }
+        g.restore();
+    }
+
     _drawBeams() {
         const g = this.g;
         for (const b of this.beams) {
@@ -7024,6 +7663,15 @@ export class NeonStrikeEngine {
             }
             if (b.hot) {
                 this._drawForgeBeam(b, ex, ey);
+                g.restore();
+                continue;
+            }
+            if (b.pf) {
+                // NYX. Drawn opaque rather than additive, and without a pulse:
+                // a lethal region that flickers is a lie about where it is, and
+                // the hole in it has to be as flatly readable as the wall.
+                g.globalCompositeOperation = "source-over";
+                this._drawNyxBeam(b);
                 g.restore();
                 continue;
             }
@@ -7182,12 +7830,17 @@ export class NeonStrikeEngine {
         }
         g.save();
         g.translate(sp.x, sp.y);
-        if (sp.dash > 0) {
-            // Dash: violet halo that reads as "you cannot be touched now".
+        if (sp.dash > 0 || sp.dashInv > 0) {
+            // Dash: violet halo that reads as "you cannot be touched now". It
+            // stays up through the landing grace at half the size and half the
+            // strength -- the grace is worth nothing if the player cannot see
+            // that it is still running, and a halo that cut on the frame the
+            // travel ended would say the opposite of what is true.
+            const k = sp.dash > 0 ? 1 : 0.5;
             g.globalCompositeOperation = "lighter";
-            g.fillStyle = "rgba(201,164,255,0.35)";
+            g.fillStyle = "rgba(201,164,255," + (0.35 * k).toFixed(3) + ")";
             g.beginPath();
-            g.arc(0, 0, 30, 0, 6.2832);
+            g.arc(0, 0, 30 * (0.55 + 0.45 * k), 0, 6.2832);
             g.fill();
             g.globalCompositeOperation = "source-over";
         }
@@ -7825,6 +8478,7 @@ export class NeonStrikeEngine {
             g.arc(b.x, b.y, kd.cr, 0, 6.2832);
             g.fill();
         }
+        this._drawNyxRing();
         this._drawBeams();
         g.globalCompositeOperation = "source-over";
         this._drawPerkEntities();

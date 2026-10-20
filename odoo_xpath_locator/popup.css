@@ -1,0 +1,126 @@
+:root {
+    --o-accent: #714b67;
+    --o-text: #1f1f1f;
+    --o-muted: #6b6b6b;
+    --o-background: #ffffff;
+    --o-surface: #f4f2f3;
+    --o-border: #d7d2d5;
+    --o-error: #b42318;
+    color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --o-accent: #c193b6;
+        --o-text: #ececec;
+        --o-muted: #a6a6a6;
+        --o-background: #232023;
+        --o-surface: #2f2b2e;
+        --o-border: #4a4448;
+        --o-error: #ff8a80;
+    }
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+body {
+    width: 380px;
+    margin: 0;
+    padding: 14px;
+    font: 13px/1.4 system-ui, sans-serif;
+    color: var(--o-text);
+    background: var(--o-background);
+}
+
+.o_locator_header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 600;
+}
+
+.o_locator_row {
+    display: flex;
+    gap: 8px;
+}
+
+input {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 8px;
+    font: 12px/1.4 ui-monospace, monospace;
+    color: var(--o-text);
+    background: var(--o-surface);
+    border: 1px solid var(--o-border);
+    border-radius: 4px;
+}
+
+input:focus {
+    outline: 2px solid var(--o-accent);
+    outline-offset: -1px;
+}
+
+button {
+    padding: 6px 14px;
+    font: inherit;
+    font-weight: 600;
+    color: #ffffff;
+    background: #714b67;
+    border: 0;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #5e3e56;
+}
+
+.o_locator_result {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--o-border);
+}
+
+.o_locator_line {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--o-accent);
+}
+
+.o_locator_tag {
+    margin: 6px 0 0;
+    padding: 6px 8px;
+    font: 12px/1.4 ui-monospace, monospace;
+    white-space: pre-wrap;
+    word-break: break-all;
+    background: var(--o-surface);
+    border-radius: 4px;
+}
+
+.o_locator_note {
+    margin: 8px 0 0;
+    color: var(--o-muted);
+}
+
+.o_locator_message {
+    margin: 0;
+    font-weight: 600;
+}
+
+.o_locator_error {
+    margin: 0;
+    color: var(--o-error);
+}

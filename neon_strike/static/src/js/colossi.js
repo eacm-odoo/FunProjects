@@ -76,11 +76,31 @@ export const COLOSSI = [
         tint: "#4de3c1",
         w: 820,
         field: 1.44,
-        hp: 1000,
+        // 630 rather than the 1000 it was tuned at, and for the mirror of the
+        // reason VULCAN's went the other way: the ring phase can only ever
+        // *cost* damage against a hull that used to have no armour at all, so
+        // the catalogue has to hand some back. Measured at wave 40 under one
+        // constant stream (`probe_nyx_ttk.mjs`): the fight that shipped takes
+        // 3671 f; at the old hull the ring flown takes 5016 and the ring
+        // ignored 7956. At this hull a player who closes every circle is back
+        // on 3650-3740 -- the old fight, within the bench's own noise -- while
+        // one who sits every circle out pays between 40% and 100% more.
+        //
+        // That second figure is a range and not a number on purpose: with the
+        // armour up for most of the cycle almost all the damage lands in the
+        // 1400 f base windows, so time to kill *steps* by about a cycle
+        // depending on which window the last hit falls in. Swept over eight
+        // hulls it reads 4597/4751/5571/7266/5076/5276/7469/8001. The flown
+        // case is smooth, which is why it is the one this number is set on.
+        // Re-run that probe if `NYX.armour`, `NYX.live` or the exposed window
+        // move. The wave term (`+ wave * 28`) dominates by the second time NYX
+        // comes round, so at wave 90 the same cut leaves the flown fight about
+        // 15% longer than it used to be.
+        hp: 630,
         val: 32000,
         y: 180,
         speed: 0.6,
-        desc: "Ring station in permanent eclipse. Four beams turn like clock hands while the rim keeps launching interceptors.",
+        desc: "Ring station in permanent eclipse. Four beams turn like clock hands, and when the rim lights every lance there is one pocket left moving -- go with it.",
     },
     {
         id: "omega",

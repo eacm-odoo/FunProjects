@@ -216,6 +216,21 @@ const FAN_PAD = 2;
 const ARM_MIN_SHARE = 0.04;
 /** How far around its hand an arm lights when the forge fires, in cells. */
 const HAND_R = 2.5;
+/**
+ * A ring hull: one whose accent cells all sit on the outer rim and whose
+ * silhouette encloses transparent cells well inside it. `colossus3` is the
+ * station -- six collars at 0.85-0.97 of the rim, four open windows between the
+ * conduit and the inner truss -- and it is the only hull in the bank that
+ * answers to either half. AEGIS and OMEGA paint accent cells on the rim too but
+ * enclose nothing; HYDRA's grilles and VULCAN's fans sit well inside theirs.
+ */
+const RING_MIN_COLLARS = 4;
+const RING_COLLAR_Q = 0.75;     // how far out a collar has to sit
+const RING_HOLE_Q = 0.85;       // and how far in an enclosed hole has to reach
+/** The conduit band: the tint cells this far out are the ring's own tube. */
+const RING_BAND_Q = 0.62;
+/** How far around a ray's exit point a drum lights, in cells. */
+const DRUM_R = 2.4;
 
 /**
  * Reference speeds are the ones `aegis_motion.js` actually produces, measured
@@ -484,10 +499,67 @@ export const COLOSSUS_ANIM = {
         rage: { holdSec: 0.83, flareSec: 0.9, ringCells: 6 },
         charge: { max: 0.5, bands: 12, falloff: 1.3 },
     },
+    NYX: {
+        breathe: { amp: 0.006, rate: 0.5, loadTilt: 0.3 },
+        // A station does not lean. The shear the other three use tilts the whole
+        // hull, and the rays that leave this one are drawn unsheared in the
+        // arena -- so a leaning ring would put every drum a few pixels off its
+        // own beam, which is the DRONE-B mistake in a new costume. It also does
+        // not read: a sheared ellipse is a different ellipse, not a lean.
+        lean: { maxRad: 0, velGain: 0, aimGain: 0, aimSpanPx: 300, aimSmooth: 2.2, smooth: 6 },
+        recoil: { px: 9, fall: 3.4 },
+        plant: { squareUp: 0, judderCells: 1, judderHz: 7, emitDrop: 0 },
+        // The core is painted in three concentric indices -- hot white in the
+        // middle, dark accent around it, mid hull outside -- and only the middle
+        // ring has headroom: at rung 1 the accent has seven rungs to climb while
+        // the white has none at all. So the plasma is the gauge and the white
+        // middle *appears* to grow as it climbs, which is VULCAN's slot one hull
+        // over. `core` drives the shared machinery (breath, brace, failure
+        // jitter); `plasma` is what the draw actually reads.
+        // `sat` is 0 on purpose, and it is the one number here worth arguing
+        // about: every other hull opens its core on a telegraph, and rendering
+        // it that way put NYX's white middle over the whole magenta ring during
+        // the arrival -- i.e. the phase that arms the rim looked exactly like
+        // the phase that opens the core. The tell of the arrival is the rim, so
+        // the core takes no part in it and the window keeps its own picture.
+        core: { base: 0.18, pulse: 0.12, rate: 0.4, sat: 0, squeeze: 0,
+                biasCells: 0, flashSec: 0.12, jitter: 0.6, dim: 0.9 },
+        // `open` is the exposed window: the one beat where the core is worth
+        // flying at, so it is the only time the white reaches past the middle.
+        // `min`/`max` are how far out the white may reach, as a share of the
+        // plasma's own radius. `min` sits just under its inner edge, so the
+        // idle breath lights nothing at all for most of its cycle -- the art is
+        // the baseline -- and only crosses at the top of it. `max` stops short
+        // of 1: swallowing the whole magenta ring would take the station's one
+        // non-teal feature away, so the core opens rather than bleaches.
+        plasma: { min: 0.4, max: 0.92, open: 0.62 },
+        // The conduit: the teal tube inside the casing, with a light running
+        // round it. It does NOT brighten for the ring phase -- the drums do --
+        // so this is a constant of the hull and never a tell.
+        conduit: { run: 0.075, share: 0.14 },
+        // A drum is wherever a ray leaves the rim, so there is no tracking rate
+        // and no lag to tune: aim is not approached over time, it is where the
+        // ray is. Idle keeps the rim from ever being bare.
+        drum: { fireSec: 0.22, r: DRUM_R },
+        damage: {
+            start: 0.3,
+            shakePx: 4, shakeHz: 15,
+            deadCells: 24,
+            ventRate: 9, sparkLife: 0.55, sparkSpeed: 26,
+        },
+        entry: { vy: 45, span: 33 },
+        rage: { holdSec: 0.83, flareSec: 0.9, ringCells: 6 },
+        charge: { max: 0.5, bands: 12, falloff: 1.3 },
+    },
 };
 
 /** Index into COLOSSI -> section above. A colossus with no section is drawn plain. */
-export const COLOSSUS_ANIM_KINDS = ["AEGIS", "HYDRA", "VULCAN"];
+export const COLOSSUS_ANIM_KINDS = ["AEGIS", "HYDRA", "VULCAN", "NYX"];
+/**
+ * NYX's phases, mirroring the N_* constants in `game_engine.js`, on exactly the
+ * pattern `V` follows for VULCAN.
+ */
+const N = { BASE: 0, ARRIVAL: 1, CIRCLE: 2, EXPOSED: 3 };
 /**
  * VULCAN's phases, mirroring the V_* constants in `game_engine.js`. The
  * animator only ever compares against these, so the two lists are the whole
@@ -957,6 +1029,121 @@ function armsOf(grid, cols, rows, topEdgeRow) {
 }
 
 /**
+ * A hull read as a ring station: the rim's own ellipse, the conduit band, the
+ * silhouette's outline in angle order, the plasma the core is painted in, and
+ * the collars the art marks the drums with.
+ *
+ * Same discipline as the crown, the heads, the chimneys and the fans: nothing
+ * is written down per colossus. A drum is not at a collar -- the rim is a ring
+ * the beams slide along, so the drum is wherever a ray leaves through, and the
+ * collars are the idle hardware the art paints so the rim is never bare.
+ */
+function ringOf(grid, cols, rows) {
+    if (!cols || !rows) {
+        return null;
+    }
+    let c0 = cols, c1 = -1, r0 = rows, r1 = -1;
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            if (grid[r][c] === ".") {
+                continue;
+            }
+            if (c < c0) { c0 = c; }
+            if (c > c1) { c1 = c; }
+            if (r < r0) { r0 = r; }
+            if (r > r1) { r1 = r; }
+        }
+    }
+    if (c1 < c0) {
+        return null;
+    }
+    const cx = (c0 + c1) / 2;
+    const cy = (r0 + r1) / 2;
+    const ax = (c1 - c0 + 1) / 2;
+    const ay = (r1 - r0 + 1) / 2;
+    const q = (c, r) => Math.hypot((c - cx) / ax, (r - cy) / ay);
+
+    // Is this a ring at all? Enough collars, all of them out on the rim, and a
+    // transparent cell enclosed by paint on both sides in both axes.
+    let collars = 0;
+    let outer = 0;
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            if (grid[r][c] !== ACCENT_CHAR) {
+                continue;
+            }
+            collars++;
+            if (q(c, r) >= RING_COLLAR_Q) {
+                outer++;
+            }
+        }
+    }
+    if (collars < RING_MIN_COLLARS || outer !== collars) {
+        return null;
+    }
+    let hole = false;
+    for (let r = r0; r <= r1 && !hole; r++) {
+        for (let c = c0; c <= c1; c++) {
+            if (grid[r][c] !== "." || q(c, r) >= RING_HOLE_Q) {
+                continue;
+            }
+            let l = false, rt = false, up = false, dn = false;
+            for (let i = c0; i < c; i++) { l = l || grid[r][i] !== "."; }
+            for (let i = c + 1; i <= c1; i++) { rt = rt || grid[r][i] !== "."; }
+            for (let i = r0; i < r; i++) { up = up || grid[i][c] !== "."; }
+            for (let i = r + 1; i <= r1; i++) { dn = dn || grid[i][c] !== "."; }
+            if (l && rt && up && dn) {
+                hole = true;
+                break;
+            }
+        }
+    }
+    if (!hole) {
+        return null;
+    }
+
+    const band = [];
+    const plasma = [];
+    const edge = [];
+    for (let r = r0; r <= r1; r++) {
+        for (let c = c0; c <= c1; c++) {
+            const ch = grid[r][c];
+            if (ch === ".") {
+                continue;
+            }
+            const qq = q(c, r);
+            if (ch === "4" && qq >= RING_BAND_Q) {
+                band.push(c, r);
+            }
+            if (ch === DARK_ACCENT_CHAR) {
+                plasma.push(c, r);
+            }
+            // The outline: a painted cell with a transparent (or absent)
+            // orthogonal neighbour. It is what the armour shell runs along, so
+            // it is kept in angle order and the wave can just walk it.
+            const bare = (cc, rr) => rr < 0 || rr >= rows || cc < 0 || cc >= cols
+                || grid[rr][cc] === ".";
+            if (bare(c - 1, r) || bare(c + 1, r) || bare(c, r - 1) || bare(c, r + 1)) {
+                edge.push([Math.atan2((r - cy) / ay, (c - cx) / ax), c, r]);
+            }
+        }
+    }
+    edge.sort((a, b) => a[0] - b[0]);
+    // How far the plasma reaches, so the core's growth can be expressed as a
+    // share of its own extent rather than of the hull's.
+    let plasmaR = 0;
+    for (let i = 0; i < plasma.length; i += 2) {
+        plasmaR = Math.max(plasmaR, q(plasma[i], plasma[i + 1]));
+    }
+    return {
+        cx, cy, ax, ay, plasmaR,
+        band: Int16Array.from(band),
+        plasma: Int16Array.from(plasma),
+        edge: Int16Array.from([].concat(...edge.map((e) => [e[1], e[2]]))),
+    };
+}
+
+/**
  * Everything about a hull grid that never changes, worked out once: the ramp
  * rung of every cell, the lowest occupied row of each column (where a plume
  * hangs), the last row wide enough to count as the bottom edge (where the
@@ -1089,6 +1276,8 @@ function hullGeometry(name) {
         slot,
         fans: slot ? slot.fans : null,
         arms: cols ? armsOf(grid, cols, rows, topEdgeRow < 0 ? 0 : topEdgeRow) : null,
+        // NYX's: the rim, the conduit, the outline and the plasma core.
+        ring: ringOf(grid, cols, rows),
     };
     geometry.set(name, geo);
     return geo;
@@ -1247,6 +1436,15 @@ export class ColossusAnimator {
             { jam: false, clear: 1, hurt: 0 },
             { jam: false, clear: 1, hurt: 0 },
         ];
+        // NYX: the ring phase. `phase` is shared with VULCAN's (both read the
+        // engine's `ph`, and no colossus is ever both); the rays are the live
+        // beams as angles, which is all a drum needs -- it lights because a ray
+        // leaves through it, so there is nothing to match up and nothing to lag.
+        this.rays = [];
+        this.armour = 0;        // 0..1 the shell
+        this.expose = 0;        // 0..1 the exposed window, i.e. the core open
+        this.fire = 0;          // seconds left of the muzzle flash
+        this._live = 0;         // how many rays were live last frame
         this.sparks = [];
         this._spawn = 0;
         this._fell = false;
@@ -1368,9 +1566,45 @@ export class ColossusAnimator {
             this._observeHydra(dt, s);
         } else if (this.kind === "VULCAN") {
             this._observeVulcan(dt, s, dx);
+        } else if (this.kind === "NYX") {
+            this._observeNyx(dt, s);
         }
         this._vent(dt);
         return this;
+    }
+
+    /**
+     * NYX. Everything here is read off state the engine already owns and the
+     * snapshot already carries: the ring phase (`nq`) and the live rays, which
+     * are the beams the engine draws and damages with.
+     *
+     * The one latch is the muzzle flash, and it is derived rather than cued: the
+     * number of rays past their telegraph can only go up on the frame they fire,
+     * so the whole rim lighting at once needs no event on the bus.
+     */
+    _observeNyx(dt, s) {
+        const t = this.t;
+        const g = this.g0;
+        this.rays = s.rays || [];
+        this.phase = s.ring == null ? null : s.ring;
+        const shell = this.phase === N.ARRIVAL || this.phase === N.CIRCLE ? 1 : 0;
+        this.armour = ease(this.armour, shell, shell ? g.boolIn : g.boolOut, dt);
+        const open = this.phase === N.EXPOSED ? 1 : 0;
+        this.expose = ease(this.expose, open, open ? g.boolIn : g.boolOut, dt);
+        let live = 0;
+        for (const r of this.rays) {
+            if (r[1] < 0) {
+                live++;
+            }
+        }
+        if (live > this._live) {
+            this.fire = t.drum.fireSec;
+            this.recoil = 1;
+        }
+        this._live = live;
+        if (this.fire > 0) {
+            this.fire -= dt;
+        }
     }
 
     /**
@@ -1700,6 +1934,15 @@ export class ColossusAnimator {
             // whole hull, and the feet take it.
             this.recoil = 1;
             this.coreFlash = 0.1;
+        } else if ((name === "arm" || name === "open") && this.t.plasma) {
+            // NYX. The rim arming and the core opening are both the whole hull
+            // answering at once, which is what `coreFlash` already is. The
+            // circle actually starting needs no cue of its own: the rays going
+            // live is the event, and `_observeNyx` latches the flash off them.
+            this.coreFlash = this.t.core.flashSec;
+            if (name === "arm") {
+                this.recoil = 0.6;
+            }
         } else if (name === "rage") {
             this.flare = 0;
             this.hold = this.t.rage.holdSec;
@@ -1816,6 +2059,17 @@ export class ColossusAnimator {
             core, coreScale: 1 - t.core.squeeze * this.plant,
             coreBias: -this.lean / t.lean.maxRad * t.core.biasCells,
             vent, heads,
+            // NYX: the four levels its draw reads. `plasma` is the core's gauge
+            // (the only concentric layer with headroom), `armour` the shell,
+            // `fire` the muzzle flash and `rays` the live beams as angles.
+            ring: this.kind === "NYX"
+                ? {
+                    plasma: core + this.expose * t.plasma.open,
+                    armour: this.armour,
+                    fire: clamp01(this.fire / t.drum.fireSec),
+                    rays: this.rays,
+                }
+                : null,
             // The hull rears up over the enrage beat. AEGIS's block has no
             // `archPx`, so for it this stays 0 and the transform is the one it
             // always had.
@@ -1913,6 +2167,10 @@ export class ColossusAnimator {
             this._drawVents(g, geo, cell, p);
             this._drawCrown(g, geo, cell, p);
             this._drawHeads(g, geo, cell, p);
+        } else if (this.kind === "NYX") {
+            this._drawConduit(g, geo, cell, p);
+            this._drawPlasma(g, geo, cell, p);
+            this._drawDrums(g, geo, cell, p);
         } else {
             this._drawCore(g, geo, cell, p);
             this._drawSweep(g, geo, cell, p);
@@ -1945,6 +2203,167 @@ export class ColossusAnimator {
         }
         g.fillStyle = this.ramp[to];
         g.fillRect(c * cell, r * cell, cell, cell);
+    }
+
+    /**
+     * Light one hull cell to an explicit rung.
+     *
+     * NYX cannot use `_promote`, and the reason is the whole shape of this
+     * section. This hull is painted in two families -- a teal casing and a
+     * magenta core -- and the bank's ramp runs *between* them: rung 1 is the
+     * dark accent (magenta), 2 the mid hull (violet), 3 the dark tint. So a
+     * plasma cell pulled a quarter of the way to white lands on teal, and the
+     * station's core stops being magenta at all. Same trap one rung lower: the
+     * silhouette's dark cells promote to rung 1, i.e. a teal ring with a
+     * magenta edge, which is exactly what the WARDEN port had to undo.
+     *
+     * The rule here is therefore not a fraction but a floor and a target: an
+     * effect may only touch a cell that is already metal or brighter, and it
+     * may only move it to a rung named out of the teal family. The dark
+     * structure stays dark, the core stays magenta, and no promotion can
+     * invent a colour between the two.
+     */
+    _light(g, geo, cell, c, r, rung) {
+        const at = geo.cells[r * geo.cols + c];
+        if (at < RUNG[METAL_CHAR] || at >= rung) {
+            return;
+        }
+        const to = geo.rungs[rung];
+        if (to === at) {
+            return;
+        }
+        g.fillStyle = this.ramp[to];
+        g.fillRect(c * cell, r * cell, cell, cell);
+    }
+
+    /**
+     * The conduit: the teal tube inside the casing, with a light running round
+     * it. It does not brighten for the ring phase -- the sheet is explicit that
+     * the emitters are the tell and the conduit is the hull -- and the run
+     * merely goes white while the rim is armed.
+     *
+     * Two shapes for the armour were measured before this one. The sheet's own
+     * is a 3 px casing outline, which on this hull is 478 cells of dark plating
+     * whose only promotion is the bank's magenta. Holding the whole tube lit
+     * instead said it in the hull's colour but cost 492 repaints a frame --
+     * 515 for the hull against AEGIS's 160 -- and buried the drums it was
+     * competing with. The rim answers for itself: six drums lit is the tell,
+     * and the route and the hole in the arena say the rest.
+     */
+    _drawConduit(g, geo, cell, p) {
+        const rg = geo.ring;
+        if (!rg) {
+            return;
+        }
+        const t = this.t.conduit;
+        const lvl = p.ring ? p.ring.armour : 0;
+        const head = this.time * t.run * 6.2832;
+        const span = t.share * 6.2832;
+        const hot = lvl > 0.5;
+        for (let i = 0; i < rg.band.length; i += 2) {
+            const c = rg.band[i];
+            const r = rg.band[i + 1];
+            const a = Math.atan2((r - rg.cy) / rg.ay, (c - rg.cx) / rg.ax);
+            // Distance round the ring from the running head, forward only, so
+            // the arc has a bright leading edge and a tail behind it.
+            let d = (head - a) % 6.2832;
+            if (d < 0) {
+                d += 6.2832;
+            }
+            if (d > span) {
+                continue;
+            }
+            this._light(g, geo, cell, c, r, hot && d < span * 0.4 ? RUNG[0] : RUNG[6]);
+        }
+    }
+
+    /**
+     * The plasma core. Its three concentric indices are hot white in the
+     * middle, dark accent around it and mid hull outside, and the ramp between
+     * the accent and the white runs through the casing's own teal -- so the
+     * core cannot be *promoted*, it can only grow: the accent cells inside a
+     * radius go straight to the white, and the white middle gets visibly
+     * bigger without one of its own cells being repainted.
+     *
+     * That is VULCAN's slot one hull over, and it is also why the exposed
+     * window is legible from across the arena: it is the only beat where the
+     * radius reaches past the plasma at all.
+     */
+    _drawPlasma(g, geo, cell, p) {
+        const rg = geo.ring;
+        const k = p.ring ? p.ring.plasma : 0;
+        if (!rg || k <= 0.02 || !rg.plasma.length) {
+            return;
+        }
+        const t = this.t.plasma;
+        const grow = t.min + (t.max - t.min) * clamp01(k);
+        if (!(rg.plasmaR > 0)) {
+            return;
+        }
+        const top = geo.rungs[RUNG[0]];
+        g.fillStyle = this.ramp[top];
+        for (let i = 0; i < rg.plasma.length; i += 2) {
+            const c = rg.plasma[i];
+            const r = rg.plasma[i + 1];
+            const q = Math.hypot((c - rg.cx) / rg.ax, (r - rg.cy) / rg.ay) / rg.plasmaR;
+            if (q > grow) {
+                continue;
+            }
+            g.fillRect(c * cell, r * cell, cell, cell);
+        }
+    }
+
+    /**
+     * The drums. There is no socket list and no assignment: a ray's origin is
+     * the point on the rim its own angle picks out, so the drum that lights is
+     * where the ray leaves, by construction. That is what makes the glow sit on
+     * the barrel rather than near it, and it is why there is no tracking lag to
+     * tune -- two earlier shapes for this (nearest-angle matching, then
+     * permanent ownership) both had one and both are recorded in the sheet.
+     */
+    _drawDrums(g, geo, cell, p) {
+        const rg = geo.ring;
+        const rays = p.ring ? p.ring.rays : null;
+        if (!rg || !rays || !rays.length) {
+            return;
+        }
+        const t = this.t.drum;
+        const rr = t.r;
+        for (const ray of rays) {
+            const a = ray[0];
+            const w = ray[1];
+            // Where this ray leaves the rim. The cell grid is isotropic, so the
+            // world angle is the grid angle and only the semi-axes differ.
+            const ca = Math.cos(a);
+            const sa = Math.sin(a);
+            const d = Math.hypot(ca / rg.ax, sa / rg.ay);
+            if (!(d > 0)) {
+                continue;
+            }
+            const ex = rg.cx + ca / d;
+            const ey = rg.cy + sa / d;
+            // The white is what the drum says with. While the ring phase is up
+            // the whole conduit sits at the light tint, so a drum that lit to
+            // the same rung would be invisible on it -- the charge has to go
+            // past the tube it is mounted on. One third of the drum per third
+            // of the telegraph, all of it on the frames it fires.
+            const core = w >= 0
+                ? (Math.floor(w * 3) + 1) / 3
+                : Math.max(0.55, p.ring.fire);
+            const rc0 = Math.max(0, Math.floor(ex - rr));
+            const rc1 = Math.min(geo.cols - 1, Math.ceil(ex + rr));
+            const rr0 = Math.max(0, Math.floor(ey - rr));
+            const rr1 = Math.min(geo.rows - 1, Math.ceil(ey + rr));
+            for (let r = rr0; r <= rr1; r++) {
+                for (let c = rc0; c <= rc1; c++) {
+                    const q = Math.hypot(c - ex, r - ey) / rr;
+                    if (q > 1) {
+                        continue;
+                    }
+                    this._light(g, geo, cell, c, r, q < core ? RUNG[0] : RUNG[6]);
+                }
+            }
+        }
     }
 
     /** Burnt-out sections: the lights go off in the hull's dark cells. */
