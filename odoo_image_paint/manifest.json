@@ -1,0 +1,24 @@
+{
+    "manifest_version": 3,
+    "name": "Odoo Image Paint",
+    "version": "1.0.0",
+    "description": "Pick an image field on an Odoo page, edit it in a small paint editor and save it back to the record.",
+    "minimum_chrome_version": "123",
+    "permissions": ["activeTab", "scripting"],
+    "icons": {
+        "16": "icons/icon16.png",
+        "32": "icons/icon32.png",
+        "48": "icons/icon48.png",
+        "128": "icons/icon128.png"
+    },
+    "background": {
+        "service_worker": "background.js"
+    },
+    "action": {
+        "default_title": "Edit an image of this Odoo page",
+        "default_icon": {
+            "16": "icons/icon16.png",
+            "32": "icons/icon32.png"
+        }
+    }
+}
