@@ -54,8 +54,13 @@
         if (startsWith(0x00, 0x00, 0x01, 0x00)) {
             return "image/x-icon";
         }
-        const head = new TextDecoder().decode(bytes.subarray(0, 1024)).replace(/^﻿/, "").trimStart();
-        if (head.startsWith("<") && /<svg[\s>]/i.test(head)) {
+        const head = new TextDecoder().decode(bytes.subarray(0, 1024));
+        // PDF readers accept the header anywhere in the first kilobyte.
+        if (head.includes("%PDF-")) {
+            return "application/pdf";
+        }
+        const text = head.replace(/^\uFEFF/, "").trimStart();
+        if (text.startsWith("<") && /<svg[\s>]/i.test(text)) {
             return "image/svg+xml";
         }
         return null;
@@ -69,6 +74,16 @@
     function outputMime(sourceMime) {
         return sourceMime === "image/jpeg" ? "image/jpeg" : "image/png";
     }
+
+    /**
+     * What a copy of an attachment is saved as: its own format when the
+     * browser can write it, PNG otherwise (GIF, BMP, ICO, SVG).
+     */
+    function attachmentOutputMime(sourceMime) {
+        return ["image/png", "image/jpeg", "image/webp"].includes(sourceMime) ? sourceMime : "image/png";
+    }
+
+    const EXTENSIONS = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "application/pdf": "pdf" };
 
     function createCanvas(width, height) {
         const canvas = document.createElement("canvas");
@@ -115,7 +130,7 @@
 
     /**
      * @param {HTMLCanvasElement} canvas
-     * @param {string} mime image/png or image/jpeg
+     * @param {string} mime image/png, image/jpeg or image/webp
      * @returns {Promise<string>} base64
      */
     async function encodeCanvas(canvas, mime) {
@@ -143,8 +158,9 @@
      * @param {number} y
      * @param {number[]} color [r, g, b, a]
      * @param {number} tolerance 0 to 100
-     * @returns {{x: number, y: number, width: number, height: number}|null}
-     *      the box that changed, or null when nothing did
+     * @returns {{x: number, y: number, width: number, height: number, mask: Uint8Array}|null}
+     *      the box that changed and which pixels did (one byte per pixel of
+     *      the image), or null when nothing did
      */
     function floodFill(imageData, x, y, color, tolerance) {
         const { width, height, data } = imageData;
@@ -213,7 +229,13 @@
             box.top = Math.min(box.top, row);
             box.bottom = Math.max(box.bottom, row);
         }
-        return { x: box.left, y: box.top, width: box.right - box.left + 1, height: box.bottom - box.top + 1 };
+        return {
+            x: box.left,
+            y: box.top,
+            width: box.right - box.left + 1,
+            height: box.bottom - box.top + 1,
+            mask: done,
+        };
     }
 
     /** @param {number} turns quarter turns clockwise, 1 or -1 */
@@ -251,6 +273,8 @@
         bytesToBase64,
         sniffMime,
         outputMime,
+        attachmentOutputMime,
+        EXTENSIONS,
         createCanvas,
         cloneCanvas,
         decodeImage,

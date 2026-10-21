@@ -4,7 +4,19 @@
  * after the click, so the extension needs no host permissions.
  */
 
-const CONTENT_SCRIPTS = ["odoo.js", "imaging.js", "paint.js", "ui.js", "picker.js", "editor.js", "main.js"];
+const CONTENT_SCRIPTS = [
+    "odoo.js",
+    "imaging.js",
+    "paint.js",
+    "pdfdoc.js",
+    "ui.js",
+    "picker.js",
+    "editor.js",
+    "main.js",
+];
+// Injected on demand, the first time a PDF is opened in the tab. The worker
+// goes first: it registers itself for pdf.js to run in the same thread.
+const PDF_LIBRARIES = ["lib/pdf.worker.min.js", "lib/pdf.min.js", "lib/pdf-lib.min.js"];
 
 async function flag(tabId, title) {
     await chrome.action.setBadgeBackgroundColor({ tabId, color: "#b42318" });
@@ -49,4 +61,18 @@ async function start(tab) {
 
 chrome.action.onClicked.addListener((tab) => {
     start(tab);
+});
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    // Only this extension's own content scripts, in a tab it was started in.
+    if (message?.type !== "load-pdf-libraries" || sender.id !== chrome.runtime.id || !sender.tab) {
+        return false;
+    }
+    chrome.scripting
+        .executeScript({ target: { tabId: sender.tab.id, frameIds: [sender.frameId ?? 0] }, files: PDF_LIBRARIES })
+        .then(
+            () => sendResponse({ ok: true }),
+            (error) => sendResponse({ ok: false, error: error.message })
+        );
+    return true;
 });

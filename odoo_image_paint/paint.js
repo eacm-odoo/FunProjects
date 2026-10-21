@@ -5,6 +5,9 @@
  * they touched; the history keeps the pixels of that box before and after,
  * so a stroke costs its own area, not the whole image. Rotations, flips and
  * crops replace the whole frame.
+ *
+ * A PDF page is a document with a background: the rendered page sits under
+ * a transparent drawing layer, and only the drawing layer is edited.
  */
 (() => {
     const ns = (globalThis.oImagePaint ??= {});
@@ -50,15 +53,23 @@
     }
 
     class PaintDocument {
-        /** @param {HTMLCanvasElement} source the decoded image */
-        constructor(source) {
+        /**
+         * @param {HTMLCanvasElement} source the decoded image, or for a PDF
+         *      page a blank canvas of the page's size to draw on
+         * @param {{background?: HTMLCanvasElement, meta?: object}} [options]
+         *      `background`: pixels shown under the drawing and seen by the
+         *      fill and the color picker, but never drawn on (a PDF page);
+         *      `meta`: what the frame operations did, for whoever exports it
+         */
+        constructor(source, { background = null, meta = {} } = {}) {
             this.canvas = ns.createCanvas(source.width, source.height);
             this.ctx = this.canvas.getContext("2d", { willReadFrequently: true });
             this.base = ns.createCanvas(source.width, source.height);
             this.baseCtx = this.base.getContext("2d", { willReadFrequently: true });
+            this.background = background && ns.createCanvas(background.width, background.height);
             this.history = new History();
             this.onChange = () => {};
-            this.setFrame(source);
+            this.setLayers({ drawing: source, background, meta });
         }
         get width() {
             return this.canvas.width;
@@ -76,15 +87,30 @@
         get canRedo() {
             return this.history.undone.length > 0;
         }
-        setFrame(source) {
+        setLayers({ drawing, background, meta }) {
             for (const [canvas, ctx] of [
                 [this.canvas, this.ctx],
                 [this.base, this.baseCtx],
             ]) {
-                canvas.width = source.width;
-                canvas.height = source.height;
-                ctx.drawImage(source, 0, 0);
+                canvas.width = drawing.width;
+                canvas.height = drawing.height;
+                ctx.drawImage(drawing, 0, 0);
             }
+            if (this.background) {
+                this.background.width = background.width;
+                this.background.height = background.height;
+                this.background.getContext("2d").drawImage(background, 0, 0);
+            }
+            this.meta = meta;
+        }
+        /** The pixels as they look: the background, if any, under the drawing. */
+        composite() {
+            if (!this.background) {
+                return this.canvas;
+            }
+            const canvas = ns.cloneCanvas(this.background);
+            canvas.getContext("2d").drawImage(this.canvas, 0, 0);
+            return canvas;
         }
         /** Record what a tool drew inside `rect` on the canvas. */
         commit(rect) {
@@ -105,16 +131,29 @@
             this.history.push({ undo: () => put(before), redo: () => put(after), bytes: width * height * 8 });
             this.onChange();
         }
-        /** Swap in a new whole frame, possibly of another size. */
-        replace(canvas) {
-            const before = ns.cloneCanvas(this.canvas);
-            this.setFrame(canvas);
+        /**
+         * Change the whole frame, possibly to another size: `change` maps a
+         * layer to its new canvas, and is applied to both layers.
+         */
+        transform(change, meta = this.meta) {
+            const before = {
+                drawing: ns.cloneCanvas(this.canvas),
+                background: this.background && ns.cloneCanvas(this.background),
+                meta: this.meta,
+            };
+            const after = { drawing: change(this.canvas), background: this.background && change(this.background), meta };
+            this.setLayers(after);
+            const size = ({ drawing, background }) => drawing.width * drawing.height * (background ? 8 : 4);
             this.history.push({
-                undo: () => this.setFrame(before),
-                redo: () => this.setFrame(canvas),
-                bytes: (before.width * before.height + canvas.width * canvas.height) * 4,
+                undo: () => this.setLayers(before),
+                redo: () => this.setLayers(after),
+                bytes: size(before) + size(after),
             });
             this.onChange();
+        }
+        /** Swap in a new whole frame, as Revert does. */
+        replace(canvas) {
+            this.transform(() => canvas);
         }
         undo() {
             if (this.history.undo()) {
@@ -316,18 +355,28 @@
             cursor: "crosshair",
             down(p) {
                 const { doc, options } = editor;
-                const imageData = doc.ctx.getImageData(0, 0, doc.width, doc.height);
-                const box = ns.floodFill(
-                    imageData,
-                    Math.floor(p.x),
-                    Math.floor(p.y),
-                    hexToRgba(options.color),
-                    options.tolerance
-                );
-                if (box) {
-                    doc.ctx.putImageData(imageData, 0, 0, box.x, box.y, box.width, box.height);
-                    doc.commit(box);
+                const color = hexToRgba(options.color);
+                // The area is found on what the user sees, the page included.
+                const seen = doc.composite().getContext("2d").getImageData(0, 0, doc.width, doc.height);
+                const box = ns.floodFill(seen, Math.floor(p.x), Math.floor(p.y), color, options.tolerance);
+                if (!box) {
+                    return;
                 }
+                if (!doc.background) {
+                    doc.ctx.putImageData(seen, 0, 0, box.x, box.y, box.width, box.height);
+                } else {
+                    const layer = doc.ctx.getImageData(box.x, box.y, box.width, box.height);
+                    for (let row = 0; row < box.height; row++) {
+                        const start = (box.y + row) * doc.width + box.x;
+                        for (let column = 0; column < box.width; column++) {
+                            if (box.mask[start + column]) {
+                                layer.data.set(color, (row * box.width + column) * 4);
+                            }
+                        }
+                    }
+                    doc.ctx.putImageData(layer, box.x, box.y);
+                }
+                doc.commit(box);
             },
         };
     }
@@ -338,7 +387,7 @@
             down(p) {
                 const x = Math.min(editor.doc.width - 1, Math.max(0, Math.floor(p.x)));
                 const y = Math.min(editor.doc.height - 1, Math.max(0, Math.floor(p.y)));
-                const [r, g, b, a] = editor.doc.ctx.getImageData(x, y, 1, 1).data;
+                const [r, g, b, a] = editor.doc.composite().getContext("2d").getImageData(x, y, 1, 1).data;
                 if (a > 0) {
                     editor.setColor(rgbToHex(r, g, b));
                 }

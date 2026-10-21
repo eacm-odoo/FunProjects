@@ -1,7 +1,13 @@
 /**
  * The editor: a modal over the Odoo page with the canvas, the tools, and
- * the save and revert flows. Both writes go through a confirmation that
- * shows what Odoo holds now next to what will replace it.
+ * the save flows. Every write goes through a confirmation that shows what
+ * Odoo holds now next to what the save makes of it.
+ *
+ * Two kinds of targets:
+ * - a record's image field, written in place, with Revert;
+ * - an attachment (an image or a PDF), never written: saving creates an
+ *   edited copy next to it, and later saves update that copy.
+ * A PDF is edited page by page, each page with its own undo history.
  */
 (() => {
     const ns = (globalThis.oImagePaint ??= {});
@@ -13,6 +19,8 @@
     const BLANK_SIZE = 512;
     const THUMB_SIZE = 200;
     const MAX_STORED_SIDE = 1920;
+    // ir.attachment scales these down past base.image_autoresize_max_px.
+    const AUTORESIZED = ["image/png", "image/jpeg", "image/bmp", "image/tiff"];
     const PALETTE = [
         "#000000",
         "#7f7f7f",
@@ -59,6 +67,7 @@
         "image/svg+xml": "SVG",
         "image/bmp": "BMP",
         "image/x-icon": "ICO",
+        "application/pdf": "PDF",
     };
 
     function thumbnail(source) {
@@ -76,18 +85,27 @@
         }
         const bytes = ns.base64ToBytes(base64);
         const mime = ns.sniffMime(bytes);
-        return mime ? ns.decodeImage(bytes, mime) : null;
+        return mime && mime !== "application/pdf" ? ns.decodeImage(bytes, mime) : null;
+    }
+
+    async function decodeOrThrow(bytes, mime) {
+        try {
+            return await ns.decodeImage(bytes, mime);
+        } catch {
+            throw new ns.OdooError("The browser could not read this image.");
+        }
     }
 
     class Editor {
         /**
          * @param {string} origin the tab's origin
-         * @param {{image: object, names: string[]}} target what the picker found
+         * @param {{ref: object, names: string[]}} target what the picker found
          * @param {function(): void} onClose
          */
         constructor(origin, target, onClose) {
             this.origin = origin;
-            this.target = target;
+            this.ref = target.ref;
+            this.names = target.names || [];
             this.onClose = onClose;
             this.rpc = ns.createRpc(origin);
             this.options = { color: "#000000", size: 4, fill: false, tolerance: 15, fontSize: 32, bold: false };
@@ -98,11 +116,15 @@
             this.drawing = null;
             this.busy = false;
             this.dialogOpen = false;
-            this.doc = null;
+            // One entry per image, or per PDF page: {doc, savedState, info}.
+            this.pages = [];
+            this.pageIndex = 0;
+            this.pdf = null;
             this.record = null;
+            this.attachment = null;
+            this.copy = null;
             this.original = null;
             this.odooValue = false;
-            this.savedState = null;
             this.hasSaved = false;
         }
 
@@ -110,9 +132,22 @@
             return this.tools?.[this.toolName];
         }
 
-        /** The canvas differs from what Odoo holds. */
+        get page() {
+            return this.pages[this.pageIndex];
+        }
+
+        get doc() {
+            return this.page?.doc ?? null;
+        }
+
+        /** Saving writes a copy of an attachment, not a field. */
+        get savesCopy() {
+            return this.ref.kind === "attachment";
+        }
+
+        /** Some page differs from what was saved last (or opened). */
         get dirty() {
-            return Boolean(this.doc) && this.doc.state !== this.savedState;
+            return this.pages.some((page) => page.doc && page.doc.state !== page.savedState);
         }
 
         async open() {
@@ -121,7 +156,7 @@
             try {
                 await this.load();
             } catch (error) {
-                this.stage.replaceChildren(ns.h("div", { class: "o_paint_loading" }, "The image could not be opened."));
+                this.stage.replaceChildren(ns.h("div", { class: "o_paint_loading" }, "This file could not be opened."));
                 this.say(error.message, "error");
             }
             this.refresh();
@@ -136,16 +171,24 @@
         // ---------------------------------------------------------------
 
         async load() {
-            const { model, id } = this.target.image;
+            if (this.ref.kind === "attachment") {
+                await this.loadAttachment();
+            } else {
+                await this.loadField(this.ref, this.names);
+            }
+        }
+
+        setTitle(name, detail) {
+            this.title.replaceChildren(ns.h("strong", {}, name), ns.h("span", {}, detail));
+        }
+
+        async loadField({ model, id }, names) {
             const fields = await this.rpc.fieldsGet(model);
-            const { field, label } = ns.resolveImageField(fields, this.target.names);
+            const { field, label } = ns.resolveImageField(fields, names);
             const wanted = [field, "display_name"].filter((name) => name in fields);
             const values = await this.rpc.read(model, id, wanted);
             this.record = { model, id, field, label, displayName: values.display_name || `${model} #${id}` };
-            this.title.replaceChildren(
-                ns.h("strong", {}, this.record.displayName),
-                ns.h("span", {}, `${label} · ${model} #${id}`)
-            );
+            this.setTitle(this.record.displayName, `${label} · ${model} #${id}`);
 
             const base64 = values[field] || false;
             let canvas;
@@ -153,31 +196,115 @@
             if (base64) {
                 const bytes = ns.base64ToBytes(base64);
                 mime = ns.sniffMime(bytes);
-                if (!mime) {
+                if (!mime || mime === "application/pdf") {
                     throw new ns.OdooError("This field does not hold an image the editor can read.");
                 }
-                try {
-                    canvas = await ns.decodeImage(bytes, mime);
-                } catch {
-                    throw new ns.OdooError("The browser could not read this image.");
-                }
+                canvas = await decodeOrThrow(bytes, mime);
             } else {
                 canvas = ns.createCanvas(BLANK_SIZE, BLANK_SIZE);
                 this.say("The field is empty: you start from a blank image.");
             }
             this.original = { base64, mime };
-            this.originalCanvas = ns.cloneCanvas(canvas);
             this.odooValue = base64;
             this.outputMime = ns.outputMime(mime);
+            this.startImage(canvas);
+        }
 
-            this.doc = new ns.PaintDocument(canvas);
-            this.doc.onChange = () => this.onDocChange();
-            this.size = { width: this.doc.width, height: this.doc.height };
-            this.savedState = this.doc.state;
+        async loadAttachment() {
+            const row = await this.rpc.readAttachment(this.ref.id);
+            const kind = ns.classifyAttachment(row);
+            if (kind?.kind === "field") {
+                // It stores a record's image field: edit that field instead.
+                this.ref = kind;
+                await this.loadField(kind, [kind.field]);
+                return;
+            }
+            if (!kind || !row.datas) {
+                throw new ns.OdooError("Only images and PDFs can be edited.");
+            }
+            this.attachment = row;
+            this.setTitle(row.name || `Attachment #${row.id}`, `Attachment · ${this.linkedTo}`);
+            const bytes = ns.base64ToBytes(row.datas);
+            const mime = ns.sniffMime(bytes);
+            if (mime === "application/pdf") {
+                await this.startPdf(bytes);
+                return;
+            }
+            if (!mime) {
+                throw new ns.OdooError("This attachment is not an image or a PDF the editor can read.");
+            }
+            this.original = { base64: row.datas, mime };
+            this.outputMime = ns.attachmentOutputMime(mime);
+            this.startImage(await decodeOrThrow(bytes, mime));
+        }
+
+        /** Where the attachment belongs, in words. */
+        get linkedTo() {
+            const { res_model, res_id, res_name } = this.attachment;
+            if (!res_model) {
+                return "not linked to a record";
+            }
+            return res_id ? `${res_name || res_model} (${res_model} #${res_id})` : res_model;
+        }
+
+        startImage(canvas) {
+            this.originalCanvas = ns.cloneCanvas(canvas);
+            const doc = new ns.PaintDocument(canvas);
+            this.pages = [{ doc, savedState: doc.state, info: null }];
             this.tools = ns.createTools(this);
             this.mount();
+            this.showDoc();
             this.useTool("brush", { force: true });
-            this.setZoom(this.fitZoom());
+        }
+
+        async startPdf(bytes) {
+            this.say("Loading the PDF tools…");
+            const document = await ns.openPdf(bytes);
+            this.pdf = { document, bytes, signed: ns.isSigned(bytes) };
+            this.original = { base64: null, mime: "application/pdf" };
+            this.outputMime = "application/pdf";
+            this.pages = Array.from({ length: document.numPages }, () => ({ doc: null, savedState: null, info: null }));
+            this.tools = ns.createTools(this);
+            this.mount();
+            await this.showPage(0);
+            this.useTool("brush", { force: true });
+            this.say("");
+        }
+
+        /** Render a PDF page the first time it is shown, then show it. */
+        async showPage(index) {
+            const page = this.pages[index];
+            if (!page.doc) {
+                const { canvas, info } = await ns.renderPage(this.pdf.document, index);
+                page.info = info;
+                page.doc = new ns.PaintDocument(ns.createCanvas(canvas.width, canvas.height), {
+                    background: canvas,
+                    meta: { matrix: ns.IDENTITY, turns: 0, cropped: false },
+                });
+                page.savedState = page.doc.state;
+            }
+            this.pageIndex = index;
+            this.showDoc();
+        }
+
+        async goToPage(index) {
+            if (!this.pdf || this.busy || this.dialogOpen || index === this.pageIndex) {
+                return;
+            }
+            if (index < 0 || index >= this.pages.length) {
+                return;
+            }
+            this.finishTool();
+            const leaving = this.page;
+            // A page never touched is rendered again if it comes back; this
+            // keeps a long PDF from piling up canvases.
+            if (!leaving.doc.canUndo && !leaving.doc.canRedo && leaving.savedState === null) {
+                leaving.doc = null;
+            }
+            await this.run("Rendering the page…", async () => {
+                await this.showPage(index);
+                return null;
+            });
         }
 
         async readCurrent() {
@@ -195,8 +322,8 @@
             const { host, root } = ns.createHost("editor");
             this.host = host;
 
-            const { model, id } = this.target.image;
-            this.title = h("div", { class: "o_paint_title" }, h("strong", {}, `${model} #${id}`));
+            const placeholder = this.ref.kind === "field" ? `${this.ref.model} #${this.ref.id}` : `Attachment #${this.ref.id}`;
+            this.title = h("div", { class: "o_paint_title" }, h("strong", {}, placeholder));
             const header = h(
                 "header",
                 { class: "o_paint_header" },
@@ -226,11 +353,14 @@
                     icon(name)
                 );
             }
-            this.transformButtons = [
-                action("rotateLeft", "Rotate left", () => this.transform((canvas) => ns.rotateCanvas(canvas, -1))),
-                action("rotateRight", "Rotate right", () => this.transform((canvas) => ns.rotateCanvas(canvas, 1))),
-                action("flipHorizontal", "Flip horizontally", () => this.transform((canvas) => ns.flipCanvas(canvas, true))),
-                action("flipVertical", "Flip vertically", () => this.transform((canvas) => ns.flipCanvas(canvas, false))),
+            this.rotateButtons = [
+                action("rotateLeft", "Rotate left", () => this.rotate(-1)),
+                action("rotateRight", "Rotate right", () => this.rotate(1)),
+            ];
+            // A PDF page can be turned, not mirrored.
+            this.flipButtons = [
+                action("flipHorizontal", "Flip horizontally", () => this.flip(true)),
+                action("flipVertical", "Flip vertically", () => this.flip(false)),
             ];
             this.undoButton = action("undo", "Undo (Ctrl+Z)", () => this.undo());
             this.redoButton = action("redo", "Redo (Ctrl+Y)", () => this.redo());
@@ -245,17 +375,32 @@
                 action("zoomIn", "Zoom in (+)", () => this.zoomStep(1)),
                 action("fit", "Fit (0)", () => this.setZoom(this.fitZoom())),
             ];
+            this.pageLabel = h("span", { class: "o_paint_page_label", "aria-live": "polite" });
+            this.pageButtons = [
+                action("previousPage", "Previous page (Page Up)", () => this.goToPage(this.pageIndex - 1)),
+                action("nextPage", "Next page (Page Down)", () => this.goToPage(this.pageIndex + 1)),
+            ];
+            this.pageGroup = h(
+                "div",
+                { class: "o_paint_pages", role: "group", "aria-label": "Pages", hidden: true },
+                separator(),
+                this.pageButtons[0],
+                this.pageLabel,
+                this.pageButtons[1]
+            );
             const toolbar = h(
                 "div",
                 { class: "o_paint_toolbar", role: "toolbar", "aria-label": "Tools" },
                 Object.values(this.toolButtons),
                 separator(),
-                this.transformButtons,
+                this.rotateButtons,
+                this.flipButtons,
                 separator(),
                 this.undoButton,
                 this.redoButton,
                 separator(),
-                this.zoomButtons
+                this.zoomButtons,
+                this.pageGroup
             );
 
             this.colorInput = h("input", {
@@ -338,6 +483,7 @@
                     h("span", { class: "o_paint_hint" }, "Drag over the area to keep."),
                     this.cropButton
                 ),
+                pdfEraser: h("span", { class: "o_paint_hint" }, "Erases what you drew; the PDF's own content stays."),
             };
             this.colorGroup = h(
                 "div",
@@ -347,7 +493,7 @@
             );
             const options = h("div", { class: "o_paint_options" }, this.colorGroup, Object.values(this.optionGroups));
 
-            this.stage = h("div", { class: "o_paint_stage" }, h("div", { class: "o_paint_loading" }, "Loading the image…"));
+            this.stage = h("div", { class: "o_paint_stage" }, h("div", { class: "o_paint_loading" }, "Loading…"));
             this.overlay = h("canvas", { class: "o_paint_overlay", "aria-hidden": "true" });
             this.overlayCtx = this.overlay.getContext("2d");
             const frame = h("div", { class: "o_paint_frame" }, this.stage, this.overlay);
@@ -435,7 +581,7 @@
         }
 
         mount() {
-            this.wrap = ns.h("div", { class: "o_paint_canvas_wrap" }, this.doc.canvas);
+            this.wrap = ns.h("div", { class: "o_paint_canvas_wrap" });
             this.wrap.addEventListener("pointerdown", (event) => this.onPointerDown(event));
             this.wrap.addEventListener("pointermove", (event) => this.onPointerMove(event));
             this.wrap.addEventListener("pointerup", (event) => this.onPointerUp(event));
@@ -452,6 +598,17 @@
             this.stage.addEventListener("scroll", () => this.redrawOverlay());
         }
 
+        /** Put the current page's layers on the stage. */
+        showDoc() {
+            const doc = this.doc;
+            doc.onChange = () => this.onDocChange();
+            this.size = { width: doc.width, height: doc.height };
+            this.wrap.replaceChildren(...[doc.background, doc.canvas].filter(Boolean));
+            this.wrap.style.cursor = this.tool?.cursor ?? "";
+            this.setZoom(this.fitZoom());
+            this.refresh();
+        }
+
         destroy() {
             for (const type of ["keydown", "keyup", "keypress"]) {
                 window.removeEventListener(type, this.keyGuard, true);
@@ -460,6 +617,8 @@
             this.resizeObserver.disconnect();
             this.host.remove();
             this.onClose();
+            // Frees pdf.js's copy of the file; nothing depends on it any more.
+            this.pdf?.document.loadingTask?.destroy();
         }
 
         // ---------------------------------------------------------------
@@ -487,20 +646,40 @@
                 button.setAttribute("aria-pressed", String(Boolean(this.doc) && name === this.toolName));
                 button.disabled = !ready;
             }
-            for (const button of [...this.transformButtons, ...this.zoomButtons]) {
+            for (const button of [...this.rotateButtons, ...this.flipButtons, ...this.zoomButtons]) {
                 button.disabled = !ready;
+            }
+            for (const button of this.flipButtons) {
+                button.hidden = Boolean(this.pdf);
             }
             this.undoButton.disabled = !ready || !this.doc.canUndo;
             this.redoButton.disabled = !ready || !this.doc.canRedo;
+            this.pageGroup.hidden = !this.pdf;
+            if (this.pdf) {
+                this.pageLabel.textContent = `${this.pageIndex + 1} / ${this.pages.length}`;
+                this.pageButtons[0].disabled = !ready || this.pageIndex === 0;
+                this.pageButtons[1].disabled = !ready || this.pageIndex === this.pages.length - 1;
+            }
             this.saveButton.disabled = !ready || !this.dirty;
+            this.saveButton.textContent = !this.savesCopy ? "Save to Odoo" : this.copy ? "Update the copy" : "Save a copy";
+            this.revertButton.hidden = this.savesCopy;
             this.revertButton.disabled = !ready || !this.hasSaved;
             this.closeButton.disabled = this.busy;
-            this.status.textContent = this.doc ? `${this.doc.width} × ${this.doc.height} px · ${this.formatLabel}` : "";
+            if (!this.doc) {
+                this.status.textContent = "";
+            } else if (this.pdf) {
+                this.status.textContent = `PDF · page ${this.pageIndex + 1} of ${this.pages.length}`;
+            } else {
+                this.status.textContent = `${this.doc.width} × ${this.doc.height} px · ${this.formatLabel}`;
+            }
             this.refreshOptions();
         }
 
         refreshOptions() {
             const shown = new Set(this.doc ? TOOL_OPTIONS[this.toolName] : []);
+            if (this.pdf && this.toolName === "eraser") {
+                shown.add("pdfEraser");
+            }
             for (const [name, group] of Object.entries(this.optionGroups)) {
                 group.hidden = !shown.has(name);
             }
@@ -561,12 +740,34 @@
             this.tool?.cancel?.();
         }
 
-        transform(change) {
+        /**
+         * Change the whole frame. On a PDF page, `meta` says how the page
+         * itself changes, for the export.
+         */
+        transform(change, meta) {
             if (!this.doc || this.busy) {
                 return;
             }
             this.finishTool();
-            this.doc.replace(change(this.doc.canvas));
+            this.doc.transform(change, this.pdf && meta ? meta(this.doc.meta) : this.doc.meta);
+        }
+
+        rotate(turns) {
+            const { width, height } = this.doc ?? {};
+            this.transform(
+                (canvas) => ns.rotateCanvas(canvas, turns),
+                (meta) => ({
+                    ...meta,
+                    matrix: ns.multiply(meta.matrix, ns.rotationMatrix(turns, width, height)),
+                    turns: meta.turns + turns,
+                })
+            );
+        }
+
+        flip(horizontal) {
+            if (!this.pdf) {
+                this.transform((canvas) => ns.flipCanvas(canvas, horizontal));
+            }
         }
 
         applyCrop() {
@@ -574,8 +775,10 @@
             if (!rect || this.busy) {
                 return;
             }
-            this.finishTool();
-            this.doc.replace(ns.cropCanvas(this.doc.canvas, rect));
+            this.transform(
+                (canvas) => ns.cropCanvas(canvas, rect),
+                (meta) => ({ ...meta, matrix: ns.multiply(meta.matrix, ns.cropMatrix(rect.x, rect.y)), cropped: true })
+            );
         }
 
         undo() {
@@ -652,7 +855,7 @@
         }
 
         onPointerMove(event) {
-            if (this.dialogOpen || (this.drawing !== null && event.pointerId !== this.drawing)) {
+            if (!this.doc || this.dialogOpen || (this.drawing !== null && event.pointerId !== this.drawing)) {
                 return;
             }
             const coalesced = this.drawing !== null && this.tool.coalesced ? event.getCoalescedEvents?.() || [] : [];
@@ -707,6 +910,8 @@
                 this.applyCrop();
             } else if (!this.doc) {
                 handled = false;
+            } else if (key === "pageup" || key === "pagedown") {
+                this.goToPage(this.pageIndex + (key === "pagedown" ? 1 : -1));
             } else if (key === "+" || key === "=") {
                 this.zoomStep(1);
             } else if (key === "-") {
@@ -901,6 +1106,16 @@
             }
         }
 
+        imageWarnings(mime) {
+            const warnings = [];
+            if (mime === "image/svg+xml") {
+                warnings.push(`The original is an SVG drawing. It will be saved as a ${FORMAT_NAMES[this.outputMime]} bitmap.`);
+            } else if (mime === "image/gif") {
+                warnings.push("If the original GIF was animated, only its first frame is kept.");
+            }
+            return warnings;
+        }
+
         // ---------------------------------------------------------------
         // Writing to Odoo
         // ---------------------------------------------------------------
@@ -921,7 +1136,11 @@
             }
         }
 
-        async save() {
+        save() {
+            return this.savesCopy ? this.saveCopy() : this.saveField();
+        }
+
+        async saveField() {
             if (!this.dirty || this.busy || this.dialogOpen) {
                 return;
             }
@@ -937,11 +1156,7 @@
                 if (current !== this.odooValue) {
                     warnings.push("Someone changed this image in Odoo after you opened it here. Saving replaces their version.");
                 }
-                if (this.original.mime === "image/svg+xml") {
-                    warnings.push("The original is an SVG drawing. It will be saved as a PNG bitmap.");
-                } else if (this.original.mime === "image/gif") {
-                    warnings.push("If the original GIF was animated, only its first frame is kept.");
-                }
+                warnings.push(...this.imageWarnings(this.original.mime));
                 if (field.endsWith("_1920") && Math.max(this.doc.width, this.doc.height) > MAX_STORED_SIDE) {
                     warnings.push(`Odoo will scale the image down to fit ${MAX_STORED_SIDE} × ${MAX_STORED_SIDE} px.`);
                 }
@@ -964,7 +1179,7 @@
                 }
                 this.say("Saving…");
                 await this.rpc.write(model, id, field, base64);
-                this.savedState = state;
+                this.page.savedState = state;
                 this.hasSaved = true;
                 this.odooValue = await this.readCurrent();
                 ns.refreshImages(this.origin, this.record);
@@ -973,7 +1188,7 @@
         }
 
         async revert() {
-            if (!this.hasSaved || this.busy || this.dialogOpen) {
+            if (this.savesCopy || !this.hasSaved || this.busy || this.dialogOpen) {
                 return;
             }
             this.finishTool();
@@ -1006,10 +1221,106 @@
                 await this.rpc.write(model, id, field, this.original.base64);
                 this.hasSaved = false;
                 this.doc.replace(this.originalCanvas);
-                this.savedState = this.doc.state;
+                this.page.savedState = this.doc.state;
                 this.odooValue = await this.readCurrent();
                 ns.refreshImages(this.origin, this.record);
                 return { text: "The original image is back in Odoo.", kind: "success" };
+            });
+        }
+
+        /** The copy's content, from the original and the edits so far. */
+        async buildCopy() {
+            if (this.pdf) {
+                const edited = this.pages
+                    .map((page, index) => ({ ...page, index }))
+                    .filter(({ doc }) => doc && doc.state !== null);
+                const bytes = await ns.exportPdf(this.pdf.bytes, edited);
+                return {
+                    datas: ns.bytesToBase64(bytes),
+                    mimetype: "application/pdf",
+                    name: this.copy?.name ?? ns.copyName(this.attachment.name, "pdf"),
+                    pages: edited.map(({ index }) => index + 1),
+                };
+            }
+            return {
+                datas: await ns.encodeCanvas(this.doc.canvas, this.outputMime),
+                mimetype: this.outputMime,
+                name: this.copy?.name ?? ns.copyName(this.attachment.name, ns.EXTENSIONS[this.outputMime]),
+            };
+        }
+
+        async saveCopy() {
+            if (!this.dirty || this.busy || this.dialogOpen) {
+                return;
+            }
+            this.finishTool();
+            await this.run("Preparing the copy…", async () => {
+                const states = this.pages.map((page) => page.doc?.state ?? null);
+                const content = await this.buildCopy();
+                this.say("");
+                const { h } = ns;
+                const updating = Boolean(this.copy);
+                const warnings = [];
+                let original;
+                if (this.pdf) {
+                    original = (await ns.renderPage(this.pdf.document, this.pageIndex, { side: THUMB_SIZE })).canvas;
+                    if (this.pdf.signed) {
+                        warnings.push("This PDF carries a digital signature. The copy's signature will no longer be valid; the original keeps it.");
+                    }
+                } else {
+                    original = this.originalCanvas;
+                    warnings.push(...this.imageWarnings(this.original.mime));
+                    if (this.outputMime !== this.original.mime && this.original.mime !== "image/svg+xml") {
+                        warnings.push(`The copy is a ${FORMAT_NAMES[this.outputMime]}: the browser cannot write ${FORMAT_NAMES[this.original.mime]} files.`);
+                    }
+                    if (AUTORESIZED.includes(this.outputMime) && Math.max(this.doc.width, this.doc.height) > MAX_STORED_SIDE) {
+                        warnings.push(`Odoo usually scales images larger than ${MAX_STORED_SIDE} px down when it stores them.`);
+                    }
+                }
+                const where = this.attachment.res_model ? `, attached to ${this.linkedTo}` : ", not linked to a record";
+                const pageNote = this.pdf && this.pages.length > 1 ? `, page ${this.pageIndex + 1}` : "";
+                const confirmed = await this.dialog({
+                    title: updating ? "Update the copy?" : "Save a copy in Odoo?",
+                    body: [
+                        h(
+                            "p",
+                            {},
+                            updating
+                                ? `This replaces “${content.name}”, the copy saved earlier. The original stays as it is.`
+                                : `This creates “${content.name}”, a copy of “${this.attachment.name}”${where}. The original stays as it is.`
+                        ),
+                        this.compare([`Original${pageNote}`, original], [`Copy${pageNote}`, this.doc.composite()]),
+                        content.pages && h("p", {}, `Pages changed: ${content.pages.join(", ") || "none"}.`),
+                        warnings.map((text) => h("p", { class: "o_paint_warning" }, text)),
+                        this.pdf &&
+                            h(
+                                "p",
+                                { class: "o_paint_hint" },
+                                "What you drew is added on top of the pages; their own text and images stay as they are."
+                            ),
+                    ],
+                    confirmLabel: updating ? "Update" : "Save the copy",
+                });
+                if (!confirmed) {
+                    return null;
+                }
+                this.say("Saving…");
+                const { datas, mimetype, name } = content;
+                if (updating) {
+                    await this.rpc.writeAttachment(this.copy.id, { datas, mimetype });
+                } else {
+                    const { res_model, res_id } = this.attachment;
+                    const id = await this.rpc.createAttachment({ name, datas, mimetype, res_model, res_id: res_id || 0 });
+                    this.copy = { id, name };
+                }
+                this.pages.forEach((page, index) => {
+                    page.savedState = states[index];
+                });
+                this.hasSaved = true;
+                return {
+                    text: `Saved as “${name}”. It shows among the record's attachments after a reload.`,
+                    kind: "success",
+                };
             });
         }
 
@@ -1019,15 +1330,19 @@
             }
             this.finishTool();
             if (this.dirty) {
+                let text;
+                if (this.savesCopy) {
+                    text = this.hasSaved
+                        ? "Your copy in Odoo keeps the last save; what you changed since then is lost."
+                        : "Nothing was saved; the original stays as it is.";
+                } else {
+                    text = this.hasSaved
+                        ? "Your last save stays in Odoo; what you changed since then is lost."
+                        : "The image in Odoo stays as it is.";
+                }
                 const confirmed = await this.dialog({
                     title: "Discard your changes?",
-                    body: ns.h(
-                        "p",
-                        {},
-                        this.hasSaved
-                            ? "Your last save stays in Odoo; what you changed since then is lost."
-                            : "The image in Odoo stays as it is."
-                    ),
+                    body: ns.h("p", {}, text),
                     confirmLabel: "Discard",
                     cancelLabel: "Keep editing",
                 });

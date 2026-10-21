@@ -199,6 +199,16 @@
         .o_paint_zoom_label:hover {
             background: var(--o-hover);
         }
+        .o_paint_pages {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .o_paint_page_label {
+            min-width: 48px;
+            text-align: center;
+            font-variant-numeric: tabular-nums;
+        }
         .o_paint_group {
             display: inline-flex;
             align-items: center;
@@ -293,7 +303,10 @@
             background-position: 0 0, 0 8px, 8px -8px, -8px 0;
             box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25);
         }
+        /* A PDF page and the drawing over it are stacked; an image is one canvas. */
         .o_paint_canvas_wrap canvas {
+            position: absolute;
+            inset: 0;
             display: block;
             width: 100%;
             height: 100%;
@@ -536,6 +549,8 @@
         zoomOut: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/><path d="M8 11h6"/>',
         fit: '<path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/>',
         close: '<path d="M6 6l12 12M18 6L6 18"/>',
+        previousPage: '<path d="M15 5l-7 7 7 7"/>',
+        nextPage: '<path d="M9 5l7 7-7 7"/>',
     };
 
     /**

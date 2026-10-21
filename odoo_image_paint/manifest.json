@@ -1,8 +1,8 @@
 {
     "manifest_version": 3,
     "name": "Odoo Image Paint",
-    "version": "1.0.0",
-    "description": "Pick an image field on an Odoo page, edit it in a small paint editor and save it back to the record.",
+    "version": "1.1.0",
+    "description": "Edit an Odoo record's image in a small paint editor and save it back, or save an edited copy of an image or PDF attachment.",
     "minimum_chrome_version": "123",
     "permissions": ["activeTab", "scripting"],
     "icons": {
