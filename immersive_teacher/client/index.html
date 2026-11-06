@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Profesor inmersivo</title>
+    <link rel="icon" href="data:,">
+</head>
+<body>
+    <div id="app">
+        <div id="stage"></div>
+        <aside id="panel">
+            <header class="panel-header">
+                <h1>Profesor inmersivo</h1>
+                <span id="status" class="status" data-state="connecting">Conectando…</span>
+            </header>
+            <div class="xr-row">
+                <button id="enter-xr" type="button" hidden>
+                    <svg class="talk-icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-4l-3-3-3 3H5a2 2 0 0 1-2-2z"></path>
+                    </svg>
+                    <span>Entrar en realidad mixta</span>
+                </button>
+                <p id="xr-hint" class="hint"></p>
+            </div>
+            <div id="conversation" aria-live="polite"></div>
+            <div class="talk-row">
+                <button id="talk" type="button" aria-pressed="false" disabled>
+                    <svg class="talk-icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <rect x="9" y="3" width="6" height="11" rx="3"></rect>
+                        <path d="M6 11a6 6 0 0 0 12 0M12 17v4M8.5 21h7"></path>
+                    </svg>
+                    <span class="talk-label">Mantén para hablar</span>
+                </button>
+            </div>
+            <form id="ask-form" autocomplete="off">
+                <input id="question" type="text" maxlength="500"
+                       placeholder="Por ejemplo: ¿cómo hacen las plantas la fotosíntesis?"
+                       aria-label="Pregunta">
+                <button type="submit" disabled>Preguntar</button>
+            </form>
+            <p id="talk-hint" class="hint">Mantén el botón o la barra espaciadora mientras hablas, o escribe la pregunta.</p>
+            <p id="model-info" class="hint"></p>
+        </aside>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+</body>
+</html>
