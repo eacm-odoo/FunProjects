@@ -18,6 +18,7 @@ export class TtsQueue {
     /**
      * @param {object} options
      * @param {object} options.tts adapter from speech/tts/index.js
+     * @param {string} [options.language] the voice's language (see i18n.js)
      * @param {number} [options.concurrency]
      * @param {AbortSignal} [options.signal] aborts every job (cancel, error)
      * @param {(step: number) => void} options.onStart
@@ -25,8 +26,9 @@ export class TtsQueue {
      * @param {(step: number, ok: boolean) => void} options.onEnd always called once per step
      * @param {(step: number, error: Error) => void} options.onError
      */
-    constructor({ tts, concurrency = 2, signal, onStart, onChunk, onEnd, onError }) {
+    constructor({ tts, language = "es", concurrency = 2, signal, onStart, onChunk, onEnd, onError }) {
         this.tts = tts;
+        this.language = language;
         this.concurrency = concurrency;
         this.signal = signal;
         this.callbacks = { onStart, onChunk, onEnd, onError };
@@ -74,7 +76,8 @@ export class TtsQueue {
             return;
         }
         try {
-            for await (const pcm of this.tts.synthesize(text, { previousText, signal: this.signal })) {
+            const options = { previousText, language: this.language, signal: this.signal };
+            for await (const pcm of this.tts.synthesize(text, options)) {
                 onChunk(step, pcm);
             }
             onEnd(step, true);

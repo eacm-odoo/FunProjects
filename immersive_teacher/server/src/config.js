@@ -6,6 +6,8 @@
  * startup with a message that names the variable, not at the first question.
  */
 
+import { LANGUAGES } from "./i18n.js";
+
 const LLM_PROVIDERS = ["claude", "fake"];
 const STT_PROVIDERS = ["deepgram", "fake"];
 const TTS_PROVIDERS = ["elevenlabs", "deepgram", "fake", "none"];
@@ -51,18 +53,46 @@ function readFlag(env, name, fallback) {
 }
 
 /**
- * Language of the transcription and the voice, as a code such as "es" or
- * "es-419". The variable is TEACHER_LANGUAGE and not LANGUAGE on purpose:
- * Linux shells already export LANGUAGE for the system locale (en_US:en), and
- * a variable from the shell wins over the one in .env.
+ * The language a new page starts in, as "es" or "en", optionally with a
+ * region ("es-419", "en-GB") that only the transcription uses. The page can
+ * switch language at any time; this is only the default. The variable is
+ * TEACHER_LANGUAGE and not LANGUAGE on purpose: Linux shells already export
+ * LANGUAGE for the system locale (en_US:en), and a variable from the shell
+ * wins over the one in .env.
  */
 function readLanguage(env) {
     const raw = (env.TEACHER_LANGUAGE ?? "").trim();
-    const value = raw || "es";
-    if (!/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/.test(value)) {
-        throw new ConfigError(`TEACHER_LANGUAGE="${raw}" is not a language code; use one like es or es-419`);
+    const value = raw || LANGUAGES[0];
+    const match = /^([a-z]{2,3})(-[A-Za-z0-9]{2,8})?$/.exec(value);
+    if (!match || !LANGUAGES.includes(match[1])) {
+        throw new ConfigError(
+            `TEACHER_LANGUAGE="${raw}" is not supported; use ${LANGUAGES.join(" or ")}, optionally with a region such as es-419`,
+        );
     }
-    return value;
+    return { language: match[1], code: value };
+}
+
+/** Deepgram's language code for each language: the bare one, or TEACHER_LANGUAGE with its region. */
+function transcriptionLanguages(teacherLanguage) {
+    const codes = Object.fromEntries(LANGUAGES.map((language) => [language, language]));
+    codes[teacherLanguage.language] = teacherLanguage.code;
+    return Object.freeze(codes);
+}
+
+/**
+ * The voice for each language. Deepgram's voice is a model name per language.
+ * An ElevenLabs voice speaks every language (Flash v2.5 is multilingual), so
+ * the English one defaults to the same voice; a native voice sounds better.
+ */
+function ttsVoices(env, provider) {
+    if (provider === "elevenlabs") {
+        const voice = requireKey(env, "ELEVENLABS_VOICE_ID", "TTS_PROVIDER is elevenlabs", "set TTS_PROVIDER=deepgram, fake or none");
+        return Object.freeze({ es: voice, en: (env.ELEVENLABS_VOICE_ID_EN || voice).trim() });
+    }
+    return Object.freeze({
+        es: (env.DEEPGRAM_VOICE || "aura-2-estrella-es").trim(),
+        en: (env.DEEPGRAM_VOICE_EN || "aura-2-thalia-en").trim(),
+    });
 }
 
 function ttsApiKey(env, provider) {
@@ -95,7 +125,7 @@ export function loadConfig(env = process.env, argv = process.argv) {
 
     const sttProvider = readChoice(env, "STT_PROVIDER", STT_PROVIDERS, "deepgram");
     const ttsProvider = readChoice(env, "TTS_PROVIDER", TTS_PROVIDERS, "elevenlabs");
-    const language = readLanguage(env);
+    const teacherLanguage = readLanguage(env);
 
     const port = readInt(env, "PORT", 8787, { min: 1, max: 65535 });
     return Object.freeze({
@@ -108,7 +138,7 @@ export function loadConfig(env = process.env, argv = process.argv) {
             .split(",")
             .map((origin) => origin.trim())
             .filter(Boolean),
-        language,
+        language: teacherLanguage.language,
         historyTurns: readInt(env, "HISTORY_TURNS", 4, { min: 0, max: 20 }),
         maxQuestionsPerHour: readInt(env, "MAX_QUESTIONS_PER_HOUR", 30, { min: 0 }),
         llm: Object.freeze({
@@ -128,21 +158,21 @@ export function loadConfig(env = process.env, argv = process.argv) {
                 ? requireKey(env, "DEEPGRAM_API_KEY", "STT_PROVIDER is deepgram", "set STT_PROVIDER=fake")
                 : "",
             model: (env.DEEPGRAM_MODEL ?? "nova-3").trim(),
-            language,
+            languages: transcriptionLanguages(teacherLanguage),
             maxSeconds: readInt(env, "MAX_RECORDING_SECONDS", 20, { min: 3, max: 60 }),
+        }),
+        // Documents and pages the teacher answers from; MAX_SOURCES=0 turns them off.
+        sources: Object.freeze({
+            maxCount: readInt(env, "MAX_SOURCES", 3, { min: 0, max: 10 }),
+            maxBytes: readInt(env, "MAX_SOURCE_MB", 10, { min: 1, max: 20 }) * 1024 * 1024,
+            maxTokens: readInt(env, "MAX_SOURCE_TOKENS", 100_000, { min: 1_000, max: 900_000 }),
         }),
         tts: Object.freeze({
             provider: ttsProvider,
             apiKey: ttsApiKey(env, ttsProvider),
-            voiceId: ttsProvider === "elevenlabs"
-                ? requireKey(env, "ELEVENLABS_VOICE_ID", "TTS_PROVIDER is elevenlabs", "set TTS_PROVIDER=deepgram, fake or none")
-                : "",
-            // For Deepgram the voice is the model: aura-2-estrella-es.
-            model: ttsProvider === "deepgram"
-                ? (env.DEEPGRAM_VOICE || "aura-2-estrella-es").trim()
-                : (env.ELEVENLABS_MODEL || "eleven_flash_v2_5").trim(),
-            // ElevenLabs takes the bare language (ISO 639-1): "es", not "es-419".
-            language: language.split("-")[0],
+            voices: ttsVoices(env, ttsProvider),
+            // ElevenLabs only: Deepgram's voice already is its model.
+            model: (env.ELEVENLABS_MODEL || "eleven_flash_v2_5").trim(),
             sampleRate: TTS_SAMPLE_RATE,
         }),
     });

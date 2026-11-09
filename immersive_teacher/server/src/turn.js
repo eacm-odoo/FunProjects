@@ -10,62 +10,62 @@
  * of the last SAY line before it, so Claude never has to count. A bad DRAW
  * line only loses its own elements, and a failed sentence of speech only
  * falls back to text for that sentence.
+ *
+ * When the turn fails (transcription, Claude, nothing to say), the sentences
+ * already on their way still finish, then the teacher says a short apology
+ * like any other sentence, and only then comes the error with its details.
+ *
+ * Each question carries its language (see i18n.js): it picks the system
+ * prompt, the transcription language, the voice and the messages.
+ *
+ * The user's sources (documents and pages, see sources/index.js) go at the
+ * start of the first message of every request, so they are the same prefix
+ * each time and stay in Claude's cache.
  */
 
+import { LANGUAGES, MESSAGES, format } from "./i18n.js";
 import { DiagramBuilder, LIMITS, cleanText } from "./protocol/diagram.js";
 import { LineParser } from "./protocol/line_parser.js";
-import { REFUSAL_SENTENCE, SYSTEM_PROMPT } from "./llm/system_prompt.js";
+import { SYSTEM_PROMPTS } from "./llm/system_prompt.js";
 import { TtsQueue } from "./speech/tts_queue.js";
 import { TurnTimer, describeUsage } from "./timing.js";
 
 /** Hard cap on spoken sentences: past it the stream is cut to stop paying for tokens. */
 export const MAX_SENTENCES = 8;
 
-/** Errors that end the turn, as the browser shows them. */
-export const ERROR_MESSAGES = Object.freeze({
-    llm_auth: "La llave de Claude no es válida. Revisa ANTHROPIC_API_KEY en el servidor.",
-    llm_rate_limited: "Claude está recibiendo demasiadas peticiones. Espera un momento y vuelve a preguntar.",
-    llm_bad_request: "Claude rechazó la petición. Revisa CLAUDE_MODEL y el log del servidor.",
-    llm_unavailable: "Claude no está disponible ahora mismo. Intenta de nuevo en un rato.",
-    llm_network: "El servidor no logra conectarse con Claude. Revisa su conexión a internet.",
-    llm_failed: "Algo falló al pedir la respuesta. El detalle está en el log del servidor.",
-    stt_auth: "Deepgram rechazó la llave. Revisa DEEPGRAM_API_KEY en el servidor.",
-    stt_payment_required: "Deepgram pide un pago: se acabó el crédito de la cuenta. Escribe la pregunta mientras tanto.",
-    stt_rate_limited: "Deepgram está recibiendo demasiadas peticiones. Espera un momento y vuelve a preguntar.",
-    stt_bad_request: "Deepgram rechazó la petición. El detalle está en el log del servidor: puede ser la grabación, DEEPGRAM_MODEL o TEACHER_LANGUAGE.",
-    stt_unavailable: "Deepgram no está disponible ahora mismo. Escribe la pregunta mientras tanto.",
-    stt_network: "El servidor no logra conectarse con Deepgram. Revisa su conexión a internet.",
-    stt_timeout: "Deepgram tardó demasiado en transcribir. Prueba otra vez o escribe la pregunta.",
-    empty_transcript: "No te escuché. Mantén presionado mientras hablas y suelta al terminar.",
-    empty_answer: "No llegó ninguna explicación. Prueba a preguntarlo de otra forma.",
-    internal: "Algo falló en el servidor. El detalle está en su log.",
-});
-
-/**
- * Speech failures do not end the turn: the text goes on and this note explains
- * the silence. `{voice}` is the speech provider (ElevenLabs, Deepgram).
- */
-export const WARNING_MESSAGES = Object.freeze({
-    tts_auth: "{voice} rechazó la llave o la voz: sigo en texto. Revisa la llave y la voz en el .env del servidor.",
-    tts_payment_required: "{voice} pide un plan de pago para esta voz, o se acabó el crédito: sigo en texto. El detalle está en el log del servidor.",
-    tts_rate_limited: "{voice} está limitando las peticiones o se acabó la cuota: sigo en texto.",
-    tts_bad_request: "{voice} rechazó la frase: esa parte sigue en texto. El detalle está en el log del servidor.",
-    tts_unavailable: "{voice} no está disponible ahora mismo: sigo en texto.",
-    tts_network: "El servidor no logra conectarse con {voice}: sigo en texto.",
-    tts_timeout: "{voice} tardó demasiado: esa parte sigue en texto.",
-    tts_failed: "La voz falló: esa parte sigue en texto. El detalle está en el log del servidor.",
-});
+/** The apology for a failure: what went wrong, said as the teacher would. */
+export function apologyFor(code, language = LANGUAGES[0]) {
+    const { apologies } = MESSAGES[language];
+    if (code === "empty_transcript" || code.startsWith("stt_")) {
+        return apologies.heard;
+    }
+    return code === "empty_answer" ? apologies.explain : apologies.think;
+}
 
 /** DRAW line for the history: only what was accepted, without the step. */
 function historyDrawLine(result) {
     const data = {};
     if (result.nodes.length) {
-        data.nodes = result.nodes.map(({ id, label, shape, color }) => ({ id, label, shape, color }));
+        data.nodes = result.nodes.map(({ id, label, icon, shape, color }) => (
+            icon ? { id, label, icon, shape, color } : { id, label, shape, color }
+        ));
     }
     if (result.edges.length) {
         data.edges = result.edges.map(({ from, to, label }) => (label ? { from, to, label } : { from, to }));
     }
     return `DRAW: ${JSON.stringify(data)}`;
+}
+
+/**
+ * Puts the document blocks before the first question of `messages`. The
+ * history trims old turns from the front, but the documents stay first.
+ */
+export function withSources(messages, sources) {
+    if (!sources?.length) {
+        return messages;
+    }
+    const [first, ...rest] = messages;
+    return [{ role: "user", content: [...sources, { type: "text", text: first.content }] }, ...rest];
 }
 
 /** Aborts `controller` when `signal` aborts; returns the function that stops listening. */
@@ -87,10 +87,12 @@ function linkAbort(signal, controller) {
  * @param {number} options.id turn number chosen by the browser
  * @param {string} [options.label] how the turn appears in the log (default: the id)
  * @param {{text: string} | {audio: Uint8Array, mime: string}} options.input
+ * @param {string} [options.language] one of LANGUAGES (default: the first)
  * @param {object} options.llm adapter from llm/index.js
  * @param {object} [options.stt] adapter from speech/stt/index.js (needed for audio input)
  * @param {object|null} [options.tts] adapter from speech/tts/index.js, null for text only
  * @param {import("./history.js").ConversationHistory} options.history
+ * @param {object[]} [options.sources] document blocks from SourceList.blocks()
  * @param {(event: object) => void} options.emit sends one JSON event to the browser
  * @param {(step: number, pcm: Uint8Array) => void} [options.emitAudio] sends one PCM chunk
  * @param {AbortSignal} [options.signal] aborted when the user cancels
@@ -98,8 +100,10 @@ function linkAbort(signal, controller) {
  * @returns {Promise<{status: "done"|"cancelled"|"error", code?: string}>}
  */
 export async function runTurn({
-    id, label = String(id), input, llm, stt, tts = null, history, emit, emitAudio = () => {}, signal, logger = console,
+    id, label = String(id), input, language = LANGUAGES[0], llm, stt, tts = null, history, sources = [], emit,
+    emitAudio = () => {}, signal, logger = console,
 }) {
+    const messages = MESSAGES[language];
     const timer = new TurnTimer(label);
     const parser = new LineParser();
     const diagram = new DiagramBuilder();
@@ -114,6 +118,7 @@ export async function runTurn({
     let warned = false;
     const speech = tts && new TtsQueue({
         tts,
+        language,
         signal: turnAbort.signal,
         onStart: (step) => emit({ type: "audio_start", step, sampleRate: tts.sampleRate }),
         onChunk: (step, pcm) => {
@@ -122,11 +127,11 @@ export async function runTurn({
         },
         onEnd: (step, ok) => emit({ type: "audio_end", step, ok }),
         onError: (step, error) => {
-            const code = error.code in WARNING_MESSAGES ? error.code : "tts_failed";
+            const code = error.code in messages.warnings ? error.code : "tts_failed";
             logger.warn(`[turn ${label}] speech of sentence ${step} failed (${code}): ${error.message}`);
             if (!warned) {
                 warned = true;
-                emit({ type: "warning", code, message: WARNING_MESSAGES[code].replace("{voice}", tts.label ?? "La voz") });
+                emit({ type: "warning", code, message: format(messages.warnings[code], { voice: tts.label ?? messages.voice }) });
             }
         },
     });
@@ -138,10 +143,10 @@ export async function runTurn({
     let overLimit = false;
     let end = null;
 
-    function say(text) {
+    function say(text, kind) {
         sentences += 1;
         timer.mark("first_sentence");
-        emit({ type: "sentence", step: sentences, text });
+        emit(kind ? { type: "sentence", step: sentences, text, kind } : { type: "sentence", step: sentences, text });
         speech?.push(sentences, text);
     }
 
@@ -179,13 +184,29 @@ export async function runTurn({
         }
     }
 
-    function fail(code, error) {
-        turnAbort.abort();
-        logger.error(`[turn ${label}] ${code}: ${error?.message ?? ""}`);
+    /**
+     * Ends the turn on an error: Claude stops, the speech already on its way
+     * finishes, the teacher apologizes, then the browser gets the details.
+     */
+    async function fail(code, error, { log = true } = {}) {
+        llmAbort.abort();
+        if (log) {
+            logger.error(`[turn ${label}] ${code}: ${error?.message ?? ""}`);
+        }
         if (code === "internal" && error) {
             logger.error(error);
         }
-        emit({ type: "error", code, message: ERROR_MESSAGES[code] });
+        let apologized = false;
+        if (!signal?.aborted) {
+            say(apologyFor(code, language), "apology");
+            await speech?.drain();
+            apologized = !signal?.aborted;
+        }
+        unlinkTurn();
+        if (signal?.aborted) {
+            return cancelled();
+        }
+        emit({ type: "error", code, message: messages.errors[code], apologized });
         return { status: "error", code };
     }
 
@@ -196,14 +217,14 @@ export async function runTurn({
 
     try {
         if ("audio" in input) {
-            const { text } = await stt.transcribe(input.audio, { mime: input.mime, signal: turnAbort.signal });
+            const { text } = await stt.transcribe(input.audio, { mime: input.mime, language, signal: turnAbort.signal });
             timer.mark("stt");
             question = text.trim();
             if (!question) {
                 emit({ type: "transcript", text: "" });
+                unlinkLlm();
                 logger.warn(timer.line("nothing heard in the recording"));
-                emit({ type: "error", code: "empty_transcript", message: ERROR_MESSAGES.empty_transcript });
-                return { status: "error", code: "empty_transcript" };
+                return await fail("empty_transcript", null, { log: false });
             }
         } else {
             question = input.text;
@@ -212,8 +233,9 @@ export async function runTurn({
 
         timer.mark("claude_request");
         const events = llm.stream({
-            system: SYSTEM_PROMPT,
-            messages: history.messagesFor(question),
+            system: SYSTEM_PROMPTS[language],
+            messages: withSources(history.messagesFor(question), sources),
+            language,
             signal: llmAbort.signal,
         });
         for await (const event of events) {
@@ -233,12 +255,12 @@ export async function runTurn({
         }
     } catch (error) {
         unlinkLlm();
-        unlinkTurn();
         if (signal?.aborted) {
+            unlinkTurn();
             return cancelled();
         }
-        const known = error.code in ERROR_MESSAGES;
-        return fail(known ? error.code : "internal", error);
+        const known = error.code in messages.errors;
+        return await fail(known ? error.code : "internal", error);
     }
     unlinkLlm();
 
@@ -264,13 +286,11 @@ export async function runTurn({
 
     const refused = stopReason === "refusal";
     if (refused) {
-        say(REFUSAL_SENTENCE);
+        say(messages.refusal);
     }
     if (!sentences) {
-        unlinkTurn();
-        emit({ type: "error", code: "empty_answer", message: ERROR_MESSAGES.empty_answer });
         logger.warn(timer.line(`no sentence | stop=${stopReason}`));
-        return { status: "error", code: "empty_answer" };
+        return await fail("empty_answer", null, { log: false });
     }
 
     // The answer is complete; wait for its last sound before calling it done.
@@ -287,6 +307,9 @@ export async function runTurn({
         history.add(question, historyLines.join("\n"));
     }
     const details = [describeUsage(end?.usage), `stop=${stopReason}`, `model=${end?.model ?? llm.model}`];
+    if (sources.length) {
+        details.push(`sources=${sources.length}`);
+    }
     if (!result) {
         details.push("no diagram");
     }

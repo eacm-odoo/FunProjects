@@ -15,7 +15,8 @@
  * played strictly in step order. A sentence starts once it has a little audio
  * buffered (so the network does not cause stutters) or once its stream ended.
  * A sentence whose speech failed is "played" as silence for the time it would
- * take to say it, so the diagram keeps its pace.
+ * take to say it, so the diagram keeps its pace (speakingSilently() tells the
+ * teacher to keep moving its mouth through it).
  *
  * Time comes from the AudioContext, which is also what schedules the sound,
  * so the diagram and the voice cannot drift apart.
@@ -100,6 +101,18 @@ export class AudioNarrator {
             sum += samples[i] * samples[i];
         }
         return Math.sqrt(sum / samples.length);
+    }
+
+    /** True while a sentence without speech is "playing" in silence. */
+    speakingSilently() {
+        if (!this.context || !this.silences.length) {
+            return false;
+        }
+        const now = this.context.currentTime;
+        while (this.silences.length && this.silences[0].to <= now) {
+            this.silences.shift();
+        }
+        return this.silences.length > 0 && this.silences[0].from <= now;
     }
 
     enqueue(step, text) {
@@ -191,6 +204,8 @@ export class AudioNarrator {
         this.finished = false;
         this.announcements = [];
         this.sources = new Set();
+        /** @type {{from: number, to: number}[]} context times of silent sentences */
+        this.silences = [];
     }
 
     #step(step) {
@@ -238,7 +253,9 @@ export class AudioNarrator {
                 this.announcements.push({ step: this.next, at: entry.startAt });
                 if (entry.ended && !entry.hadAudio) {
                     // No speech for this sentence: keep its time, in silence.
-                    this.playhead += Math.max(minSilentSeconds, entry.text.length / charsPerSecond);
+                    const seconds = Math.max(minSilentSeconds, entry.text.length / charsPerSecond);
+                    this.silences.push({ from: entry.startAt, to: entry.startAt + seconds });
+                    this.playhead += seconds;
                 }
             }
             for (const floats of entry.chunks) {

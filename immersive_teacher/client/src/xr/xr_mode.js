@@ -11,9 +11,9 @@
 
 import * as THREE from "three";
 
-import { HINTS } from "./captions.js";
 import { XrInteraction } from "./interaction.js";
 import { DESK_MIN_HEIGHT, isPlaceable, placementFor } from "./placement.js";
+import { XrMenu } from "./xr_menu.js";
 
 const SESSION_INIT = Object.freeze({
     requiredFeatures: ["hit-test", "local-floor"],
@@ -21,6 +21,8 @@ const SESSION_INIT = Object.freeze({
 });
 /** A on the right controller, X on the left (xr-standard gamepad mapping). */
 const MENU_BUTTON = 4;
+/** B on the right controller, Y on the left. */
+const SUGGESTIONS_BUTTON = 5;
 const RAY_LENGTH = 2.5;
 /** Where the first hint floats: ahead of the user and a little below the eyes. */
 const HINT_DISTANCE = 1.1;
@@ -54,15 +56,23 @@ export class XrMode {
      * @param {import("../scene/stage.js").Stage} options.stage
      * @param {import("../scene/lesson.js").Lesson} options.lesson
      * @param {import("./captions.js").XrCaptions} options.captions
+     * @param {XrMenu} options.menu buttons beside the teacher
      * @param {() => void} options.onTalkStart
      * @param {() => void} options.onTalkEnd
+     * @param {(question: string) => void} options.onAsk a suggested question was picked
+     * @param {() => void} [options.onSwitchLanguage] the language button was pressed
      * @param {(active: boolean) => void} [options.onSessionChange]
      */
-    constructor({ stage, lesson, captions, onTalkStart, onTalkEnd, onSessionChange = () => {} }) {
+    constructor({
+        stage, lesson, captions, menu, onTalkStart, onTalkEnd, onAsk, onSwitchLanguage = () => {}, onSessionChange = () => {},
+    }) {
         this.stage = stage;
         this.renderer = stage.renderer;
         this.lesson = lesson;
         this.captions = captions;
+        this.menu = menu;
+        this.onAsk = onAsk;
+        this.onSwitchLanguage = onSwitchLanguage;
         this.onSessionChange = onSessionChange;
         this.session = null;
         this.grab = null;
@@ -80,7 +90,8 @@ export class XrMode {
             onGrabEnd: () => {
                 this.grab = null;
             },
-            onModeChange: (mode) => this.captions.setHint(HINTS[mode]),
+            onControl: (control) => this.#pressControl(control),
+            onModeChange: (mode) => this.captions.setHint(mode),
         });
         this.inputs = [0, 1].map((index) => this.#createInput(index));
     }
@@ -118,7 +129,7 @@ export class XrMode {
         this.lesson.setHandleVisible(true);
         this.hintPlaced = false;
         this.hasHead = false;
-        this.captions.setHint(HINTS.placing);
+        this.captions.setHint("placing");
         this.captions.group.visible = true;
         this.onSessionChange(true);
     }
@@ -136,8 +147,11 @@ export class XrMode {
         this.#readHead(frame, referenceSpace);
         const placing = this.interaction.mode === "placing";
         const handleReady = this.lesson.group.visible && !placing;
+        this.menu.group.visible = handleReady;
+        this.#faceViewer(this.menu.group, this.lesson.side);
         this.lesson.group.updateWorldMatrix(true, true);
         let anyOnHandle = false;
+        const hovered = new Set();
 
         for (const input of this.inputs) {
             if (!input.source) {
@@ -146,11 +160,24 @@ export class XrMode {
             input.hit = this.#hitTest(input, frame, referenceSpace);
 
             this.raycaster.setFromXRController(input.controller);
-            const handleHit = handleReady
+            let handleHit = handleReady
                 ? this.raycaster.intersectObject(this.lesson.handleHitArea, false)[0]
                 : undefined;
+            let controlHit = this.menu.hit(this.raycaster);
+            // Whatever is nearer along the ray wins.
+            if (handleHit && controlHit) {
+                if (controlHit.distance < handleHit.distance) {
+                    handleHit = undefined;
+                } else {
+                    controlHit = null;
+                }
+            }
             input.onHandle = Boolean(handleHit);
+            input.control = controlHit?.id ?? null;
             anyOnHandle ||= input.onHandle;
+            if (input.control) {
+                hovered.add(input.control);
+            }
 
             input.reticle.visible = placing && Boolean(input.hit);
             if (input.reticle.visible) {
@@ -162,15 +189,22 @@ export class XrMode {
                 input.reticle.userData.material.color.setHex(input.hit.placeable ? RETICLE_OK : RETICLE_NO);
             }
             const surfaceDistance = input.hit ? this.raycaster.ray.origin.distanceTo(input.hit.position) : RAY_LENGTH;
-            input.ray.scale.z = handleHit?.distance ?? (placing ? surfaceDistance : RAY_LENGTH);
+            input.ray.scale.z = handleHit?.distance ?? controlHit?.distance ?? (placing ? surfaceDistance : RAY_LENGTH);
 
-            const menuPressed = Boolean(input.source.gamepad?.buttons[MENU_BUTTON]?.pressed);
+            const buttons = input.source.gamepad?.buttons;
+            const menuPressed = Boolean(buttons?.[MENU_BUTTON]?.pressed);
             if (menuPressed && !input.menuWasPressed) {
                 this.interaction.menu();
             }
             input.menuWasPressed = menuPressed;
+            const suggestionsPressed = Boolean(buttons?.[SUGGESTIONS_BUTTON]?.pressed);
+            if (suggestionsPressed && !input.suggestionsWasPressed && this.interaction.mode === "teaching") {
+                this.menu.toggleSuggestions();
+            }
+            input.suggestionsWasPressed = suggestionsPressed;
         }
 
+        this.menu.setHover(hovered);
         this.lesson.setHandleHighlight(this.grab ? 1 : anyOnHandle ? 0.6 : 0);
         this.#updateGrab(dt);
         this.#placeCaptions();
@@ -211,7 +245,9 @@ export class XrMode {
             hitTestSource: null,
             hit: null,
             onHandle: false,
+            control: null,
             menuWasPressed: false,
+            suggestionsWasPressed: false,
         };
         controller.addEventListener("connected", (event) => this.#connect(input, event.data));
         controller.addEventListener("disconnected", () => this.#disconnect(input));
@@ -249,6 +285,7 @@ export class XrMode {
         input.source = null;
         input.hit = null;
         input.onHandle = false;
+        input.control = null;
         input.ray.visible = false;
         input.reticle.visible = false;
         if (this.grab?.input === input) {
@@ -263,6 +300,7 @@ export class XrMode {
         const action = this.interaction.press(input.id, button, {
             onHandle: input.onHandle,
             surface: Boolean(input.hit?.placeable),
+            control: input.control,
         });
         if (action) {
             this.#pulse(input, action === "talk" ? 0.3 : 0.6, 40);
@@ -281,6 +319,36 @@ export class XrMode {
         // The hit pose's Y axis is the surface normal.
         const normalY = matrix.elements[5];
         return { matrix, position: new THREE.Vector3().setFromMatrixPosition(matrix), placeable: isPlaceable(normalY) };
+    }
+
+    /** Without a microphone the suggested questions are the way to ask. */
+    showSuggestions() {
+        this.menu.setSuggestionsVisible(true);
+    }
+
+    #pressControl(control) {
+        if (control === XrMenu.MOVE) {
+            this.interaction.menu();
+            return;
+        }
+        if (control === XrMenu.LANGUAGE) {
+            this.onSwitchLanguage();
+            return;
+        }
+        const question = this.menu.questionFor(control);
+        if (question) {
+            this.onAsk(question);
+        }
+    }
+
+    /** Turns `object` (a child of `parent`, inside the lesson) to face the user, upright. */
+    #faceViewer(object, parent) {
+        if (!this.hasHead) {
+            return;
+        }
+        const position = parent.getWorldPosition(tmpVector);
+        const worldYaw = Math.atan2(this.head.x - position.x, this.head.z - position.z);
+        object.rotation.set(0, worldYaw - this.lesson.group.rotation.y, 0);
     }
 
     #findInput(sourceId) {
@@ -368,6 +436,7 @@ export class XrMode {
         this.grab = null;
         this.stage.setXrPresenting(false);
         this.lesson.setHandleVisible(false);
+        this.menu.group.visible = false;
         this.captions.group.visible = false;
         this.onSessionChange(false);
     }

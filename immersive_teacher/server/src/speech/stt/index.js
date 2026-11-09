@@ -1,7 +1,7 @@
 /**
  * Speech to text, behind one interface:
  *
- *     stt.transcribe(audio: Uint8Array, { mime, signal }) -> Promise<{ text }>
+ *     stt.transcribe(audio: Uint8Array, { mime, language, signal }) -> Promise<{ text }>
  *
  * Adding a provider means one file here and one entry in the switch.
  */

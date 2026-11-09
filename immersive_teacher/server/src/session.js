@@ -6,13 +6,30 @@
  * progress (the user interrupted), and every event sent back carries the turn
  * number so the browser can drop stale ones. Speech goes back as binary
  * frames (see protocol/audio_frame.js).
+ *
+ * Each question names its language ("es" or "en"); without one, or with one
+ * the server does not speak, it uses TEACHER_LANGUAGE. The history is kept
+ * across a switch: the system prompt makes Claude answer in the new language.
+ *
+ * Sources (documents and public pages the teacher answers from) belong to
+ * the connection too. The browser names each one with its own id:
+ *
+ *     source_file {id, name, mime}, then one binary message with the file
+ *     source_url {id, url}
+ *     source_remove {id}
+ *
+ * and gets back `source_added {id, source}` or `source_error {id, code,
+ * message}`. Loading happens beside the questions: asking while a document
+ * loads is fine, and the question goes without it.
  */
 
 import { WebSocket } from "ws";
 
 import { ConversationHistory } from "./history.js";
+import { MESSAGES, format, isLanguage } from "./i18n.js";
 import { MAX_TURN, encodeAudioFrame } from "./protocol/audio_frame.js";
-import { ERROR_MESSAGES, runTurn } from "./turn.js";
+import { SourceList, countSourceTokens, isSourceId, readSource } from "./sources/index.js";
+import { runTurn } from "./turn.js";
 
 const MAX_QUESTION_LENGTH = 500;
 let connectionCount = 0;
@@ -30,8 +47,9 @@ export class Session {
      * @param {object|null} options.tts null when TTS_PROVIDER=none
      * @param {import("./limits.js").HourlyLimiter} options.limiter
      * @param {Console} [options.logger]
+     * @param {(address: string) => boolean} [options.isAllowedAddress] where URLs may point; tests open it to a local server
      */
-    constructor({ socket, config, llm, stt, tts, limiter, logger = console }) {
+    constructor({ socket, config, llm, stt, tts, limiter, logger = console, isAllowedAddress }) {
         this.socket = socket;
         this.config = config;
         this.llm = llm;
@@ -44,17 +62,37 @@ export class Session {
         this.history = new ConversationHistory(config.historyTurns);
         /** @type {{id: number, controller: AbortController} | null} */
         this.current = null;
-        /** @type {{turn: number, mime: string} | null} ask_audio waiting for its recording */
-        this.pendingAudio = null;
+        /**
+         * The announcement waiting for its binary message: a recording or a file.
+         * @type {{kind: "audio", turn: number, mime: string, language: string}
+         *      | {kind: "file", id: string, name: string, mime: string, language: string} | null}
+         */
+        this.pendingBinary = null;
+        this.sources = new SourceList(config.sources);
+        /** @type {Map<string, AbortController>} sources being read or counted */
+        this.sourceLoads = new Map();
+        this.isAllowedAddress = isAllowedAddress;
 
         socket.on("message", (data, isBinary) => this.#onMessage(data, isBinary));
-        socket.on("close", () => this.#cancelCurrent("connection closed"));
+        socket.on("close", () => {
+            this.#cancelCurrent("connection closed");
+            for (const controller of this.sourceLoads.values()) {
+                controller.abort(new Error("connection closed"));
+            }
+        });
         this.#send({
             type: "hello",
             llm: { provider: llm.name, model: llm.model },
             stt: { provider: stt.name, maxSeconds: config.stt.maxSeconds },
             tts: tts ? { enabled: true, provider: tts.name, sampleRate: tts.sampleRate } : { enabled: false },
             maxQuestionsPerHour: config.maxQuestionsPerHour,
+            // The browser starts in this language unless the user chose one.
+            language: config.language,
+            sources: {
+                maxCount: config.sources.maxCount,
+                maxBytes: config.sources.maxBytes,
+                maxTokens: config.sources.maxTokens,
+            },
         });
     }
 
@@ -72,7 +110,7 @@ export class Session {
 
     #onMessage(data, isBinary) {
         if (isBinary) {
-            this.#onRecording(data);
+            this.#onBinary(data);
             return;
         }
         let message;
@@ -94,6 +132,15 @@ export class Session {
                     this.#cancelCurrent("cancelled by the user");
                 }
                 break;
+            case "source_file":
+                this.#announceFile(message);
+                break;
+            case "source_url":
+                this.#loadUrl(message);
+                break;
+            case "source_remove":
+                this.#removeSource(message);
+                break;
             default:
                 this.logger.warn(`unknown message type ${JSON.stringify(message?.type)} ignored`);
         }
@@ -114,66 +161,210 @@ export class Session {
         return false;
     }
 
-    #error(turn, code, message = ERROR_MESSAGES[code]) {
-        this.#send({ type: "error", code, message, turn });
+    #languageOf(message) {
+        return isLanguage(message.language) ? message.language : this.config.language;
     }
 
-    #askText({ turn, text }) {
+    #error(turn, language, code, values = {}) {
+        this.#send({ type: "error", code, message: format(MESSAGES[language].errors[code], values), turn });
+    }
+
+    #askText(message) {
+        const { turn, text } = message;
         if (!this.#validTurn(turn)) {
             return;
         }
-        this.pendingAudio = null;
+        if (this.pendingBinary?.kind === "audio") {
+            this.pendingBinary = null; // its recording never came
+        }
+        const language = this.#languageOf(message);
         const question = typeof text === "string" ? text.trim() : "";
         if (!question || question.length > MAX_QUESTION_LENGTH) {
-            this.#error(turn, "bad_request", `La pregunta debe tener entre 1 y ${MAX_QUESTION_LENGTH} caracteres.`);
+            this.#error(turn, language, "bad_request", { max: MAX_QUESTION_LENGTH });
             return;
         }
-        this.#startTurn(turn, { text: question });
+        this.#startTurn(turn, language, { text: question });
     }
 
-    #announceAudio({ turn, mime }) {
+    #announceAudio(message) {
+        const { turn, mime } = message;
         if (!this.#validTurn(turn)) {
             return;
         }
+        const language = this.#languageOf(message);
         if (typeof mime !== "string" || !AUDIO_MIME_RE.test(mime)) {
-            this.#error(turn, "bad_audio", "El navegador mandó un audio en un formato que no reconozco.");
+            this.#error(turn, language, "bad_audio");
             return;
         }
-        this.pendingAudio = { turn, mime };
+        this.pendingBinary = { kind: "audio", turn, mime, language };
     }
 
-    #onRecording(data) {
-        const pending = this.pendingAudio;
-        this.pendingAudio = null;
+    #onBinary(data) {
+        const pending = this.pendingBinary;
+        this.pendingBinary = null;
         if (!pending) {
-            this.logger.warn("recording without ask_audio before it, ignored");
+            this.logger.warn("binary message without ask_audio or source_file before it, ignored");
             return;
         }
-        const audio = Buffer.isBuffer(data) ? data : Buffer.concat(data);
+        const bytes = Buffer.isBuffer(data) ? data : Buffer.concat(data);
+        if (pending.kind === "file") {
+            this.#loadFile(pending, bytes);
+        } else {
+            this.#onRecording(pending, bytes);
+        }
+    }
+
+    #onRecording(pending, audio) {
         if (!audio.length) {
-            this.#error(pending.turn, "empty_transcript");
+            this.#error(pending.turn, pending.language, "empty_transcript");
             return;
         }
         if (audio.length > MAX_AUDIO_BYTES) {
-            this.#error(pending.turn, "audio_too_long", "La grabación es demasiado larga. Haz la pregunta más corta.");
+            this.#error(pending.turn, pending.language, "audio_too_long");
             return;
         }
         this.logger.info(`[turn ${this.connectionId}.${pending.turn}] recording received: ${(audio.length / 1024).toFixed(1)} KB ${pending.mime}`);
-        this.#startTurn(pending.turn, { audio, mime: pending.mime });
+        this.#startTurn(pending.turn, pending.language, { audio, mime: pending.mime });
     }
 
-    #startTurn(turn, input) {
+    // --- Sources ------------------------------------------------------------
+
+    #sourceError(id, language, code, values = {}) {
+        const messages = MESSAGES[language];
+        const template = messages.sources[code] ?? messages.errors[code] ?? messages.sources.source_failed;
+        const numbers = new Intl.NumberFormat(language);
+        const shown = Object.fromEntries(Object.entries(values).map(([key, value]) => (
+            [key, typeof value === "number" && key !== "status" ? numbers.format(value) : value]
+        )));
+        this.#send({ type: "source_error", id, code, message: format(template, shown) });
+    }
+
+    /** Whether a new source `id` may start loading; answers the browser when not. */
+    #canLoad(id, language) {
+        if (!isSourceId(id)) {
+            this.logger.warn(`source without a valid id: ${JSON.stringify(id)}`);
+            return false;
+        }
+        if (this.sources.has(id) || this.sourceLoads.has(id)) {
+            this.#sourceError(id, language, "source_bad_request");
+            return false;
+        }
+        const { maxCount } = this.config.sources;
+        if (this.sources.items.length + this.sourceLoads.size >= maxCount) {
+            this.#sourceError(id, language, "source_limit", { max: maxCount });
+            return false;
+        }
+        return true;
+    }
+
+    #announceFile(message) {
+        const { id, name, mime } = message;
+        const language = this.#languageOf(message);
+        if (!this.#canLoad(id, language)) {
+            // The file still comes: mark it so it is not taken for a recording.
+            this.pendingBinary = { kind: "file", id: null, name: "", mime: "", language };
+            return;
+        }
+        this.pendingBinary = {
+            kind: "file",
+            id,
+            name: typeof name === "string" ? name : "",
+            mime: typeof mime === "string" ? mime.slice(0, 200) : "",
+            language,
+        };
+    }
+
+    #loadFile(pending, data) {
+        if (pending.id === null) {
+            return; // refused when it was announced
+        }
+        const { name, mime } = pending;
+        void this.#loadSource(pending.id, pending.language, (signal) => readSource(
+            { file: { name, mime, data } },
+            { maxBytes: this.config.sources.maxBytes, signal },
+        ));
+    }
+
+    #loadUrl(message) {
+        const { id, url } = message;
+        const language = this.#languageOf(message);
+        if (!this.#canLoad(id, language)) {
+            return;
+        }
+        void this.#loadSource(id, language, (signal) => readSource(
+            { url },
+            { maxBytes: this.config.sources.maxBytes, signal, isAllowed: this.isAllowedAddress },
+        ));
+    }
+
+    /**
+     * Reads a source, counts its tokens and adds it, or tells the browser why
+     * not. `read(signal)` returns the document (see sources/index.js).
+     */
+    async #loadSource(id, language, read) {
+        const controller = new AbortController();
+        this.sourceLoads.set(id, controller);
+        const log = `[sources ${this.connectionId}]`;
+        const started = performance.now();
+        let document = null;
+        try {
+            document = await read(controller.signal);
+            // A text far over the limit is refused without asking Claude to count it.
+            const estimate = document.chars === null ? 0 : Math.ceil(document.chars / 4);
+            const tokens = estimate > this.sources.maxTokens
+                ? estimate
+                : await countSourceTokens(this.llm, document.block, controller.signal);
+            controller.signal.throwIfAborted();
+            const item = { id, ...document, tokens };
+            delete item.chars;
+            this.sources.add(item);
+            const [source] = this.sources.describe().filter((entry) => entry.id === id);
+            this.#send({ type: "source_added", id, source });
+            const ms = Math.round(performance.now() - started);
+            this.logger.info(`${log} added ${JSON.stringify(item.title)} (${item.kind} from ${item.origin}): `
+                + `${tokens} tokens, ${this.sources.tokens} of ${this.sources.maxTokens} in use, ${ms} ms`);
+        } catch (error) {
+            if (controller.signal.aborted) {
+                this.logger.info(`${log} ${id} stopped: ${controller.signal.reason?.message ?? "aborted"}`);
+                return;
+            }
+            const messages = MESSAGES[language];
+            let code = error?.code === "llm_bad_request" ? "source_unreadable" : error?.code;
+            if (!(code in messages.sources) && !(code in messages.errors)) {
+                code = "source_failed";
+                this.logger.error(`${log} ${id} failed`, error);
+            } else {
+                this.logger.warn(`${log} ${id} refused (${code}): ${error.message}`);
+            }
+            this.#sourceError(id, language, code, { name: document?.title ?? id, ...error?.values });
+        } finally {
+            if (this.sourceLoads.get(id) === controller) {
+                this.sourceLoads.delete(id);
+            }
+        }
+    }
+
+    #removeSource(message) {
+        const { id } = message;
+        if (!isSourceId(id)) {
+            return;
+        }
+        this.sourceLoads.get(id)?.abort(new Error("removed by the user"));
+        this.sourceLoads.delete(id);
+        if (this.sources.remove(id)) {
+            this.logger.info(`[sources ${this.connectionId}] ${id} removed, ${this.sources.tokens} tokens in use`);
+        }
+    }
+
+    // --- Questions ----------------------------------------------------------
+
+    #startTurn(turn, language, input) {
         // The user asked something new: whatever was going on is stale.
         this.#cancelCurrent("replaced by a new question");
         const quota = this.limiter.tryAcquire();
         if (!quota.ok) {
             const minutes = Math.ceil(quota.retryInSeconds / 60);
-            this.#error(
-                turn,
-                "rate_limited",
-                `Llegaste al límite de ${this.config.maxQuestionsPerHour} preguntas por hora. `
-                    + `Podrás preguntar de nuevo en ${minutes} min.`,
-            );
+            this.#error(turn, language, "rate_limited", { max: this.config.maxQuestionsPerHour, minutes });
             this.logger.warn(`[turn ${this.connectionId}.${turn}] refused: MAX_QUESTIONS_PER_HOUR reached`);
             return;
         }
@@ -188,17 +379,19 @@ export class Session {
             id: turn,
             label,
             input,
+            language,
             llm: this.llm,
             stt: this.stt,
             tts: this.tts,
             history: this.history,
+            sources: this.sources.blocks(),
             emit,
             emitAudio,
             signal: controller.signal,
             logger: this.logger,
         }).catch((error) => {
             this.logger.error(`[turn ${label}] crashed`, error);
-            emit({ type: "error", code: "internal", message: ERROR_MESSAGES.internal });
+            emit({ type: "error", code: "internal", message: MESSAGES[language].errors.internal });
         }).finally(() => {
             if (this.current === current) {
                 this.current = null;

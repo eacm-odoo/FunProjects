@@ -116,17 +116,39 @@ test("it glances and points at a new part of the diagram, then looks back", () =
     const teacher = new Teacher();
     teacher.setState("speaking");
     run(teacher, 1);
+    const [right, left] = teacher.arms;
+    const rest = { right: right.shoulder.rotation.z, left: left.shoulder.rotation.z };
+    assert.ok(left.finger.scale.y < 0.4, "the index finger is out at rest");
     teacher.glanceAt(new THREE.Vector3(1, 1.5, 0.1));
     run(teacher, 0.6);
     assert.ok(teacher.headYaw > 0.6, `head yaw ${teacher.headYaw}`);
-    const [right, left] = teacher.arms;
     assert.equal(left.side, 1);
-    assert.ok(left.shoulder.rotation.z > 0.6, "the arm on that side did not rise");
-    assert.ok(Math.abs(right.shoulder.rotation.z + 0.14) < 0.05, "the other arm moved");
+    assert.ok(left.shoulder.rotation.z > rest.left + 0.6, "the arm on that side did not rise");
+    assert.ok(left.finger.scale.y > 0.9, "the pointing hand did not stretch its index finger");
+    assert.ok(Math.abs(right.shoulder.rotation.z - rest.right) < 0.05, "the other arm moved");
+    assert.ok(right.finger.scale.y < 0.4);
 
     run(teacher, 1.5);
     assert.ok(Math.abs(teacher.headYaw) < 0.15, `still looking away: ${teacher.headYaw}`);
-    assert.ok(left.shoulder.rotation.z < 0.25);
+    assert.ok(left.shoulder.rotation.z < rest.left + 0.1);
+    assert.ok(left.finger.scale.y < 0.4);
+});
+
+test("after a failure it shrugs for a moment, then goes back to its state", () => {
+    const teacher = new Teacher();
+    teacher.setState("speaking");
+    run(teacher, 1);
+    teacher.react("confused");
+    run(teacher, 1);
+    assert.ok(teacher.pose.roll < -0.12, `head roll ${teacher.pose.roll}`);
+    const [right, left] = teacher.arms;
+    assert.ok(left.shoulder.rotation.z > 0.4 && right.shoulder.rotation.z < -0.4, "both arms up");
+    // Palms turned out: each hand rotates toward its own side.
+    assert.ok(left.hand.rotation.y > 0.8 && right.hand.rotation.y < -0.8, "the palms did not turn");
+    run(teacher, 3);
+    assert.equal(teacher.reaction, null);
+    assert.ok(Math.abs(teacher.pose.roll) < 0.02);
+    assert.throws(() => teacher.react("dancing"));
 });
 
 test("status listeners get the current state and every change, once", () => {

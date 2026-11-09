@@ -52,25 +52,32 @@ async function collect(iterable) {
     return out;
 }
 
-const DEEPGRAM = { apiKey: "dg-key", model: "nova-3", language: "es" };
-const ELEVENLABS = { apiKey: "el-key", voiceId: "voice/1", model: "eleven_flash_v2_5", language: "es", sampleRate: 24000 };
+const DEEPGRAM = { apiKey: "dg-key", model: "nova-3", languages: { es: "es-419", en: "en" } };
+const ELEVENLABS = {
+    apiKey: "el-key", voices: { es: "voice/1", en: "voice/2" }, model: "eleven_flash_v2_5", sampleRate: 24000,
+};
 
-test("Deepgram gets the recording as is, with model, language and token", async () => {
+test("Deepgram gets the recording as is, with model, the question's language and token", async () => {
     const calls = stubFetch(() => Response.json({
         results: { channels: [{ alternatives: [{ transcript: "  ¿Qué es un átomo?  " }] }] },
     }));
     const audio = Uint8Array.from([26, 69, 223, 163]);
-    const result = await createDeepgramStt(DEEPGRAM).transcribe(audio, { mime: "audio/webm;codecs=opus" });
+    const stt = createDeepgramStt(DEEPGRAM);
+    const result = await stt.transcribe(audio, { mime: "audio/webm;codecs=opus", language: "es" });
     assert.equal(result.text, "¿Qué es un átomo?");
     const [{ url, init }] = calls;
     assert.equal(url.origin + url.pathname, "https://api.deepgram.com/v1/listen");
     assert.equal(url.searchParams.get("model"), "nova-3");
-    assert.equal(url.searchParams.get("language"), "es");
+    // The region TEACHER_LANGUAGE gave goes along with its language.
+    assert.equal(url.searchParams.get("language"), "es-419");
     assert.equal(url.searchParams.get("smart_format"), "true");
     assert.equal(init.method, "POST");
     assert.equal(init.headers.Authorization, "Token dg-key");
     assert.equal(init.headers["Content-Type"], "audio/webm");
     assert.equal(init.body, audio);
+
+    await stt.transcribe(audio, { mime: "audio/webm", language: "en" });
+    assert.equal(calls[1].url.searchParams.get("language"), "en");
 });
 
 test("Deepgram failures get codes the browser explains", async () => {
@@ -95,7 +102,7 @@ test("Deepgram failures get codes the browser explains", async () => {
 test("ElevenLabs gets one sentence with the previous one, and returns aligned PCM", async () => {
     const calls = stubFetch(() => new Response(streamOf([1, 2, 3], [4, 5], [6, 7, 8, 9])));
     const tts = createElevenLabsTts(ELEVENLABS);
-    const chunks = await collect(tts.synthesize("Segunda frase.", { previousText: "Primera frase." }));
+    const chunks = await collect(tts.synthesize("Segunda frase.", { previousText: "Primera frase.", language: "es" }));
     assert.ok(chunks.every((chunk) => chunk.length % 2 === 0));
     assert.deepEqual(chunks.flatMap((chunk) => [...chunk]), [1, 2, 3, 4, 5, 6, 7, 8]);
 
@@ -109,6 +116,11 @@ test("ElevenLabs gets one sentence with the previous one, and returns aligned PC
         language_code: "es",
         previous_text: "Primera frase.",
     });
+
+    // In English: the English voice, and the language said out loud.
+    await collect(tts.synthesize("Second sentence.", { language: "en" }));
+    assert.equal(calls[1].url.pathname, "/v1/text-to-speech/voice%2F2/stream");
+    assert.equal(JSON.parse(calls[1].init.body).language_code, "en");
 });
 
 test("ElevenLabs failures get codes, and a cancel is not reported as a failure", async () => {
@@ -130,10 +142,11 @@ test("ElevenLabs failures get codes, and a cancel is not reported as a failure",
     await assert.rejects(pending, (error) => !String(error.code).startsWith("tts_"));
 });
 
-test("Deepgram's voice gets one sentence and returns raw 24 kHz PCM", async () => {
+test("Deepgram's voice gets one sentence and returns raw 24 kHz PCM, in the voice of its language", async () => {
     const calls = stubFetch(() => new Response(streamOf([1, 2, 3], [4, 5, 6])));
-    const tts = createDeepgramTts({ apiKey: "dg-key", model: "aura-2-estrella-es", sampleRate: 24000 });
-    const chunks = await collect(tts.synthesize("Hola, clase.", { previousText: "ignored" }));
+    const voices = { es: "aura-2-estrella-es", en: "aura-2-thalia-en" };
+    const tts = createDeepgramTts({ apiKey: "dg-key", voices, sampleRate: 24000 });
+    const chunks = await collect(tts.synthesize("Hola, clase.", { previousText: "ignored", language: "es" }));
     assert.deepEqual(chunks.flatMap((chunk) => [...chunk]), [1, 2, 3, 4, 5, 6]);
 
     const [{ url, init }] = calls;
@@ -144,6 +157,9 @@ test("Deepgram's voice gets one sentence and returns raw 24 kHz PCM", async () =
     assert.equal(url.searchParams.get("container"), "none");
     assert.equal(init.headers.Authorization, "Token dg-key");
     assert.deepEqual(JSON.parse(init.body), { text: "Hola, clase." });
+
+    await collect(tts.synthesize("Hello, class.", { language: "en" }));
+    assert.equal(calls[1].url.searchParams.get("model"), "aura-2-thalia-en");
 
     stubFetch(() => new Response("bad key", { status: 401 }));
     await assert.rejects(collect(tts.synthesize("Hola.")), { code: "tts_auth" });

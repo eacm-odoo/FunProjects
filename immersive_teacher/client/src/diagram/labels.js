@@ -106,3 +106,33 @@ export function disposeSprite(sprite) {
     sprite.material.map?.dispose();
     sprite.material.dispose();
 }
+
+const EMOJI_FONT = "\"Noto Color Emoji\", \"Apple Color Emoji\", \"Segoe UI Emoji\", sans-serif";
+
+/**
+ * An emoji on a round, lightly tinted background: the face of a node's
+ * medallion. The tint keeps the node's color recognizable around the emoji.
+ *
+ * @param {string} emoji one emoji
+ * @param {string} color the node's color, "#RRGGBB"
+ * @returns {THREE.CanvasTexture}
+ */
+export function createEmojiTexture(emoji, color, size = 128) {
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    // Light enough for dark emoji, dark enough for white ones (clouds, the moon).
+    const tint = new THREE.Color(color).lerp(new THREE.Color(0xFFFFFF), 0.6);
+    context.fillStyle = `#${tint.getHexString()}`;
+    context.fillRect(0, 0, size, size);
+    context.font = `${Math.round(size * 0.66)}px ${EMOJI_FONT}`;
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    // Emoji fonts sit a little high on the middle baseline.
+    context.fillText(emoji, size / 2, size * 0.54);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 4;
+    return texture;
+}

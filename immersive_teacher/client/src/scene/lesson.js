@@ -4,7 +4,8 @@
  * (the desktop view does it once; the headset does it with a hit-test).
  *
  * The diagram hangs on a "board": the diagram itself plus a bar under it that
- * can be grabbed in the headset to carry the diagram somewhere else.
+ * can be grabbed in the headset to carry the diagram somewhere else. On the
+ * teacher's other side, the "side" holds the headset's buttons.
  *
  * Two layouts:
  *   floor  a teacher about 1.45 m tall, the diagram at reading height (1.4 m)
@@ -21,10 +22,22 @@ export const READING_HEIGHT = 1.4;
 export const DIAGRAM_OFFSET_X = 0.95;
 
 export const LESSON_LAYOUTS = Object.freeze({
-    floor: Object.freeze({ scale: 1, board: [DIAGRAM_OFFSET_X, READING_HEIGHT, 0], boardScale: 1 }),
+    floor: Object.freeze({
+        scale: 1,
+        board: [DIAGRAM_OFFSET_X, READING_HEIGHT, 0],
+        boardScale: 1,
+        side: [-0.75, 1.3, 0],
+        sideScale: 1,
+    }),
     // World sizes on a desk: teacher 0.5 m, diagram center 0.5 m to its side
-    // and 0.35 m over the table, diagram at 0.56 of its full size.
-    desk: Object.freeze({ scale: 0.35, board: [1.45, 1.0, 0], boardScale: 1.6 }),
+    // and 0.35 m over the table, diagram and buttons at 0.56 of their full size.
+    desk: Object.freeze({
+        scale: 0.35,
+        board: [1.45, 1.0, 0],
+        boardScale: 1.6,
+        side: [-1.6, 1.0, 0],
+        sideScale: 1.6,
+    }),
 });
 
 /** Gap between the lowest node and the handle, in board meters. */
@@ -49,7 +62,9 @@ export class Lesson {
         this.board.name = "board";
         this.board.add(diagram.group);
         this.#buildHandle();
-        this.group.add(teacher.group, this.board);
+        this.side = new THREE.Group();
+        this.side.name = "side";
+        this.group.add(teacher.group, this.board, this.side);
         this.layout = "floor";
         this.applyLayout("floor");
     }
@@ -72,6 +87,8 @@ export class Lesson {
         this.board.position.set(...spec.board);
         this.board.rotation.set(0, 0, 0);
         this.board.scale.setScalar(spec.boardScale);
+        this.side.position.set(...spec.side);
+        this.side.scale.setScalar(spec.sideScale);
     }
 
     /** The bar under the diagram: only useful (and shown) in the headset. */

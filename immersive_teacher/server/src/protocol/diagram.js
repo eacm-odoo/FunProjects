@@ -37,6 +37,24 @@ export function normalizeId(value) {
         .slice(0, LIMITS.idLength);
 }
 
+const GRAPHEMES = new Intl.Segmenter("es", { granularity: "grapheme" });
+const PICTOGRAPHIC_RE = /\p{Extended_Pictographic}|\p{Regional_Indicator}/u;
+
+/**
+ * One emoji ("🍎", "🧑‍🔬", "☀️"), or "" for anything else: text, several emoji,
+ * or a plain symbol. The browser draws it on the node's medallion.
+ */
+export function cleanIcon(value) {
+    if (typeof value !== "string") {
+        return "";
+    }
+    const text = value.trim();
+    if (!text || text.length > 16 || [...GRAPHEMES.segment(text)].length !== 1) {
+        return "";
+    }
+    return PICTOGRAPHIC_RE.test(text) ? text : "";
+}
+
 export function cleanText(value, maxLength) {
     if (typeof value !== "string") {
         return "";
@@ -151,6 +169,10 @@ export class DiagramBuilder {
         const shape = SHAPES.includes(rawShape) ? rawShape : "box";
         const color = normalizeColor(item.color) ?? PALETTE[this.nodes.size % PALETTE.length];
         const node = { id, label, shape, color, step };
+        const icon = cleanIcon(item.icon);
+        if (icon) {
+            node.icon = icon;
+        }
         this.nodes.set(id, node);
         return node;
     }

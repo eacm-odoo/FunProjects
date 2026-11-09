@@ -9,9 +9,14 @@
  * Two narrators share one interface: AudioNarrator plays the server's speech,
  * TimedNarrator paces the text when there is no speech (TTS_PROVIDER=none, or
  * the page could not unlock audio because nobody has clicked anything yet).
+ *
+ * When a turn fails, the server first sends an apology as one more sentence
+ * ("apologized" on the error): what was already said plays to the end, the
+ * apology after it, and the written details show once the teacher is quiet.
  */
 
 import { decodeAudioFrame } from "./audio/audio_frame.js";
+import { language, t } from "./i18n.js";
 
 function formatTimings(timings = {}) {
     return Object.entries(timings).map(([stage, ms]) => `${stage}=+${ms}ms`).join(" ");
@@ -26,11 +31,13 @@ export class TurnController {
      * @param {import("./diagram/diagram_view.js").DiagramView} options.diagram
      * @param {import("./narration/audio_narrator.js").AudioNarrator} options.audioNarrator
      * @param {import("./narration/timed_narrator.js").TimedNarrator} options.timedNarrator
+     * @param {() => void} [options.onTrouble] the teacher starts apologizing, or a turn failed silently
      */
-    constructor({ connection, panel, status, diagram, audioNarrator, timedNarrator }) {
+    constructor({ connection, panel, status, diagram, audioNarrator, timedNarrator, onTrouble = () => {} }) {
         this.connection = connection;
         this.panel = panel;
         this.status = status;
+        this.onTrouble = onTrouble;
         this.diagram = diagram;
         this.audioNarrator = audioNarrator;
         this.timedNarrator = timedNarrator;
@@ -79,10 +86,22 @@ export class TurnController {
         this.timedNarrator.stop();
     }
 
+    /** The server went away mid-answer: what was not received yet will never come. */
+    connectionLost() {
+        if (!this.active) {
+            return; // the answer was complete: what is buffered keeps playing
+        }
+        this.active = false;
+        this.audioNarrator.stop();
+        this.timedNarrator.stop();
+        this.panel.showError(this.turnId, t("turn.connectionLost"));
+        this.onTrouble();
+    }
+
     /** Asks a typed question. */
     ask(question) {
         this.#begin(question);
-        if (!this.connection.send({ type: "ask_text", turn: this.turnId, text: question })) {
+        if (!this.connection.send({ type: "ask_text", turn: this.turnId, text: question, language: language() })) {
             this.#offline();
         }
     }
@@ -96,7 +115,7 @@ export class TurnController {
         const audio = await clip.blob.arrayBuffer();
         this.#begin(null, releasedAt);
         console.info(`[turn ${this.turnId}] recording: ${(clip.durationMs / 1000).toFixed(1)} s, ${(audio.byteLength / 1024).toFixed(1)} KB ${clip.mime}`);
-        const sent = this.connection.send({ type: "ask_audio", turn: this.turnId, mime: clip.mime })
+        const sent = this.connection.send({ type: "ask_audio", turn: this.turnId, mime: clip.mime, language: language() })
             && this.connection.sendBinary(audio);
         if (!sent) {
             this.#offline();
@@ -119,7 +138,7 @@ export class TurnController {
 
     #offline() {
         this.active = false;
-        this.panel.showError(this.turnId, "No hay conexión con el servidor. Reintentando…");
+        this.panel.showError(this.turnId, t("turn.offline"));
         this.status.set("offline");
     }
 
@@ -129,6 +148,9 @@ export class TurnController {
         /** @type {Map<number, {nodes: object[], edges: object[]}>} */
         this.pendingSteps = new Map();
         this.doneEvent = null;
+        this.failed = false;
+        this.pendingError = null;
+        this.apologyStep = null;
         this.firstSentenceLogged = false;
         this.firstStepLogged = false;
     }
@@ -141,7 +163,7 @@ export class TurnController {
         switch (event.type) {
             case "transcript":
                 if (this.fromVoice) {
-                    this.panel.setQuestion(this.turnId, event.text || "(no se entendió nada)");
+                    this.panel.setQuestion(this.turnId, event.text || t("turn.nothingHeard"));
                     console.info(`[turn ${this.turnId}] release->transcript=${this.#elapsed()}ms`);
                 }
                 break;
@@ -154,7 +176,10 @@ export class TurnController {
                     this.firstSentenceLogged = true;
                     console.info(`[turn ${this.turnId}] ${this.fromVoice ? "release" : "ask"}->first_sentence=${this.#elapsed()}ms`);
                 }
-                this.panel.addSentence(this.turnId, event.step, event.text);
+                if (event.kind === "apology") {
+                    this.apologyStep = event.step;
+                }
+                this.panel.addSentence(this.turnId, event.step, event.text, event.kind);
                 this.narrator.enqueue(event.step, event.text);
                 break;
             case "diagram_step":
@@ -181,9 +206,17 @@ export class TurnController {
                 break;
             case "error":
                 this.active = false;
-                this.narrator.stop();
-                this.panel.showError(this.turnId, event.message);
-                this.status.set("ready");
+                this.failed = true;
+                if (event.apologized) {
+                    // Let the answer so far and the apology play; details after.
+                    this.pendingError = event.message;
+                    this.narrator.finish();
+                } else {
+                    this.narrator.stop();
+                    this.panel.showError(this.turnId, event.message);
+                    this.status.set("ready");
+                    this.onTrouble();
+                }
                 break;
             default:
                 break;
@@ -219,6 +252,9 @@ export class TurnController {
             console.info(`[turn ${this.turnId}] ${this.fromVoice ? "release" : "ask"}->first_audio=${this.#elapsed()}ms`);
         }
         this.currentStep = step;
+        if (step === this.apologyStep) {
+            this.onTrouble();
+        }
         this.status.set("explaining");
         this.panel.highlightStep(this.turnId, step);
         this.#revealThrough(step);
@@ -230,7 +266,12 @@ export class TurnController {
         }
         // Steps drawn after the last sentence still belong to the diagram.
         this.#revealThrough(Infinity);
-        this.panel.finishTurn(this.turnId, { hasDiagram: Boolean(this.doneEvent?.diagram) });
+        // A failed answer gets its error, not a note about the missing diagram.
+        this.panel.finishTurn(this.turnId, { hasDiagram: this.failed || Boolean(this.doneEvent?.diagram) });
+        if (this.pendingError) {
+            this.panel.showError(this.turnId, this.pendingError);
+            this.pendingError = null;
+        }
         this.status.set("ready");
     }
 }

@@ -6,8 +6,9 @@
  *   placing   a reticle follows each controller or hand; trigger or pinch on
  *             a flat surface puts the lesson there
  *   teaching  hold trigger or pinch to talk; aim at the bar under the diagram
- *             and hold trigger, pinch or grip to carry the diagram; A or X
- *             goes back to placing (and, once placed, A or X again cancels)
+ *             and hold trigger, pinch or grip to carry the diagram; trigger or
+ *             pinch on a floating button presses it; A or X goes back to
+ *             placing (and, once placed, A or X again cancels)
  *
  * Pure logic, no WebXR: the caller describes each press (which source, which
  * button, what the ray points at) and gets the resulting callbacks. On the
@@ -22,6 +23,7 @@ export class XrInteraction {
      * @param {() => void} handlers.onTalkEnd
      * @param {(source: string) => void} handlers.onGrabStart
      * @param {(source: string) => void} handlers.onGrabEnd
+     * @param {(control: string) => void} [handlers.onControl] a floating button was pressed
      * @param {(mode: "placing"|"teaching") => void} [handlers.onModeChange]
      */
     constructor(handlers) {
@@ -43,10 +45,11 @@ export class XrInteraction {
     /**
      * @param {string} source which hand or controller
      * @param {"select"|"squeeze"} button
-     * @param {{onHandle?: boolean, surface?: boolean}} [target] what the ray points at
-     * @returns {"place"|"talk"|"grab"|null} what the press started
+     * @param {{onHandle?: boolean, surface?: boolean, control?: string|null}} [target]
+     *   what the ray points at: the grab bar, a flat surface, a floating button
+     * @returns {"place"|"talk"|"grab"|"control"|null} what the press started
      */
-    press(source, button, { onHandle = false, surface = false } = {}) {
+    press(source, button, { onHandle = false, surface = false, control = null } = {}) {
         const key = `${source}:${button}`;
         if (this.held.has(key)) {
             return null;
@@ -58,6 +61,8 @@ export class XrInteraction {
             }
         } else if (onHandle && !this.grabbing) {
             action = "grab";
+        } else if (control && button === "select") {
+            action = "control";
         } else if (button === "select" && !this.talking) {
             action = "talk";
         }
@@ -69,6 +74,8 @@ export class XrInteraction {
             this.#setMode("teaching");
         } else if (action === "grab") {
             this.handlers.onGrabStart(source);
+        } else if (action === "control") {
+            this.handlers.onControl?.(control);
         } else if (action === "talk") {
             this.handlers.onTalkStart();
         }

@@ -28,8 +28,10 @@ const ENV_FILE = fileURLToPath(new URL("../../.env", import.meta.url));
 const CLIENT_DIR = fileURLToPath(new URL("../../client/", import.meta.url));
 const DIST_DIR = path.join(CLIENT_DIR, "dist");
 const WS_PATH = "/ws";
-// Recordings are capped at 2 MB by the session; this is the socket's hard stop.
-const MAX_WS_PAYLOAD = 4 * 1024 * 1024;
+// Recordings are capped at 2 MB by the session, and uploaded documents at
+// MAX_SOURCE_MB; the socket's hard stop is a little above the larger of both.
+const MIN_WS_PAYLOAD = 4 * 1024 * 1024;
+const WS_PAYLOAD_MARGIN = 1024 * 1024;
 
 const MIME_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -127,7 +129,8 @@ async function main() {
         handler(req, res);
     });
 
-    const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD });
+    const maxPayload = Math.max(MIN_WS_PAYLOAD, config.sources.maxBytes + WS_PAYLOAD_MARGIN);
+    const wss = new WebSocketServer({ noServer: true, maxPayload });
     server.on("upgrade", (req, socket, head) => {
         const { pathname } = new URL(req.url, "http://localhost");
         if (pathname !== WS_PATH) {
@@ -161,13 +164,18 @@ async function main() {
                 + `fallbacks ${llmConfig.fallbacks ? "on" : "off"}, max_tokens ${llmConfig.maxTokens}`
             : llm.name;
         console.info(`Immersive teacher (${config.isProd ? "production" : "development"}) on http://localhost:${config.port}`);
-        const sttInfo = stt.name === "deepgram" ? `deepgram ${config.stt.model} (${config.stt.language})` : stt.name;
+        const pairs = (values) => Object.entries(values).map(([language, value]) => `${language}=${value}`).join(" ");
+        const sttInfo = stt.name === "deepgram" ? `deepgram ${config.stt.model} (${pairs(config.stt.languages)})` : stt.name;
         const ttsInfo = {
-            elevenlabs: `elevenlabs ${config.tts.model}, voice ${config.tts.voiceId} (${config.tts.language})`,
-            deepgram: `deepgram ${config.tts.model}`,
+            elevenlabs: `elevenlabs ${config.tts.model}, voices ${pairs(config.tts.voices)}`,
+            deepgram: `deepgram ${pairs(config.tts.voices)}`,
         }[tts?.name] ?? (tts?.name ?? "none (text only)");
         console.info(`LLM: ${llmInfo} | ${config.maxQuestionsPerHour || "unlimited"} questions/hour`);
-        console.info(`Speech: STT ${sttInfo} | TTS ${ttsInfo}`);
+        console.info(`Speech: STT ${sttInfo} | TTS ${ttsInfo} | pages start in ${config.language}`);
+        const { sources } = config;
+        console.info(sources.maxCount
+            ? `Sources: up to ${sources.maxCount}, ${sources.maxBytes / 1024 / 1024} MB each, ${sources.maxTokens} tokens in all`
+            : "Sources: off (MAX_SOURCES=0)");
     });
 
     let closing = false;

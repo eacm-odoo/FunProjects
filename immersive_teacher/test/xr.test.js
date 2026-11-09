@@ -11,9 +11,11 @@ import * as THREE from "three";
 import { DiagramView } from "../client/src/diagram/diagram_view.js";
 import { LESSON_LAYOUTS, Lesson } from "../client/src/scene/lesson.js";
 import { Teacher } from "../client/src/teacher/teacher.js";
-import { HINTS, XrCaptions } from "../client/src/xr/captions.js";
+import { list, setLanguage, t } from "../client/src/i18n.js";
+import { XrCaptions } from "../client/src/xr/captions.js";
 import { XrInteraction } from "../client/src/xr/interaction.js";
 import { isPlaceable, placementFor } from "../client/src/xr/placement.js";
+import { XrMenu } from "../client/src/xr/xr_menu.js";
 
 function recorder() {
     const log = [];
@@ -23,6 +25,7 @@ function recorder() {
         onTalkEnd: () => log.push("send"),
         onGrabStart: (source) => log.push(`grab ${source}`),
         onGrabEnd: (source) => log.push(`drop ${source}`),
+        onControl: (control) => log.push(`press ${control}`),
         onModeChange: (mode) => log.push(`mode ${mode}`),
     });
     return { interaction, log };
@@ -75,6 +78,21 @@ test("teaching: aiming at the bar grabs with trigger, pinch or grip, and never t
     assert.equal(interaction.press("right", "squeeze", { onHandle: true }), "grab");
     interaction.release("right", "squeeze");
     assert.deepEqual(log, ["grab right", "drop right"]);
+});
+
+test("teaching: trigger or pinch on a floating button presses it instead of talking", () => {
+    const { interaction, log } = recorder();
+    interaction.press("right", "select", { control: "move" });
+    interaction.release("right", "select");
+    assert.deepEqual(log, [], "buttons do nothing while placing");
+
+    interaction.press("right", "select", { surface: true });
+    interaction.release("right", "select");
+    log.length = 0;
+    assert.equal(interaction.press("right", "select", { control: "ask:0" }), "control");
+    interaction.release("right", "select");
+    assert.equal(interaction.press("right", "squeeze", { control: "ask:0" }), null, "the grip does not press");
+    assert.deepEqual(log, ["press ask:0"]);
 });
 
 test("A or X goes back to placing, lets go of everything, and cancels once placed", () => {
@@ -165,8 +183,8 @@ test("the grab bar follows the bottom of the diagram", () => {
 
 test("captions: warnings first, then the sentence, then the state, then the hint", () => {
     const captions = new XrCaptions();
-    assert.equal(captions.currentText(), HINTS.placing);
-    captions.setHint(HINTS.teaching);
+    assert.equal(captions.currentText(), t("hint.placing"));
+    captions.setHint("teaching");
     captions.setStatus("listening");
     assert.match(captions.currentText(), /Te escucho/);
 
@@ -187,8 +205,114 @@ test("captions: warnings first, then the sentence, then the state, then the hint
 
     captions.finishTurn(4);
     captions.setStatus("ready");
-    assert.equal(captions.currentText(), HINTS.teaching);
+    assert.equal(captions.currentText(), t("hint.teaching"));
     // Events from an older turn are ignored.
     captions.highlightStep(3, 1);
-    assert.equal(captions.currentText(), HINTS.teaching);
+    assert.equal(captions.currentText(), t("hint.teaching"));
+});
+
+test("captions follow the language: hints and states are relabeled, sentences stay", () => {
+    const captions = new XrCaptions();
+    captions.setHint("teaching");
+    try {
+        setLanguage("en", { remember: false });
+        captions.relabel();
+        assert.match(captions.currentText(), /^Hold the trigger or pinch to ask/);
+        captions.startTurn(1, null);
+        captions.setStatus("thinking");
+        captions.setQuestion(1, "What is an atom?");
+        assert.equal(captions.currentText(), "“What is an atom?” Thinking…");
+    } finally {
+        setLanguage("es", { remember: false });
+    }
+    assert.equal(captions.currentText(), "«What is an atom?» Pensando…");
+});
+
+/** A stand-in for the canvas text sprites: Node has no canvas. */
+function fakeLabel(text) {
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial());
+    sprite.scale.set(0.3, text.length > 24 ? 0.07 : 0.04, 1);
+    return sprite;
+}
+
+test("the side menu: a move button, and the suggested questions on demand", () => {
+    const menu = new XrMenu({ createLabel: fakeLabel });
+    menu.group.visible = true;
+    menu.group.updateMatrixWorld(true);
+    const visible = () => menu.buttons.filter((button) => button.holder.visible).map((button) => button.id);
+    assert.deepEqual(visible(), ["move", "language"]);
+
+    menu.setSuggestionsVisible(true);
+    menu.group.updateMatrixWorld(true);
+    assert.deepEqual(visible(), ["move", "language", "ask:0", "ask:1", "ask:2", "ask:3"]);
+    assert.equal(menu.questionFor("ask:1"), list("suggestions")[1]);
+    assert.equal(menu.questionFor("move"), null);
+    assert.equal(menu.questionFor("language"), null);
+    // A column without overlaps, from the top down.
+    const ys = menu.buttons.map((button) => button.holder.position.y);
+    assert.ok(ys.every((y, index) => index === 0 || y < ys[index - 1]));
+
+    // A ray from in front, aimed at the fourth button, hits that one.
+    const raycaster = new THREE.Raycaster();
+    const target = menu.buttons[3].holder.getWorldPosition(new THREE.Vector3());
+    raycaster.set(new THREE.Vector3(target.x, target.y, 1), new THREE.Vector3(0, 0, -1));
+    assert.equal(menu.hit(raycaster).id, "ask:1");
+    menu.toggleSuggestions();
+    menu.group.updateMatrixWorld(true);
+    assert.equal(menu.hit(raycaster), null, "hidden buttons cannot be pressed");
+    menu.group.visible = false;
+    raycaster.set(new THREE.Vector3(0, menu.buttons[0].holder.position.y, 1), new THREE.Vector3(0, 0, -1));
+    assert.equal(menu.hit(raycaster), null);
+});
+
+test("the language button is named in the other language, and a switch rebuilds the menu", () => {
+    const texts = [];
+    const menu = new XrMenu({ createLabel: (text, accent) => { texts.push(text); return fakeLabel(text, accent); } });
+    assert.deepEqual(texts.slice(0, 2), ["Mover al profesor", "English"]);
+    menu.setSuggestionsVisible(true);
+    try {
+        setLanguage("en", { remember: false });
+        texts.length = 0;
+        menu.relabel();
+        assert.deepEqual(texts.slice(0, 2), ["Move the teacher", "Español"]);
+        assert.equal(menu.questionFor("ask:0"), "How does the water cycle work?");
+        // Still open, and the old buttons are gone.
+        assert.equal(menu.buttons.length, 6);
+        assert.equal(menu.group.children.length, 6);
+        assert.ok(menu.buttons.every((button) => button.holder.visible));
+    } finally {
+        setLanguage("es", { remember: false });
+    }
+});
+
+test("questions about the user's sources lead the suggestions, rebuilt only when they change", () => {
+    const menu = new XrMenu({ createLabel: fakeLabel });
+    menu.setSuggestionsVisible(true);
+    const question = "Explícame de qué trata «manual.pdf».";
+    menu.setExtraQuestions([question]);
+    assert.equal(menu.questionFor("ask:0"), question);
+    assert.equal(menu.questionFor("ask:1"), list("suggestions")[0]);
+    assert.equal(menu.buttons.length, 7);
+    const buttons = menu.buttons;
+    menu.setExtraQuestions([question]);
+    assert.equal(menu.buttons, buttons, "the same questions do not rebuild the menu");
+    menu.setExtraQuestions([]);
+    assert.equal(menu.buttons.length, 6);
+    assert.equal(menu.group.children.length, 6, "the old buttons are gone");
+    assert.ok(menu.buttons.every((button) => button.holder.visible), "still open");
+});
+
+test("the side menu stands on the teacher's other side, scaled like the diagram on a desk", () => {
+    const lesson = new Lesson(new Teacher(), new DiagramView());
+    lesson.placeAt({ x: 0, y: 0, z: 0 }, 0, "floor");
+    lesson.group.updateWorldMatrix(true, true);
+    const side = lesson.side.getWorldPosition(new THREE.Vector3());
+    const board = lesson.board.getWorldPosition(new THREE.Vector3());
+    assert.ok(side.x < 0 && board.x > 0, "buttons and diagram on opposite sides of the teacher");
+
+    lesson.placeAt({ x: 0, y: 0.75, z: 0 }, 0, "desk");
+    lesson.group.updateWorldMatrix(true, true);
+    const sideScale = lesson.side.getWorldScale(new THREE.Vector3()).x;
+    const boardScale = lesson.board.getWorldScale(new THREE.Vector3()).x;
+    assert.ok(Math.abs(sideScale - boardScale) < 1e-9);
 });

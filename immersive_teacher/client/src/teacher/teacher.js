@@ -1,10 +1,13 @@
 /**
- * The teacher: a character made of primitives that stands on the floor next
- * to its diagram. It breathes, blinks, keeps its eyes on whoever is watching,
+ * The teacher: a round character made of primitives, dressed as a teacher
+ * (jacket over a shirt and tie, a pencil in the breast pocket, trousers and
+ * shoes, hands with a thumb), that stands on the floor next to its diagram.
+ * It breathes, blinks, keeps its eyes on whoever is watching,
  * moves its mouth with its own voice, glances (and points) at each part of
  * the diagram as it appears, and shows above its head what it is doing.
  *
  *     setState(state)        idle | listening | thinking | speaking | asleep
+ *     react("confused")      a short shrug over the current state (after a failure)
  *     glanceAt(worldPoint)   look and point there for a moment
  *     update(dt, { viewer, voiceLevel })   once per frame
  *
@@ -28,10 +31,31 @@ const BODY_PROFILE = [
     [0, 0], [0.2, 0], [0.25, 0.015], [0.27, 0.06], [0.27, 0.25], [0.255, 0.55],
     [0.235, 0.8], [0.205, 0.93], [0.15, 1.03], [0.08, 1.085], [0, 1.1],
 ];
+const OUTLINE = new THREE.SplineCurve(BODY_PROFILE.map(([r, y]) => new THREE.Vector2(r, y))).getPoints(64);
 const BODY_HEIGHT = 1.1;
 const NECK_Y = 1.06;
 const SHOULDER_X = 0.215;
 const SHOULDER_Y = 0.86;
+
+/**
+ * The clothes, as heights on the body and half widths seen from the front
+ * (meters). Each layer stands a few millimeters off the one below it.
+ */
+const CLOTHES = Object.freeze({
+    hemY: 0.3, // where the jacket ends
+    jacketTopY: 1.04,
+    jacket: 0.006,
+    neckline: { tipY: 0.64, halfWidth: 0.085 }, // the jacket's V, open over the shirt
+    vent: { topY: 0.44, halfWidth: 0.05 }, // the opening under the last button
+    buttonsY: [0.56, 0.48],
+    lapelWidth: 0.034,
+    trousersTopY: 0.47,
+});
+/** Arms at rest: a little out to the sides and forward, so the hands show. */
+const ARM_SPREAD = 0.17;
+const ARM_FORWARD = 0.1;
+const SLEEVE_LENGTH = 0.3;
+const HAND_RADIUS = 0.05;
 const HEAD_RADIUS = 0.185;
 /** Head center above the neck pivot, so a nod turns around the neck. */
 const HEAD_Y = 0.2;
@@ -51,9 +75,15 @@ const FADE_SECONDS = 0.12;
 const BLINK = Object.freeze({ close: 0.07, hold: 0.03, open: 0.08, minGap: 2, maxGap: 6, doubleChance: 0.15 });
 
 const COLORS = Object.freeze({
-    body: 0x714B67,
-    collar: 0x017E84,
-    head: 0xEDE7F0,
+    jacket: 0x714B67,
+    lapel: 0x5C3A55,
+    shirt: 0xF4F0F5,
+    tie: 0x017E84,
+    trousers: 0x48434F,
+    shoes: 0x4A2F24,
+    pencil: 0xF5B700,
+    eraser: 0xE88FA5,
+    skin: 0xEDE7F0,
     features: 0x2B1D29,
     listening: 0xE5484D,
     thinking: 0xF5B700,
@@ -62,14 +92,21 @@ const COLORS = Object.freeze({
 
 /**
  * Head and face per state. Angles in radians (pitch up is positive), brows and
- * lids as offsets. Moving between states eases from one pose to the next.
+ * lids as offsets, arms as an extra lift of both arms. Moving between states
+ * eases from one pose to the next.
  */
 const POSES = Object.freeze({
-    idle: { pitch: 0, yaw: 0, roll: 0, brow: 0, browAsym: 0, lids: 0 },
-    listening: { pitch: 0.04, yaw: 0, roll: 0.13, brow: 0.008, browAsym: 0, lids: 0 },
-    thinking: { pitch: 0.24, yaw: 0.32, roll: -0.05, brow: 0.004, browAsym: 0.01, lids: 0.18 },
-    speaking: { pitch: 0, yaw: 0, roll: 0, brow: 0.003, browAsym: 0, lids: 0 },
-    asleep: { pitch: -0.38, yaw: 0, roll: 0.1, brow: -0.003, browAsym: 0, lids: 1 },
+    idle: { pitch: 0, yaw: 0, roll: 0, brow: 0, browAsym: 0, lids: 0, arms: 0 },
+    listening: { pitch: 0.04, yaw: 0, roll: 0.13, brow: 0.008, browAsym: 0, lids: 0, arms: 0 },
+    thinking: { pitch: 0.24, yaw: 0.32, roll: -0.05, brow: 0.004, browAsym: 0.01, lids: 0.18, arms: 0 },
+    speaking: { pitch: 0, yaw: 0, roll: 0, brow: 0.003, browAsym: 0, lids: 0, arms: 0 },
+    asleep: { pitch: -0.38, yaw: 0, roll: 0.1, brow: -0.003, browAsym: 0, lids: 1, arms: 0 },
+});
+
+/** Short expressions laid over the state's pose. */
+const REACTIONS = Object.freeze({
+    // Head tilted, one brow up, a small shrug: "sorry, that did not work".
+    confused: { seconds: 2.6, pose: { pitch: 0.02, yaw: 0.12, roll: -0.2, brow: 0.004, browAsym: -0.014, lids: 0.12, arms: 0.45 } },
 });
 
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
@@ -85,6 +122,82 @@ function wrapAngle(angle) {
 
 function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
+}
+
+function lerp(a, b, t) {
+    return a + (b - a) * t;
+}
+
+/** Radius of the bare body at height `y` (above its rounded foot). */
+function bodyRadiusAt(y) {
+    for (let i = 1; i < OUTLINE.length; i += 1) {
+        const below = OUTLINE[i - 1];
+        const above = OUTLINE[i];
+        if (above.y >= y && below.y <= y && above.y > below.y) {
+            return lerp(below.x, above.x, (y - below.y) / (above.y - below.y));
+        }
+    }
+    return 0;
+}
+
+/** The body outline up to height `y`, `offset` meters out: a layer that covers it. */
+function outlineBelow(y, offset) {
+    const points = OUTLINE.filter((point) => point.y < y);
+    points.push(new THREE.Vector2(bodyRadiusAt(y), y));
+    return points.map((point) => new THREE.Vector2(point.x + offset, point.y));
+}
+
+/** Angle around the body (0 at the front, toward +X) of a point `x` meters to the side. */
+function angleAt(x, radius) {
+    return Math.asin(clamp(x / radius, -1, 1));
+}
+
+/**
+ * A piece of cloth on the body: the band between two heights, `offset(y)`
+ * meters out of the body, covering the angles `span(y, radius)` returns at
+ * each height. Normals come from the body's shape, so the piece shades like
+ * the body under it.
+ */
+function bodyPatch(bottom, top, span, { offset, rows = 12, columns = 8 }) {
+    const radiusAt = (y) => bodyRadiusAt(y) + offset(y);
+    const positions = [];
+    const normals = [];
+    for (let i = 0; i <= rows; i += 1) {
+        const y = lerp(bottom, top, i / rows);
+        const radius = radiusAt(y);
+        const slope = (radiusAt(y + 0.002) - radiusAt(y - 0.002)) / 0.004;
+        const [from, to] = span(y, radius);
+        for (let j = 0; j <= columns; j += 1) {
+            const angle = lerp(from, to, j / columns);
+            const sin = Math.sin(angle);
+            const cos = Math.cos(angle);
+            positions.push(radius * sin, y, radius * cos);
+            const length = Math.hypot(1, slope);
+            normals.push(sin / length, -slope / length, cos / length);
+        }
+    }
+    const indices = [];
+    const stride = columns + 1;
+    for (let i = 0; i < rows; i += 1) {
+        for (let j = 0; j < columns; j += 1) {
+            const a = i * stride + j;
+            indices.push(a, a + 1, a + stride, a + 1, a + stride + 1, a + stride);
+        }
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
+    geometry.setIndex(indices);
+    return geometry;
+}
+
+/** A patch on the front of the body between x = span(y)[0] and span(y)[1], seen from the front. */
+function frontPatch(bottom, top, span, offset, rows = 8) {
+    return bodyPatch(bottom, top, (y, radius) => span(y).map((x) => angleAt(x, radius)), {
+        offset: () => offset,
+        rows,
+        columns: 6,
+    });
 }
 
 /** White square with a soft round alpha: the floor shadow and the speaking glow. */
@@ -142,6 +255,7 @@ export class Teacher {
         this.blink = { wait: this.#nextBlinkGap(), t: -1 };
         this.glance = { world: new THREE.Vector3(), remaining: 0, side: 1 };
         this.pointing = 0;
+        this.reaction = null;
 
         this.#build();
     }
@@ -151,6 +265,15 @@ export class Teacher {
             throw new Error(`Unknown teacher state: ${state}`);
         }
         this.state = state;
+    }
+
+    /** Plays a short expression (see REACTIONS) over whatever the teacher is doing. */
+    react(name) {
+        const reaction = REACTIONS[name];
+        if (!reaction) {
+            throw new Error(`Unknown teacher reaction: ${name}`);
+        }
+        this.reaction = { pose: reaction.pose, remaining: reaction.seconds };
     }
 
     /** Looks at `worldPoint` (and points at it) for `seconds`, then back at the viewer. */
@@ -168,7 +291,13 @@ export class Teacher {
      */
     update(dt, { viewer = null, voiceLevel = 0 } = {}) {
         this.time += dt;
-        const pose = POSES[this.state];
+        if (this.reaction) {
+            this.reaction.remaining -= dt;
+            if (this.reaction.remaining <= 0 || this.state === "asleep") {
+                this.reaction = null;
+            }
+        }
+        const pose = this.reaction ? this.reaction.pose : POSES[this.state];
         for (const key of Object.keys(this.pose)) {
             this.pose[key] = approach(this.pose[key], pose[key], POSE_SECONDS, dt);
         }
@@ -198,41 +327,25 @@ export class Teacher {
         this.body = new THREE.Group();
         this.group.add(this.body);
 
-        const bodyMaterial = new THREE.MeshStandardMaterial({ color: COLORS.body, roughness: 0.55 });
+        const cloth = (color, options = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.75, ...options });
+        this.materials = {
+            jacket: cloth(COLORS.jacket, { side: THREE.DoubleSide }),
+            lapel: cloth(COLORS.lapel),
+            shirt: cloth(COLORS.shirt, { roughness: 0.6 }),
+            tie: cloth(COLORS.tie, { roughness: 0.45 }),
+            trousers: cloth(COLORS.trousers),
+            shoes: cloth(COLORS.shoes, { roughness: 0.35 }),
+            skin: new THREE.MeshStandardMaterial({ color: COLORS.skin, roughness: 0.6 }),
+        };
         const featureMaterial = new THREE.MeshStandardMaterial({ color: COLORS.features, roughness: 0.35 });
 
-        // Breathing scales the torso from its base, so it grows upward.
-        this.torso = new THREE.Group();
-        const outline = new THREE.SplineCurve(BODY_PROFILE.map(([r, y]) => new THREE.Vector2(r, y)));
-        const torsoMesh = new THREE.Mesh(new THREE.LatheGeometry(outline.getPoints(48), 40), bodyMaterial);
-        const collar = new THREE.Mesh(
-            new THREE.TorusGeometry(0.13, 0.028, 12, 40),
-            new THREE.MeshStandardMaterial({ color: COLORS.collar, roughness: 0.5 }),
-        );
-        collar.rotation.x = Math.PI / 2;
-        collar.position.y = NECK_Y + 0.005;
-        this.torso.add(torsoMesh, collar);
-        this.body.add(this.torso);
-
-        this.arms = [-1, 1].map((side) => {
-            const shoulder = new THREE.Group();
-            shoulder.position.set(side * SHOULDER_X, SHOULDER_Y, 0);
-            const arm = new THREE.Mesh(
-                new THREE.CapsuleGeometry(0.05, 0.26, 6, 14).translate(0, -0.18, 0),
-                bodyMaterial,
-            );
-            shoulder.add(arm);
-            this.body.add(shoulder);
-            return { side, shoulder };
-        });
+        this.#buildTorso();
+        this.#buildArms();
 
         this.headPivot = new THREE.Group();
         this.headPivot.position.y = NECK_Y;
         this.headPivot.rotation.order = "YXZ";
-        const head = new THREE.Mesh(
-            new THREE.SphereGeometry(HEAD_RADIUS, 40, 24),
-            new THREE.MeshStandardMaterial({ color: COLORS.head, roughness: 0.6 }),
-        );
+        const head = new THREE.Mesh(new THREE.SphereGeometry(HEAD_RADIUS, 40, 24), this.materials.skin);
         head.position.y = HEAD_Y;
         this.headPivot.add(head);
 
@@ -267,6 +380,127 @@ export class Teacher {
         this.body.add(this.headPivot);
 
         this.#buildIndicators();
+    }
+
+    /** The bare body is the shirt; trousers, jacket, tie and the rest are layers on it. */
+    #buildTorso() {
+        const { materials } = this;
+        // Breathing scales the torso from its base, so it grows upward.
+        this.torso = new THREE.Group();
+        this.body.add(this.torso);
+        const add = (geometry, material) => this.torso.add(new THREE.Mesh(geometry, material));
+
+        add(new THREE.LatheGeometry(OUTLINE, 48), materials.shirt);
+        add(new THREE.LatheGeometry(outlineBelow(CLOTHES.trousersTopY, 0.003), 48), materials.trousers);
+
+        const { neckline, vent, jacketTopY, hemY } = CLOTHES;
+        const necklineHalf = (y) => neckline.halfWidth * clamp((y - neckline.tipY) / (jacketTopY - neckline.tipY), 0, 1);
+        const ventHalf = (y) => vent.halfWidth * clamp((vent.topY - y) / (vent.topY - hemY), 0, 1);
+        // The jacket flares a little at the hem, like the skirt of a blazer.
+        const jacketOffset = (y) => CLOTHES.jacket + 0.006 * clamp(1 - (y - hemY) / 0.1, 0, 1);
+        const jacketSpan = (y, radius) => {
+            const open = angleAt(Math.max(necklineHalf(y), ventHalf(y)), radius);
+            return [open, 2 * Math.PI - open];
+        };
+        add(bodyPatch(hemY, jacketTopY, jacketSpan, { offset: jacketOffset, rows: 40, columns: 64 }), materials.jacket);
+
+        // The tie runs under the jacket (its layer is lower), so the jacket
+        // hides it where the V closes; the knot stands out a little more.
+        const tieHalf = (y) => lerp(0.03, 0.013, clamp((y - 0.7) / 0.3, 0, 1));
+        add(frontPatch(0.58, 1.0, (y) => [-tieHalf(y), tieHalf(y)], 0.003, 12), materials.tie);
+        const knotHalf = (y) => lerp(0.013, 0.021, (y - 0.995) / 0.04);
+        add(frontPatch(0.995, 1.035, (y) => [-knotHalf(y), knotHalf(y)], 0.008, 4), materials.tie);
+
+        // Lapels along the V: narrow at the bottom, widest across the chest.
+        const lapelWidth = (y) => {
+            const s = clamp((y - neckline.tipY) / (jacketTopY - neckline.tipY), 0, 1);
+            return CLOTHES.lapelWidth * (s < 0.7 ? lerp(0.2, 1, s / 0.7) : lerp(1, 0.4, (s - 0.7) / 0.3));
+        };
+        for (const side of [-1, 1]) {
+            const span = (y) => {
+                const inner = necklineHalf(y);
+                return side > 0 ? [inner, inner + lapelWidth(y)] : [-inner - lapelWidth(y), -inner];
+            };
+            add(frontPatch(neckline.tipY, jacketTopY, span, CLOTHES.jacket + 0.003, 16), materials.lapel);
+            // The shirt collar's points, on each side of the knot.
+            const collar = (y) => {
+                const s = (y - 0.965) / 0.075;
+                const ends = [side * lerp(0.05, 0.012, s), side * lerp(0.05, 0.075, s)];
+                return side > 0 ? ends : ends.reverse();
+            };
+            add(frontPatch(0.965, 1.04, collar, 0.011, 6), materials.shirt);
+        }
+
+        const buttonGeometry = new THREE.SphereGeometry(0.011, 14, 8);
+        for (const y of CLOTHES.buttonsY) {
+            const button = new THREE.Mesh(buttonGeometry, materials.lapel);
+            button.position.set(0, y, bodyRadiusAt(y) + jacketOffset(y) + 0.002);
+            button.scale.z = 0.45;
+            this.torso.add(button);
+        }
+
+        // Breast pocket on its left, with a pencil in it.
+        add(frontPatch(0.858, 0.87, () => [0.088, 0.148], CLOTHES.jacket + 0.003, 1), materials.lapel);
+        this.torso.add(this.#pencil(0.104, 0.87));
+
+        // Shoe tips peeking out from under the round body.
+        const shoeGeometry = new THREE.SphereGeometry(1, 24, 10, 0, 2 * Math.PI, 0, Math.PI / 2);
+        for (const side of [-1, 1]) {
+            const shoe = new THREE.Mesh(shoeGeometry, materials.shoes);
+            shoe.position.set(side * 0.1, 0, 0.19);
+            shoe.scale.set(0.085, 0.05, 0.13);
+            this.body.add(shoe);
+        }
+    }
+
+    /** A pencil standing in the breast pocket, `x` meters to the side, its lower end at `y`. */
+    #pencil(x, y) {
+        const radius = bodyRadiusAt(y) + CLOTHES.jacket;
+        const slope = (bodyRadiusAt(y + 0.02) - bodyRadiusAt(y - 0.02)) / 0.04;
+        const holder = new THREE.Group();
+        holder.rotation.y = angleAt(x, radius);
+        const pencil = new THREE.Group();
+        pencil.position.set(0, y, radius + 0.008);
+        pencil.rotation.x = Math.atan(slope); // leans back with the chest
+        const wood = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.0065, 0.0065, 0.04, 6).translate(0, 0.02, 0),
+            new THREE.MeshStandardMaterial({ color: COLORS.pencil, roughness: 0.5 }),
+        );
+        const eraser = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.0065, 0.0065, 0.009, 12).translate(0, 0.0445, 0),
+            new THREE.MeshStandardMaterial({ color: COLORS.eraser, roughness: 0.8 }),
+        );
+        pencil.add(wood, eraser);
+        holder.add(pencil);
+        return holder;
+    }
+
+    /** Sleeves ending in a shirt cuff, and round hands whose index finger comes out to point. */
+    #buildArms() {
+        const { materials } = this;
+        const sleeveGeometry = new THREE.CapsuleGeometry(0.05, SLEEVE_LENGTH - 0.1, 6, 16).translate(0, -SLEEVE_LENGTH / 2, 0);
+        const cuffGeometry = new THREE.CylinderGeometry(0.045, 0.045, 0.026, 20).translate(0, -SLEEVE_LENGTH + 0.008, 0);
+        const palmGeometry = new THREE.SphereGeometry(HAND_RADIUS, 20, 14);
+        const thumbGeometry = new THREE.CapsuleGeometry(0.014, 0.022, 4, 10);
+        const fingerGeometry = new THREE.CapsuleGeometry(0.0125, 0.036, 4, 10).translate(0, -0.03, 0);
+        this.arms = [-1, 1].map((side) => {
+            const shoulder = new THREE.Group();
+            shoulder.position.set(side * SHOULDER_X, SHOULDER_Y, 0);
+            // The palm faces the body; the thumb is on the front.
+            const hand = new THREE.Group();
+            hand.position.y = -SLEEVE_LENGTH - HAND_RADIUS + 0.008;
+            const palm = new THREE.Mesh(palmGeometry, materials.skin);
+            palm.scale.set(0.78, 1, 0.92);
+            const thumb = new THREE.Mesh(thumbGeometry, materials.skin);
+            thumb.position.set(-side * 0.008, 0.002, 0.04);
+            thumb.rotation.x = -0.6;
+            const finger = new THREE.Mesh(fingerGeometry, materials.skin);
+            finger.position.set(0, -0.024, 0.014);
+            hand.add(palm, thumb, finger);
+            shoulder.add(new THREE.Mesh(sleeveGeometry, materials.jacket), new THREE.Mesh(cuffGeometry, materials.shirt), hand);
+            this.body.add(shoulder);
+            return { side, shoulder, hand, finger };
+        });
     }
 
     #buildIndicators() {
@@ -413,10 +647,17 @@ export class Teacher {
     #updateArms(dt) {
         const pointing = this.glance.remaining > 0 && this.state !== "asleep";
         this.pointing = approach(this.pointing, pointing ? 1 : 0, 0.2, dt);
-        for (const { side, shoulder } of this.arms) {
+        const shrug = clamp(this.pose.arms / REACTIONS.confused.pose.arms, 0, 1);
+        for (const { side, shoulder, hand, finger } of this.arms) {
             const raise = side === this.glance.side ? this.pointing : 0;
-            // Out to the side and a bit forward, toward the diagram.
-            shoulder.rotation.set(-0.35 * raise, 0, side * (0.14 + 0.015 * this.breath + 0.95 * raise));
+            // Out to the side and a bit forward: toward the diagram when
+            // pointing, both arms a little for a shrug.
+            const lift = 0.95 * raise + this.pose.arms;
+            const forward = ARM_FORWARD + 0.35 * raise + 0.3 * this.pose.arms;
+            shoulder.rotation.set(-forward, 0, side * (ARM_SPREAD + 0.015 * this.breath + lift));
+            // The pointing hand stretches its index finger; in a shrug the palms turn out.
+            finger.scale.y = lerp(0.35, 1, raise);
+            hand.rotation.y = side * 1.3 * shrug;
         }
     }
 

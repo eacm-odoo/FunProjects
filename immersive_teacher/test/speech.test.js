@@ -179,18 +179,22 @@ test("aborting the queue stops quietly, without errors", async () => {
     assert.deepEqual(errors, []);
 });
 
-test("the language comes from TEACHER_LANGUAGE, never from the shell's LANGUAGE", () => {
+test("the starting language comes from TEACHER_LANGUAGE, never from the shell's LANGUAGE", () => {
     const base = { LLM_PROVIDER: "fake", STT_PROVIDER: "fake", TTS_PROVIDER: "none" };
     // Linux shells export LANGUAGE=en_US:en; it must not leak into Deepgram.
     const config = loadConfig({ ...base, LANGUAGE: "en_US:en" }, []);
-    assert.equal(config.stt.language, "es");
-    assert.equal(config.tts.language, "es");
+    assert.equal(config.language, "es");
+    assert.deepEqual(config.stt.languages, { es: "es", en: "en" });
 
+    // A region only reaches the transcription of its own language.
     const regional = loadConfig({ ...base, TEACHER_LANGUAGE: "es-419" }, []);
-    assert.equal(regional.stt.language, "es-419");
-    assert.equal(regional.tts.language, "es", "ElevenLabs only takes the bare language");
+    assert.equal(regional.language, "es");
+    assert.deepEqual(regional.stt.languages, { es: "es-419", en: "en" });
+    const english = loadConfig({ ...base, TEACHER_LANGUAGE: "en-GB" }, []);
+    assert.equal(english.language, "en");
+    assert.deepEqual(english.stt.languages, { es: "es", en: "en-GB" });
 
-    for (const bad of ["en_US:en", "spanish", "es_MX"]) {
+    for (const bad of ["en_US:en", "spanish", "es_MX", "pt", "fr-FR"]) {
         assert.throws(() => loadConfig({ ...base, TEACHER_LANGUAGE: bad }, []), /TEACHER_LANGUAGE/);
     }
 });
@@ -200,8 +204,17 @@ test("Deepgram can be the voice too, with the same key", () => {
     assert.throws(() => loadConfig(base, []), /DEEPGRAM_API_KEY/);
     const config = loadConfig({ ...base, DEEPGRAM_API_KEY: "dg" }, []);
     assert.equal(config.tts.apiKey, "dg");
-    assert.equal(config.tts.model, "aura-2-estrella-es");
-    assert.equal(loadConfig({ ...base, DEEPGRAM_API_KEY: "dg", DEEPGRAM_VOICE: "aura-2-javier-es" }, []).tts.model, "aura-2-javier-es");
+    assert.deepEqual(config.tts.voices, { es: "aura-2-estrella-es", en: "aura-2-thalia-en" });
+    const chosen = loadConfig({
+        ...base, DEEPGRAM_API_KEY: "dg", DEEPGRAM_VOICE: "aura-2-javier-es", DEEPGRAM_VOICE_EN: "aura-2-orion-en",
+    }, []);
+    assert.deepEqual(chosen.tts.voices, { es: "aura-2-javier-es", en: "aura-2-orion-en" });
+});
+
+test("one ElevenLabs voice speaks both languages unless English gets its own", () => {
+    const base = { LLM_PROVIDER: "fake", STT_PROVIDER: "fake", ELEVENLABS_API_KEY: "k", ELEVENLABS_VOICE_ID: "v-es" };
+    assert.deepEqual(loadConfig(base, []).tts.voices, { es: "v-es", en: "v-es" });
+    assert.deepEqual(loadConfig({ ...base, ELEVENLABS_VOICE_ID_EN: "v-en" }, []).tts.voices, { es: "v-es", en: "v-en" });
 });
 
 test("speech providers need their keys, fake and none do not", () => {

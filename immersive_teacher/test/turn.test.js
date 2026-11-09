@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ConversationHistory } from "../server/src/history.js";
+import { LANGUAGES, MESSAGES } from "../server/src/i18n.js";
 import { createFakeLlm } from "../server/src/llm/fake.js";
-import { REFUSAL_SENTENCE } from "../server/src/llm/system_prompt.js";
+import { SYSTEM_PROMPTS } from "../server/src/llm/system_prompt.js";
 import { MAX_SENTENCES, runTurn } from "../server/src/turn.js";
 
 const quietLogger = { info() {}, warn() {}, error() {} };
+const APOLOGIES = MESSAGES.es.apologies;
 
 function scriptedLlm(events) {
     return {
@@ -18,11 +20,12 @@ function scriptedLlm(events) {
     };
 }
 
-async function run({ llm, question = "¿Qué es la fotosíntesis?", history = new ConversationHistory(4), signal }) {
+async function run({ llm, question = "¿Qué es la fotosíntesis?", language, history = new ConversationHistory(4), signal }) {
     const events = [];
     const result = await runTurn({
         id: 1,
         input: { text: question },
+        language,
         llm,
         history,
         emit: (event) => events.push(event),
@@ -78,7 +81,7 @@ test("a line cut by max_tokens is dropped, the rest is kept", async () => {
 
 test("a refusal still says something", async () => {
     const { events, history } = await run({ llm: scriptedLlm([{ type: "end", stopReason: "refusal" }]) });
-    assert.deepEqual(events.filter((e) => e.type === "sentence").map((e) => e.text), [REFUSAL_SENTENCE]);
+    assert.deepEqual(events.filter((e) => e.type === "sentence").map((e) => e.text), [MESSAGES.es.refusal]);
     assert.equal(events.at(-1).type, "done");
     assert.equal(history.turns.length, 0);
 });
@@ -87,6 +90,7 @@ test("an answer without sentences is an error", async () => {
     const { result, events } = await run({ llm: scriptedLlm([{ type: "end", stopReason: "end_turn" }]) });
     assert.equal(result.code, "empty_answer");
     assert.equal(events.at(-1).type, "error");
+    assert.equal(events.at(-2).text, APOLOGIES.explain);
 });
 
 test("more sentences than the cap cut the stream", async () => {
@@ -117,6 +121,29 @@ test("cancelling stops the turn without done and without history", async () => {
     assert.equal(history.turns.length, 0);
 });
 
+test("a failure mid-answer keeps what was said, apologizes, then reports", async () => {
+    const llm = {
+        name: "flaky",
+        model: "flaky",
+        async *stream() {
+            yield { type: "text", text: "TITLE: Agua\nSAY: Primera frase.\nSAY: Segunda frase.\n" };
+            throw Object.assign(new Error("connection reset"), { code: "llm_network" });
+        },
+    };
+    const { result, events, history } = await run({ llm });
+    assert.equal(result.code, "llm_network");
+    const said = events.filter((e) => e.type === "sentence");
+    assert.deepEqual(said.map((e) => [e.step, e.text, e.kind]), [
+        [1, "Primera frase.", undefined],
+        [2, "Segunda frase.", undefined],
+        [3, APOLOGIES.think, "apology"],
+    ]);
+    const error = events.at(-1);
+    assert.equal(error.type, "error");
+    assert.equal(error.apologized, true);
+    assert.equal(history.turns.length, 0, "a failed answer is not remembered");
+});
+
 test("llm errors become a code the browser understands", async () => {
     const llm = {
         name: "down",
@@ -128,6 +155,7 @@ test("llm errors become a code the browser understands", async () => {
     const { result, events } = await run({ llm });
     assert.equal(result.code, "llm_unavailable");
     assert.equal(events.at(-1).code, "llm_unavailable");
+    assert.equal(events.at(-2).text, APOLOGIES.think);
 });
 
 test("history keeps the last turns only", () => {
@@ -136,4 +164,32 @@ test("history keeps the last turns only", () => {
     history.add("q2", "a2");
     history.add("q3", "a3");
     assert.deepEqual(history.messagesFor("q4").map((m) => m.content), ["q2", "a2", "q3", "a3", "q4"]);
+});
+
+test("an English question gets the English prompt, answer and apology", async () => {
+    let request = null;
+    const fake = createFakeLlm({ firstTokenMs: 0, chunkMs: 0 });
+    const llm = { ...fake, stream: (params) => { request = params; return fake.stream(params); } };
+    const { result, events } = await run({ llm, question: "How do plants do photosynthesis?", language: "en" });
+    assert.equal(result.status, "done");
+    assert.equal(request.system, SYSTEM_PROMPTS.en);
+    assert.equal(request.language, "en");
+    assert.equal(events.find((e) => e.type === "title").text, "Photosynthesis");
+
+    const failing = await run({ llm: scriptedLlm([{ type: "end", stopReason: "end_turn" }]), language: "en" });
+    assert.equal(failing.events.at(-2).text, MESSAGES.en.apologies.explain);
+    assert.equal(failing.events.at(-1).message, MESSAGES.en.errors.empty_answer);
+});
+
+test("both languages say the same things and have their own prompt", () => {
+    const shape = (messages) => Object.entries(messages).map(([key, value]) => (
+        typeof value === "object" ? `${key}:${Object.keys(value).sort().join(",")}` : key
+    ));
+    for (const language of LANGUAGES) {
+        assert.deepEqual(shape(MESSAGES[language]), shape(MESSAGES.es), `messages in ${language}`);
+        assert.ok(SYSTEM_PROMPTS[language].length > 2000, `system prompt in ${language}`);
+    }
+    // Each prompt pins its own language, whatever the history says.
+    assert.match(SYSTEM_PROMPTS.es, /Responde siempre en español/);
+    assert.match(SYSTEM_PROMPTS.en, /Always answer in English/);
 });

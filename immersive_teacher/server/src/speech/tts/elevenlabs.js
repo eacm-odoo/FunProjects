@@ -3,7 +3,8 @@
  *
  * Each sentence is a separate request, so `previous_text` carries the
  * sentence before it: the voice keeps its intonation across the cut instead
- * of starting every sentence like the first one.
+ * of starting every sentence like the first one. Flash v2.5 speaks both
+ * languages; `language_code` keeps it from guessing on a short sentence.
  */
 
 import { fetchWithDeadline } from "../http.js";
@@ -21,16 +22,17 @@ export function createElevenLabsTts(ttsConfig, { deadlineMs = DEADLINE_MS } = {}
 
         /**
          * @param {string} text one sentence
-         * @param {{previousText?: string, signal?: AbortSignal}} options
+         * @param {{previousText?: string, language: string, signal?: AbortSignal}} options
          * @returns {AsyncGenerator<Uint8Array>} PCM chunks, whole samples only
          */
-        async *synthesize(text, { previousText, signal } = {}) {
-            const url = new URL(`${API_URL}/${encodeURIComponent(ttsConfig.voiceId)}/stream`);
+        async *synthesize(text, { previousText, language, signal } = {}) {
+            const voice = ttsConfig.voices[language] ?? ttsConfig.voices.es;
+            const url = new URL(`${API_URL}/${encodeURIComponent(voice)}/stream`);
             url.searchParams.set("output_format", `pcm_${ttsConfig.sampleRate}`);
             const body = {
                 text,
                 model_id: ttsConfig.model,
-                language_code: ttsConfig.language,
+                language_code: language,
             };
             if (previousText) {
                 body.previous_text = previousText;

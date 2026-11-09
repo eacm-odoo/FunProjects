@@ -11,18 +11,47 @@
         <div id="stage"></div>
         <aside id="panel">
             <header class="panel-header">
-                <h1>Profesor inmersivo</h1>
-                <span id="status" class="status" data-state="connecting">Conectando…</span>
+                <h1 data-i18n="app.title">Profesor inmersivo</h1>
+                <div class="header-tools">
+                    <div id="language-switch" class="language-switch" role="group"
+                         data-i18n-aria-label="language.label" aria-label="Idioma">
+                        <button type="button" data-language="es" lang="es" aria-pressed="true" title="Español">ES</button>
+                        <button type="button" data-language="en" lang="en" aria-pressed="false" title="English">EN</button>
+                    </div>
+                    <span id="status" class="status" data-state="connecting">Conectando…</span>
+                </div>
             </header>
             <div class="xr-row">
                 <button id="enter-xr" type="button" hidden>
                     <svg class="talk-icon" viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-4l-3-3-3 3H5a2 2 0 0 1-2-2z"></path>
                     </svg>
-                    <span>Entrar en realidad mixta</span>
+                    <span data-i18n="xr.enter">Entrar en realidad mixta</span>
                 </button>
                 <p id="xr-hint" class="hint"></p>
             </div>
+            <section id="sources" class="sources" aria-labelledby="sources-title" hidden>
+                <h2 id="sources-title" class="sources-title" data-i18n="sources.title">Fuentes</h2>
+                <div class="source-actions">
+                    <label class="source-upload" title="Subir un documento: PDF, Word, texto, Markdown, CSV o HTML"
+                           data-i18n-title="sources.uploadTitle">
+                        <input id="source-file" type="file" multiple
+                               accept=".pdf,.docx,.txt,.md,.markdown,.csv,.tsv,.json,.html,.htm,.xml,.yaml,.yml,application/pdf,text/*">
+                        <svg class="talk-icon" viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M20.5 11.5 12 20a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.6 1.6 0 0 1-2.3-2.3l7.8-7.8"></path>
+                        </svg>
+                        <span data-i18n="sources.upload">Subir</span>
+                    </label>
+                    <form id="source-url-form" class="source-url" autocomplete="off">
+                        <input id="source-url" type="text" inputmode="url" spellcheck="false"
+                               placeholder="https://… página de documentación" data-i18n-placeholder="sources.urlPlaceholder"
+                               aria-label="Dirección de una página pública" data-i18n-aria-label="sources.urlLabel">
+                        <button type="submit" data-i18n="sources.load">Cargar</button>
+                    </form>
+                </div>
+                <ul id="source-list" class="source-list"></ul>
+                <p id="source-message" class="hint"></p>
+            </section>
             <div id="conversation" aria-live="polite"></div>
             <div class="talk-row">
                 <button id="talk" type="button" aria-pressed="false" disabled>
@@ -36,8 +65,9 @@
             <form id="ask-form" autocomplete="off">
                 <input id="question" type="text" maxlength="500"
                        placeholder="Por ejemplo: ¿cómo hacen las plantas la fotosíntesis?"
-                       aria-label="Pregunta">
-                <button type="submit" disabled>Preguntar</button>
+                       data-i18n-placeholder="ask.placeholder"
+                       aria-label="Pregunta" data-i18n-aria-label="ask.label">
+                <button type="submit" data-i18n="ask.submit" disabled>Preguntar</button>
             </form>
             <p id="talk-hint" class="hint">Mantén el botón o la barra espaciadora mientras hablas, o escribe la pregunta.</p>
             <p id="model-info" class="hint"></p>

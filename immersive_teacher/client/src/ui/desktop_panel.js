@@ -1,17 +1,11 @@
 /**
  * Side panel of the desktop view: the question box, the talk button, the
- * status and the conversation, with the sentence being spoken highlighted.
+ * status, the language switch and the conversation, with the sentence being
+ * spoken highlighted. Switching language relabels the panel; the conversation
+ * already on screen stays as it was said.
  */
 
-const STATUS_TEXT = {
-    connecting: "Conectando…",
-    ready: "Listo",
-    listening: "Escuchando…",
-    thinking: "Pensando…",
-    explaining: "Explicando",
-    offline: "Sin conexión",
-    error: "Error",
-};
+import { language, t } from "../i18n.js";
 
 function element(tag, className, text) {
     const node = document.createElement(tag);
@@ -27,10 +21,16 @@ function element(tag, className, text) {
 export class DesktopPanel {
     /**
      * @param {HTMLElement} root
-     * @param {{onAsk: (question: string) => void}} handlers
+     * @param {{onAsk: (question: string) => void, onLanguage: (language: string) => void}} handlers
      */
-    constructor(root, { onAsk }) {
+    constructor(root, { onAsk, onLanguage }) {
         this.statusEl = root.querySelector("#status");
+        this.state = this.statusEl.dataset.state;
+        this.recording = false;
+        this.languageButtons = [...root.querySelectorAll("#language-switch [data-language]")];
+        for (const button of this.languageButtons) {
+            button.addEventListener("click", () => onLanguage(button.dataset.language));
+        }
         this.conversationEl = root.querySelector("#conversation");
         this.formEl = root.querySelector("#ask-form");
         this.inputEl = root.querySelector("#question");
@@ -39,7 +39,7 @@ export class DesktopPanel {
         this.talkEl = root.querySelector("#talk");
         this.talkLabelEl = this.talkEl.querySelector(".talk-label");
         this.hintEl = root.querySelector("#talk-hint");
-        this.defaultHint = this.hintEl.textContent;
+        this.defaultHint = t("talk.hint");
         this.hintTimer = null;
         /** @type {Map<number, {block: HTMLElement, questionEl: HTMLElement, title: HTMLElement, list: HTMLElement, sentences: Map<number, HTMLElement>}>} */
         this.turns = new Map();
@@ -55,8 +55,22 @@ export class DesktopPanel {
     }
 
     setStatus(state) {
+        this.state = state;
         this.statusEl.dataset.state = state;
-        this.statusEl.textContent = STATUS_TEXT[state] ?? state;
+        this.statusEl.textContent = t(`status.${state}`);
+    }
+
+    /** Relabels what the panel writes itself, after the language changed. */
+    applyLanguage() {
+        for (const button of this.languageButtons) {
+            button.setAttribute("aria-pressed", String(button.dataset.language === language()));
+        }
+        this.setStatus(this.state);
+        this.setRecording(this.recording);
+        this.defaultHint = t("talk.hint");
+        if (!this.hintEl.classList.contains("flash")) {
+            this.hintEl.textContent = this.defaultHint;
+        }
     }
 
     setAskEnabled(enabled) {
@@ -74,9 +88,10 @@ export class DesktopPanel {
     }
 
     setRecording(recording) {
+        this.recording = recording;
         this.talkEl.classList.toggle("recording", recording);
         this.talkEl.setAttribute("aria-pressed", String(recording));
-        this.talkLabelEl.textContent = recording ? "Suelta para enviar" : "Mantén para hablar";
+        this.talkLabelEl.textContent = t(recording ? "talk.release" : "talk.hold");
     }
 
     /** Shows `text` under the question box for a few seconds. */
@@ -94,7 +109,7 @@ export class DesktopPanel {
     startTurn(turnId, question) {
         const block = element("section", "turn");
         const questionEl = question === null
-            ? element("p", "question transcribing", "Transcribiendo tu pregunta…")
+            ? element("p", "question transcribing", t("turn.transcribing"))
             : element("p", "question", question);
         block.append(questionEl);
         const answer = element("div", "answer");
@@ -122,12 +137,13 @@ export class DesktopPanel {
         }
     }
 
-    addSentence(turnId, step, text) {
+    /** @param {string} [kind] "apology" when the teacher excuses itself after a failure */
+    addSentence(turnId, step, text, kind) {
         const turn = this.turns.get(turnId);
         if (!turn) {
             return;
         }
-        const item = element("li", "sentence pending", text);
+        const item = element("li", kind === "apology" ? "sentence apology pending" : "sentence pending", text);
         turn.sentences.set(step, item);
         turn.list.append(item);
         this.#scrollToEnd();
@@ -154,7 +170,7 @@ export class DesktopPanel {
             item.classList.remove("pending", "current");
         }
         if (!hasDiagram) {
-            turn.block.append(element("p", "note", "Esta respuesta llegó sin diagrama."));
+            turn.block.append(element("p", "note", t("turn.noDiagram")));
         }
     }
 

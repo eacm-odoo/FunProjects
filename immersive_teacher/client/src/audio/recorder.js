@@ -7,6 +7,8 @@
  * Chrome and the Quest browser give webm/opus, which Deepgram takes as is.
  */
 
+import { t } from "../i18n.js";
+
 const MIME_CANDIDATES = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
 
 /** Message for the user when the microphone cannot be opened. */
@@ -14,14 +16,14 @@ export function microphoneErrorMessage(error) {
     switch (error?.name) {
         case "NotAllowedError":
         case "SecurityError":
-            return "El navegador no tiene permiso para usar el micrófono. Actívalo en el candado de la barra de direcciones y vuelve a intentar.";
+            return t("mic.denied");
         case "NotFoundError":
         case "OverconstrainedError":
-            return "No encontré ningún micrófono. Conecta uno o escribe la pregunta.";
+            return t("mic.notFound");
         case "NotReadableError":
-            return "Otra aplicación está usando el micrófono. Ciérrala y vuelve a intentar.";
+            return t("mic.busy");
         default:
-            return "No pude abrir el micrófono. Escribe la pregunta mientras tanto.";
+            return t("mic.failed");
     }
 }
 

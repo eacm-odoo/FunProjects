@@ -2,9 +2,9 @@
  * Deepgram Aura-2 text to speech, as raw 16-bit mono PCM.
  *
  * Same account and key as the transcription, so one Deepgram account (and its
- * free credit) covers both ears and voice. The voice is the model name, for
- * example aura-2-estrella-es. Aura has no equivalent of ElevenLabs'
- * previous_text, so each sentence is read on its own.
+ * free credit) covers both ears and voice. The voice is the model name, one
+ * per language: aura-2-estrella-es, aura-2-thalia-en. Aura has no equivalent
+ * of ElevenLabs' previous_text, so each sentence is read on its own.
  */
 
 import { fetchWithDeadline } from "../http.js";
@@ -22,12 +22,12 @@ export function createDeepgramTts(ttsConfig, { deadlineMs = DEADLINE_MS } = {}) 
 
         /**
          * @param {string} text one sentence (Aura takes up to 2,000 characters)
-         * @param {{signal?: AbortSignal}} options
+         * @param {{language: string, signal?: AbortSignal}} options
          * @returns {AsyncGenerator<Uint8Array>} PCM chunks, whole samples only
          */
-        async *synthesize(text, { signal } = {}) {
+        async *synthesize(text, { language, signal } = {}) {
             const url = new URL(API_URL);
-            url.searchParams.set("model", ttsConfig.model);
+            url.searchParams.set("model", ttsConfig.voices[language] ?? ttsConfig.voices.es);
             url.searchParams.set("encoding", "linear16");
             url.searchParams.set("sample_rate", String(ttsConfig.sampleRate));
             // Raw samples, no WAV header in front of them.

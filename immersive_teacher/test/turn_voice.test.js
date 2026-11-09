@@ -5,9 +5,11 @@ import { ConversationHistory } from "../server/src/history.js";
 import { createFakeLlm } from "../server/src/llm/fake.js";
 import { createFakeStt } from "../server/src/speech/stt/fake.js";
 import { createFakeTts } from "../server/src/speech/tts/fake.js";
+import { MESSAGES } from "../server/src/i18n.js";
 import { runTurn } from "../server/src/turn.js";
 
 const quietLogger = { info() {}, warn() {}, error() {} };
+const APOLOGIES = MESSAGES.es.apologies;
 const RECORDING = { audio: Uint8Array.from([1, 2, 3, 4]), mime: "audio/webm;codecs=opus" };
 
 function fastTts() {
@@ -72,6 +74,19 @@ test("a recording with nothing in it ends politely before Claude is asked", asyn
     assert.equal(events.at(-1).code, "empty_transcript");
 });
 
+test("when nothing was heard, the teacher says so out loud before the error", async () => {
+    const stt = { name: "silent", transcribe: async () => ({ text: "" }) };
+    const { result, events, frames } = await run({ stt });
+    assert.equal(result.code, "empty_transcript");
+    const apology = events.find((e) => e.type === "sentence");
+    assert.deepEqual([apology.step, apology.text, apology.kind], [1, APOLOGIES.heard, "apology"]);
+    assert.ok(frames.some((frame) => frame.step === 1), "the apology is spoken");
+    // The error comes after the apology's last sound.
+    const types = events.map((e) => e.type);
+    assert.ok(types.lastIndexOf("audio_end") < types.indexOf("error"));
+    assert.equal(events.at(-1).apologized, true);
+});
+
 test("a transcription failure becomes a clear error", async () => {
     const stt = { name: "down", transcribe: async () => { throw Object.assign(new Error("401"), { code: "stt_auth" }); } };
     const { result, events } = await run({ stt });
@@ -113,4 +128,22 @@ test("cancelling while speech streams stops everything, without done", async () 
     assert.equal(result.status, "cancelled");
     assert.ok(!events.some((e) => e.type === "done"));
     assert.ok(!events.some((e) => e.type === "warning"));
+});
+
+test("in English the recording is transcribed and spoken in English", async () => {
+    const seen = { stt: null, tts: [] };
+    const fakeStt = createFakeStt({ delayMs: 0 });
+    const stt = { name: "fake", transcribe: (audio, options) => { seen.stt = options.language; return fakeStt.transcribe(audio, options); } };
+    const voice = fastTts();
+    const tts = { ...voice, synthesize: (text, options) => { seen.tts.push(options.language); return voice.synthesize(text, options); } };
+    const events = [];
+    const result = await runTurn({
+        id: 1, input: RECORDING, language: "en", llm: createFakeLlm({ firstTokenMs: 0, chunkMs: 0 }), stt, tts,
+        history: new ConversationHistory(4), emit: (event) => events.push(event), logger: quietLogger,
+    });
+    assert.equal(result.status, "done");
+    assert.equal(seen.stt, "en");
+    assert.ok(seen.tts.length >= 4 && seen.tts.every((language) => language === "en"));
+    assert.equal(events[0].text, "How does the water cycle work?");
+    assert.equal(events.find((e) => e.type === "title").text, "The water cycle");
 });

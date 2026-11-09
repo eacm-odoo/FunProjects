@@ -2,7 +2,7 @@
  * Text to speech, behind one interface:
  *
  *     tts.sampleRate
- *     tts.synthesize(text, { previousText, signal }) -> AsyncIterable<Uint8Array>
+ *     tts.synthesize(text, { previousText, language, signal }) -> AsyncIterable<Uint8Array>
  *
  * Every adapter streams 16-bit little-endian mono PCM at `sampleRate`, whole
  * samples per chunk. `TTS_PROVIDER=none` returns null: the browser then paces

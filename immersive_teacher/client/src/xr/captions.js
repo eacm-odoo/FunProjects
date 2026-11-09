@@ -6,25 +6,18 @@
  * highlightStep, showError...), so the turn controller feeds both at once.
  * One line of text at a time, by priority: a warning or error for a few
  * seconds, else the sentence being said, else the current state, else a hint.
+ * The hint and the states follow the page's language (relabel() after a switch).
  */
 
 import * as THREE from "three";
 
 import { createTextSprite, disposeSprite } from "../diagram/labels.js";
+import { t } from "../i18n.js";
 
 const FLASH_SECONDS = 6;
 
-const STATE_TEXT = {
-    connecting: "Conectando con el servidor…",
-    offline: "Sin conexión con el servidor. Reintentando…",
-    listening: "Te escucho… suelta para enviar.",
-    thinking: "Pensando…",
-};
-
-export const HINTS = Object.freeze({
-    placing: "Apunta al piso o a una mesa y presiona el gatillo (o junta índice y pulgar) para poner al profesor.",
-    teaching: "Mantén el gatillo o la pinza para preguntar. Agarra la barra bajo el diagrama para moverlo. A o X: cambiar de lugar.",
-});
+/** States that have their own line; the others show the hint. */
+const STATES_WITH_TEXT = new Set(["connecting", "offline", "listening", "thinking"]);
 
 export class XrCaptions {
     constructor() {
@@ -33,7 +26,8 @@ export class XrCaptions {
         this.group.visible = false;
         this.sprite = null;
         this.text = "";
-        this.hint = HINTS.placing;
+        /** "placing" or "teaching", the interaction mode the hint explains */
+        this.hintMode = "placing";
         this.state = "ready";
         this.question = "";
         this.sentence = "";
@@ -44,8 +38,14 @@ export class XrCaptions {
         this.turnId = null;
     }
 
-    setHint(text) {
-        this.hint = text;
+    /** @param {"placing"|"teaching"} mode */
+    setHint(mode) {
+        this.hintMode = mode;
+        this.#refresh();
+    }
+
+    /** Redraws the line in the new language. */
+    relabel() {
         this.#refresh();
     }
 
@@ -134,9 +134,9 @@ export class XrCaptions {
             return this.sentence;
         }
         if (this.state === "thinking" && this.question) {
-            return `«${this.question}» Pensando…`;
+            return t("captions.thinkingAbout", { question: this.question });
         }
-        return STATE_TEXT[this.state] ?? this.hint;
+        return STATES_WITH_TEXT.has(this.state) ? t(`captions.${this.state}`) : t(`hint.${this.hintMode}`);
     }
 
     #refresh() {

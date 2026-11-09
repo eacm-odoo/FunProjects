@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { DiagramBuilder, LIMITS, PALETTE, normalizeId } from "../server/src/protocol/diagram.js";
+import { DiagramBuilder, LIMITS, PALETTE, cleanIcon, normalizeId } from "../server/src/protocol/diagram.js";
 
 test("a valid step is accepted with the caller's step number", () => {
     const builder = new DiagramBuilder();
@@ -102,4 +102,21 @@ test("ids are normalized the same way for nodes and edges", () => {
     assert.equal(normalizeId("  --x--  "), "x");
     assert.equal(normalizeId(42), "42");
     assert.equal(normalizeId(null), "");
+});
+
+test("a node keeps one emoji as its icon, and anything else is dropped", () => {
+    assert.equal(cleanIcon("🍎"), "🍎");
+    assert.equal(cleanIcon(" 🧑‍🔬 "), "🧑‍🔬", "a joined sequence is still one emoji");
+    assert.equal(cleanIcon("☀️"), "☀️");
+    assert.equal(cleanIcon("🇲🇽"), "🇲🇽", "a flag is two letters but one picture");
+    for (const bad of ["manzana", "🍎🍐", "A", "#", "", null, 3, "🍎 roja"]) {
+        assert.equal(cleanIcon(bad), "", `kept ${JSON.stringify(bad)}`);
+    }
+    const builder = new DiagramBuilder();
+    const { nodes } = builder.addStep(1, JSON.stringify({ nodes: [
+        { id: "manzana", label: "Manzana", icon: "🍎", shape: "sphere", color: "#E74C3C" },
+        { id: "gravedad", label: "Gravedad", icon: "fuerza", shape: "cone", color: "#9B6ADE" },
+    ] }));
+    assert.equal(nodes[0].icon, "🍎");
+    assert.ok(!("icon" in nodes[1]), "a word is not an icon: the node keeps its shape");
 });

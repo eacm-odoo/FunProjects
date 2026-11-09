@@ -141,3 +141,13 @@ test("stop drops everything; late audio of the old turn is ignored", () => {
     assert.equal(started.length, 1);
     assert.equal(context.started.length, scheduled);
 });
+
+test("a sentence without speech is known to be playing silently", () => {
+    const { narrator, advance } = setup();
+    narrator.enqueue(1, "Una frase que se queda sin voz.");
+    narrator.audioEnd(1);
+    advance(0.1);
+    assert.equal(narrator.speakingSilently(), true);
+    advance(3);
+    assert.equal(narrator.speakingSilently(), false);
+});

@@ -6,11 +6,10 @@
 
 import { sleep } from "../../sleep.js";
 
-const QUESTIONS = [
-    "¿Cómo funciona el ciclo del agua?",
-    "¿Cómo hacen las plantas la fotosíntesis?",
-    "Dame una respuesta con error",
-];
+const QUESTIONS = {
+    es: ["¿Cómo funciona el ciclo del agua?", "¿Cómo hacen las plantas la fotosíntesis?", "Dame una respuesta con error"],
+    en: ["How does the water cycle work?", "How do plants do photosynthesis?", "Give me an answer with an error"],
+};
 
 /**
  * @param {{delayMs?: number, text?: string}} [options] `text` fixes the transcript (tests)
@@ -20,12 +19,13 @@ export function createFakeStt({ delayMs = 250, text } = {}) {
     return {
         name: "fake",
 
-        async transcribe(audio, { signal } = {}) {
+        async transcribe(audio, { language = "es", signal } = {}) {
             await sleep(delayMs, signal);
             if (!audio?.length) {
                 return { text: "" };
             }
-            const question = text ?? QUESTIONS[next % QUESTIONS.length];
+            const questions = QUESTIONS[language] ?? QUESTIONS.es;
+            const question = text ?? questions[next % questions.length];
             next += 1;
             return { text: question };
         },
