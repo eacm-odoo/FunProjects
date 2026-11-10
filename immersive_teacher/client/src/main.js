@@ -11,6 +11,9 @@
  * their address); the teacher answers from them, and "Explain it" asks about
  * one. In the headset, those questions lead the suggested ones.
  *
+ * A node of a finished diagram can be clicked (or pointed at and pressed in
+ * the headset) to go deeper into it; "‹ parent" above the diagram goes back.
+ *
  * URL options:
  *   ?q=...      asks that question as soon as the server is connected. Without
  *               a click first the browser keeps audio muted, so that answer is
@@ -22,8 +25,9 @@
 import "./styles.css";
 
 import { PushToTalkRecorder, microphoneErrorMessage } from "./audio/recorder.js";
-import { DiagramView } from "./diagram/diagram_view.js";
+import { BACK_ID, DiagramView } from "./diagram/diagram_view.js";
 import { LANGUAGES, language, languageChosen, onLanguageChange, setLanguage, t, translatePage } from "./i18n.js";
+import { odooAvailable, odooMode, onOdooModeChange, setOdooAvailable, setOdooMode } from "./odoo_mode.js";
 import { AudioNarrator } from "./narration/audio_narrator.js";
 import { TimedNarrator } from "./narration/timed_narrator.js";
 import { Connection } from "./net/connection.js";
@@ -35,6 +39,7 @@ import { SourceManager } from "./sources.js";
 import { Teacher } from "./teacher/teacher.js";
 import { TurnController } from "./turn_controller.js";
 import { DesktopPanel } from "./ui/desktop_panel.js";
+import { bindNodePicker } from "./ui/node_picker.js";
 import { bindPushToTalk } from "./ui/push_to_talk.js";
 import { SourcesPanel } from "./ui/sources_panel.js";
 import { XrCaptions } from "./xr/captions.js";
@@ -109,6 +114,7 @@ const panel = new DesktopPanel(document.getElementById("panel"), {
         controller.ask(question);
     },
     onLanguage: (next) => setLanguage(next),
+    onOdoo: (on) => setOdooMode(on),
 });
 panel.applyLanguage();
 const ui = combinePanels(panel, captions);
@@ -120,6 +126,7 @@ controller = new TurnController({
     audioNarrator,
     timedNarrator,
     onTrouble: () => teacher.react("confused"),
+    onReplayable: (available) => menu.setReplay(available),
 });
 status.subscribe((state) => {
     ui.setStatus(state);
@@ -189,6 +196,16 @@ bindPushToTalk({
     onRelease: () => stopTalking(),
 });
 
+/** A node of the diagram (or the "‹ parent" label) was clicked or pressed. */
+function pickNode(id) {
+    audioNarrator.unlock();
+    if (id === BACK_ID) {
+        controller.goBack();
+    } else if (connection.isOpen) {
+        controller.exploreShown(id);
+    }
+}
+
 // --- Headset -------------------------------------------------------------
 
 const enterButton = document.getElementById("enter-xr");
@@ -208,12 +225,26 @@ const xr = new XrMode({
         }
     },
     onSwitchLanguage: () => setLanguage(LANGUAGES.find((other) => other !== language())),
+    onToggleOdoo: () => setOdooMode(!odooMode()),
+    onExplore: (id) => pickNode(id),
+    onReplay: () => {
+        audioNarrator.unlock();
+        controller.replayShown();
+    },
     onSessionChange: (active) => {
         enterButton.disabled = active;
         if (!active) {
             placeForDesktop();
         }
     },
+});
+
+bindNodePicker({
+    canvas: stage.renderer.domElement,
+    camera: stage.camera,
+    diagram,
+    isActive: () => !xr.active,
+    onPick: (id) => pickNode(id),
 });
 
 const xrSupported = await XrMode.isSupported();
@@ -271,6 +302,17 @@ const sourcesPanel = new SourcesPanel(document.getElementById("sources"), {
 });
 sourcesPanel.acceptDrops(document.getElementById("app"));
 
+// --- Odoo AI ---------------------------------------------------------------
+
+/** The panel's switch and the headset's button follow the server (hello) and the user. */
+function refreshOdoo() {
+    const state = { available: odooAvailable(), on: odooMode() };
+    panel.setOdoo(state);
+    menu.setOdoo(state);
+}
+onOdooModeChange(refreshOdoo);
+refreshOdoo();
+
 function refreshMenuSources() {
     menu.setExtraQuestions(sources.ready.map(explainQuestion));
 }
@@ -294,7 +336,7 @@ stage.onUpdate((dt, frame) => {
 
 if (import.meta.env.DEV) {
     // To poke at the scene from the browser console (or chrome://inspect on the Quest).
-    window.immersiveTeacher = { stage, teacher, diagram, lesson, captions, menu, xr, emulator, status, sources };
+    window.immersiveTeacher = { stage, teacher, diagram, lesson, captions, menu, xr, emulator, status, sources, controller };
 }
 
 // --- Server ----------------------------------------------------------------
@@ -353,6 +395,7 @@ connection.on("hello", (message) => {
     // A new connection is a new session on the server: it gets the sources again.
     sources.setLimits(message.sources ?? { maxCount: 0 });
     sources.resend();
+    setOdooAvailable(Boolean(message.odooAi));
     // After the hello, so a ?q= question goes in the page's language.
     if (pendingQuestion) {
         controller.ask(pendingQuestion);

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { DiagramBuilder } from "../server/src/protocol/diagram.js";
 import { LineParser, parseLine, splitSentences } from "../server/src/protocol/line_parser.js";
 
 const ANSWER = [
@@ -71,6 +72,29 @@ test("a line without marker is spoken, split into sentences", () => {
 
 test("a bare JSON line is a diagram, never speech", () => {
     assert.deepEqual(parseLine('{"nodes":[]}'), [{ kind: "draw", text: '{"nodes":[]}', marked: false }]);
+});
+
+test("tool-call markup is read as the markers it stands for, and never spoken", () => {
+    // Lines from a real answer that slipped into tool-call markup.
+    const draw = '<parameter name="DRAW">{"nodes":[{"id":"venta","label":"Pedido de venta","hook":"¿Y si no alcanza?"}],"edges":[]}</parameter>';
+    assert.deepEqual(parseLine("SAY: Puedes crearla a mano.</parameter>"), [{ kind: "say", text: "Puedes crearla a mano.", marked: true }]);
+    assert.deepEqual(parseLine('<parameter name="SAY">Hola mundo.</parameter>'), [{ kind: "say", text: "Hola mundo.", marked: false }]);
+    assert.deepEqual(parseLine("<SAY>Frase.</SAY>"), [{ kind: "say", text: "Frase.", marked: false }]);
+    assert.deepEqual(parseLine('<parameter name="TITLE">Fabricar bajo pedido</parameter>'), [
+        { kind: "title", text: "Fabricar bajo pedido", marked: false },
+    ]);
+    const [item] = parseLine(draw);
+    assert.equal(item.kind, "draw");
+    // The diagram reads the object and ignores the closing tag.
+    const result = new DiagramBuilder().addStep(1, item.text);
+    assert.deepEqual(result.issues, []);
+    assert.equal(result.nodes[0].hook, "¿Y si no alcanza?");
+    for (const line of ["</parameter>", '<invoke name="answer">', "</invoke>", "</function_calls>"]) {
+        assert.deepEqual(parseLine(line), [], line);
+    }
+    // A diagram after some words is still a diagram; a comparison is not a tag.
+    assert.deepEqual(parseLine('Mira: {"nodes":[]}'), [{ kind: "draw", text: '{"nodes":[]}', marked: false }]);
+    assert.deepEqual(parseLine("Dos < tres y cinco > cuatro."), [{ kind: "say", text: "Dos < tres y cinco > cuatro.", marked: false }]);
 });
 
 test("sentences split only where a new one starts", () => {

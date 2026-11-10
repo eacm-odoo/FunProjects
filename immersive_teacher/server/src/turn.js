@@ -21,6 +21,17 @@
  * The user's sources (documents and pages, see sources/index.js) go at the
  * start of the first message of every request, so they are the same prefix
  * each time and stay in Claude's cache.
+ *
+ * With Odoo AI on (see odoo_ai.js), the question goes first to Odoo's support
+ * assistant (the page shows "thinking" meanwhile). Its answer goes to
+ * Claude as a document in the question's message, after the cache
+ * breakpoint, and Claude explains it. When Odoo AI fails, a warning says so
+ * and Claude answers on its own.
+ *
+ * A question about a tapped node (see dive.js) comes with a `focus`: that
+ * node starts the new diagram (step 1, before Claude says anything), so it
+ * stays on screen while the rest of the old diagram goes, and Odoo AI gets a
+ * plain question instead of the one written for Claude.
  */
 
 import { LANGUAGES, MESSAGES, format } from "./i18n.js";
@@ -30,8 +41,10 @@ import { SYSTEM_PROMPTS } from "./llm/system_prompt.js";
 import { TtsQueue } from "./speech/tts_queue.js";
 import { TurnTimer, describeUsage } from "./timing.js";
 
-/** Hard cap on spoken sentences: past it the stream is cut to stop paying for tokens. */
+/** Hard cap on Claude's spoken sentences: past it the stream is cut to stop paying for tokens. */
 export const MAX_SENTENCES = 8;
+/** The title of Odoo AI's answer in Claude's request; the system prompt names it. */
+export const ODOO_TITLE = "Odoo AI";
 
 /** The apology for a failure: what went wrong, said as the teacher would. */
 export function apologyFor(code, language = LANGUAGES[0]) {
@@ -46,9 +59,9 @@ export function apologyFor(code, language = LANGUAGES[0]) {
 function historyDrawLine(result) {
     const data = {};
     if (result.nodes.length) {
-        data.nodes = result.nodes.map(({ id, label, icon, shape, color }) => (
-            icon ? { id, label, icon, shape, color } : { id, label, shape, color }
-        ));
+        data.nodes = result.nodes.map(({ id, label, icon, shape, color, hook }) => ({
+            id, label, ...(icon ? { icon } : {}), shape, color, ...(hook ? { hook } : {}),
+        }));
     }
     if (result.edges.length) {
         data.edges = result.edges.map(({ from, to, label }) => (label ? { from, to, label } : { from, to }));
@@ -65,8 +78,39 @@ export function withSources(messages, sources) {
         return messages;
     }
     const [first, ...rest] = messages;
-    return [{ role: "user", content: [...sources, { type: "text", text: first.content }] }, ...rest];
+    return [{ role: "user", content: [...sources, ...blocksOf(first.content)] }, ...rest];
 }
+
+/** A message's content as blocks: a plain string becomes one text block. */
+function blocksOf(content) {
+    return typeof content === "string" ? [{ type: "text", text: content }] : content;
+}
+
+/** Puts `block` before the question, in the last message: it belongs to this question only. */
+export function withOdooAnswer(messages, block) {
+    const last = messages.at(-1);
+    return [...messages.slice(0, -1), { role: "user", content: [block, ...blocksOf(last.content)] }];
+}
+
+/** Odoo AI's answer, with the documentation pages it used, as a document for Claude. */
+export function odooDocument({ text, links }) {
+    const lines = [text];
+    if (links.length) {
+        lines.push("", "Sources:", ...links.map((link) => `- ${link.title}: ${link.uri}`));
+    }
+    return {
+        type: "document",
+        source: { type: "text", media_type: "text/plain", data: lines.join("\n") },
+        title: ODOO_TITLE,
+        context: "Answer from Odoo AI, the official support assistant on odoo.com, to the question that follows. Explain this answer.",
+    };
+}
+
+/** What Claude gets instead when Odoo AI could not answer. */
+export const ODOO_UNREACHED = {
+    type: "text",
+    text: "(Odoo AI, Odoo's support assistant, could not be reached for this question. Answer from what you know, and say so in one short sentence.)",
+};
 
 /** Aborts `controller` when `signal` aborts; returns the function that stops listening. */
 function linkAbort(signal, controller) {
@@ -93,15 +137,20 @@ function linkAbort(signal, controller) {
  * @param {object|null} [options.tts] adapter from speech/tts/index.js, null for text only
  * @param {import("./history.js").ConversationHistory} options.history
  * @param {object[]} [options.sources] document blocks from SourceList.blocks()
+ * @param {object|null} [options.odooAi] adapter from odoo_ai.js, when this question goes to Odoo AI first
+ * @param {import("./odoo_ai.js").OdooHistory|null} [options.odooHistory] Odoo AI's side of the conversation
+ * @param {{node: object, odooQuestion: string}|null} [options.focus] the node tapped to go deeper, and
+ *        the question for Odoo AI about it
  * @param {(event: object) => void} options.emit sends one JSON event to the browser
  * @param {(step: number, pcm: Uint8Array) => void} [options.emitAudio] sends one PCM chunk
  * @param {AbortSignal} [options.signal] aborted when the user cancels
  * @param {Console} [options.logger]
- * @returns {Promise<{status: "done"|"cancelled"|"error", code?: string}>}
+ * @returns {Promise<{status: "done"|"cancelled"|"error", code?: string, question?: string, diagram?: object|null}>}
+ *          the question and the whole diagram when done
  */
 export async function runTurn({
-    id, label = String(id), input, language = LANGUAGES[0], llm, stt, tts = null, history, sources = [], emit,
-    emitAudio = () => {}, signal, logger = console,
+    id, label = String(id), input, language = LANGUAGES[0], llm, stt, tts = null, history, sources = [], odooAi = null,
+    odooHistory = null, focus = null, emit, emitAudio = () => {}, signal, logger = console,
 }) {
     const messages = MESSAGES[language];
     const timer = new TurnTimer(label);
@@ -138,7 +187,13 @@ export async function runTurn({
 
     let question = "";
     let title = "";
+    // Steps: every sentence said, the apology and the refusal included.
     let sentences = 0;
+    // Claude's own sentences, for the cap and to tell an empty answer.
+    let answered = 0;
+    /** @type {"ok"|"failed"|null} */
+    let odooStatus = null;
+    let odooExchange = null;
     let unmarkedLines = 0;
     let overLimit = false;
     let end = null;
@@ -163,10 +218,11 @@ export async function runTurn({
             return;
         }
         if (item.kind === "say") {
-            if (sentences >= MAX_SENTENCES) {
+            if (answered >= MAX_SENTENCES) {
                 overLimit = true;
                 return;
             }
+            answered += 1;
             say(item.text);
             historyLines.push(`SAY: ${item.text}`);
             return;
@@ -215,6 +271,32 @@ export async function runTurn({
         return { status: "cancelled" };
     }
 
+    /**
+     * Asks Odoo AI before Claude. Returns the block for Claude: the answer,
+     * or the note that it could not be reached. A cancellation goes up as it is.
+     */
+    async function askOdoo() {
+        try {
+            const asked = focus?.odooQuestion ?? question;
+            const answer = await odooAi.ask(asked, { history: odooHistory?.entries ?? [], language, signal: turnAbort.signal });
+            timer.mark("odoo_ai");
+            odooStatus = "ok";
+            odooExchange = answer.exchange;
+            emit({ type: "odoo_answer", text: answer.text, links: answer.links });
+            return odooDocument(answer);
+        } catch (error) {
+            if (signal?.aborted) {
+                throw error;
+            }
+            timer.mark("odoo_ai");
+            odooStatus = "failed";
+            const code = error.code in messages.warnings ? error.code : "odoo_ai_failed";
+            logger.warn(`[turn ${label}] Odoo AI failed (${code}): ${error.message}`);
+            emit({ type: "warning", code, message: messages.warnings[code] });
+            return ODOO_UNREACHED;
+        }
+    }
+
     try {
         if ("audio" in input) {
             const { text } = await stt.transcribe(input.audio, { mime: input.mime, language, signal: turnAbort.signal });
@@ -230,11 +312,19 @@ export async function runTurn({
             question = input.text;
         }
         emit({ type: "transcript", text: question });
+        if (focus) {
+            emit({ type: "diagram_step", step: 1, nodes: [diagram.seed(focus.node)], edges: [] });
+        }
+
+        let request = history.messagesFor(question);
+        if (odooAi) {
+            request = withOdooAnswer(request, await askOdoo());
+        }
 
         timer.mark("claude_request");
         const events = llm.stream({
             system: SYSTEM_PROMPTS[language],
-            messages: withSources(history.messagesFor(question), sources),
+            messages: withSources(request, sources),
             language,
             signal: llmAbort.signal,
         });
@@ -288,7 +378,7 @@ export async function runTurn({
     if (refused) {
         say(messages.refusal);
     }
-    if (!sentences) {
+    if (!answered && !refused) {
         logger.warn(timer.line(`no sentence | stop=${stopReason}`));
         return await fail("empty_answer", null, { log: false });
     }
@@ -306,13 +396,22 @@ export async function runTurn({
     if (!refused) {
         history.add(question, historyLines.join("\n"));
     }
+    if (odooExchange) {
+        odooHistory?.add(odooExchange);
+    }
     const details = [describeUsage(end?.usage), `stop=${stopReason}`, `model=${end?.model ?? llm.model}`];
     if (sources.length) {
         details.push(`sources=${sources.length}`);
     }
+    if (odooStatus) {
+        details.push(`odoo=${odooStatus}`);
+    }
     if (!result) {
         details.push("no diagram");
     }
+    if (focus) {
+        details.push(`dive=${focus.node.id}`);
+    }
     logger.info(timer.line(details.filter(Boolean).join(" | ")));
-    return { status: "done" };
+    return { status: "done", question, diagram: result };
 }

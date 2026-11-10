@@ -4,7 +4,8 @@ A virtual teacher for Meta Quest 3 mixed reality. You ask a question out loud,
 the teacher answers in Spanish or English (an ES / EN switch on the page) and,
 while it explains, a 3D diagram builds up next to it, one step per sentence.
 It can also answer from your own material: upload a document or load a public
-documentation page, and ask about it.
+documentation page, and ask about it. For Odoo questions, it can first ask Odoo AI,
+the support assistant of odoo.com/help, and then explain that answer.
 
 The project is built in phases, and each phase is tested before the next one starts:
 
@@ -131,6 +132,82 @@ checks every redirect again, and stops after 15 seconds or `MAX_SOURCE_MB`. This
 matters when colleagues reach the server through a tunnel. The prompt tells Claude
 that what a document says is information, not instructions.
 
+### Odoo AI: the teacher explains Odoo support's answer
+
+With **Consultar primero a Odoo AI / Check with Odoo AI first** ticked (under the
+conversation, or the **Odoo AI** button in the headset), each question goes first to
+Odoo AI, the chat of [odoo.com/help](https://www.odoo.com/help). Its answer comes from
+Odoo's documentation. Meanwhile the teacher shows it is thinking. Then Claude
+explains that answer, with the same steps and menus and nothing added, and the
+diagram shows its steps. It does not announce where the answer came from: the user
+chose that. Under the explanation, **Respuesta de Odoo AI / Odoo AI's answer**
+unfolds the original text and the documentation pages it used. The choice is
+remembered in the browser.
+
+- Odoo AI takes about 4 seconds, which comes before Claude's first word.
+- Follow-up questions keep their context: the server sends Odoo AI the last
+  `HISTORY_TURNS` exchanges, in its own format. Claude gets only the answer to the
+  current question; its own earlier explanations carry the rest.
+- If Odoo AI fails (no network, timeout after 30 s, an error), a note says so and
+  the teacher answers on its own, saying that this did not come from support.
+- `ODOO_AI=off` hides the switch. `ODOO_AI=fake` gives a canned answer without
+  calling odoo.com, to try the flow.
+
+How it works: the server calls `POST /help/generate_text` (JSON-RPC), the same route
+the help page's chat uses. It sends `{conversation_history}` in Gemini's format and
+gets back `{parts, grounding}`. Each answer goes back in the next request as it came,
+`thoughtSignature` included. For Claude, the answer becomes a document titled
+"Odoo AI" in the question's message, after the sources' cache breakpoint, so the
+cached prefix stays the same.
+
+This is an internal route of odoo.com, without a public contract: it can change or
+start refusing clients that are not its page. Each question also costs Odoo a model
+call. Keep it for personal use and demos.
+
+### Going deeper into a node
+
+Every answer leaves a question open: Claude marks one or two nodes with a `hook`
+(for example "¿Adónde va la glucosa?") and its last sentence asks it out loud,
+without answering. When the teacher is done talking, those nodes show a beating
+**?**, and the panel lists their questions as buttons.
+
+- **Click a node** (or aim at it and press the trigger or pinch in the headset).
+  The rest of the diagram shrinks away, the arrows pull back, and the node glides
+  to the center while the teacher points at it. Then the teacher explains that
+  node, and the new diagram builds up around it. If the node had a question
+  open, that is the one answered first, and a new one is left.
+- **‹ La fotosíntesis** above the title (or **Volver a...** in the panel) shows
+  the diagram one level up again. Nothing is asked: it costs nothing. The node
+  already opened has a green ring and a **✓**.
+- **A node already opened** brings back the diagram it gave, silently: nothing
+  is asked and nothing is said again.
+- **Volver a explicar / Explain it again**, under each answer and in the
+  headset's side menu while its diagram is on screen, says that explanation
+  again. It plays the speech received the first time, kept in the page, so
+  nothing goes to the server: no tokens and no speech characters. The sentences
+  light up as they are said, and talking over it stops it. Without speech (no
+  voice, or audio still locked) the sentences are paced as text.
+- Pointing at a node with a question in the headset shows that question in the
+  captions.
+
+The browser only names the diagram (by its turn) and the node (by its id). The
+server builds the question from the diagram it kept (`server/src/dive.js`):
+- the node and its connections;
+- its open question;
+- the first question of the chain, so even three levels down the teacher stays
+  on what was asked at the start.
+
+The node is sent again as the first step of the new diagram, so Claude connects to
+it instead of drawing it again. With Odoo AI on, Odoo AI gets a plain question,
+"Sobre «first question»: open question". Each server connection keeps its last 12
+diagrams. An older one, or one from before a reconnection, answers
+`node_gone`: ask it again.
+
+Going deeper is one more question: it counts for `MAX_QUESTIONS_PER_HOUR` and
+costs what a question costs. Opening the same node again and **Volver a
+explicar** cost nothing. The page keeps the speech of its last 12 answers, about
+50 KB per second of voice.
+
 ### Costs
 
 List prices as of November 2026, for a typical answer of 400 to 500 characters:
@@ -150,6 +227,8 @@ List prices as of November 2026, for a typical answer of 400 to 500 characters:
   about 0.01 USD on each question less than 5 minutes after the previous one
   (reading it). After a longer pause the cache is written again. Big documents
   also delay the first word a little, mostly on that first question.
+- Odoo AI costs you nothing, but its answer adds 500 to 1,500 input tokens to
+  Claude's request, about 0.003 USD per question.
 
 ## How a question flows
 
@@ -204,8 +283,12 @@ in Chrome on the PC and pick the Quest browser tab.
 | Move the diagram | aim at the bar under it, hold trigger or grip, move | aim at the bar, hold the pinch, move |
 | Choose a new place | A or X (again to cancel), or the **Mover al profesor** button | aim at **Mover al profesor**, pinch |
 | Switch language | aim at **English** / **Español**, trigger | aim at it, pinch |
+| Turn Odoo AI on or off | aim at **Odoo AI: sí/no**, trigger | aim at it, pinch |
 | Show or hide suggested questions | B or Y | (shown on their own without a microphone) |
 | Ask a suggested question | aim at it, trigger | aim at it, pinch |
+| Go deeper into a node | aim at it (it grows), trigger | aim at it, pinch |
+| Back to the diagram before | aim at **‹ ...** above the title, trigger | aim at it, pinch |
+| Hear an explanation again | aim at **Volver a explicar**, trigger | aim at it, pinch |
 
 - A green ring shows where the teacher will stand; grey means the surface is
   not flat enough (a wall, a slope).
@@ -216,8 +299,8 @@ in Chrome on the PC and pick the Quest browser tab.
   sentence being said, and any warning: the side panel is not visible there.
 - A short vibration confirms each placement, recording and grab.
 - On the teacher's other side float its buttons: **Mover al profesor**, the
-  language switch and, when there is no microphone (or after B/Y), four
-  suggested questions.
+  language switch, **Odoo AI** (when the server has it; highlighted when on)
+  and, when there is no microphone (or after B/Y), four suggested questions.
 
 ### Without a headset: the emulator
 
@@ -326,6 +409,8 @@ Claude answers with one item per line, each starting with a marker:
     anything else is dropped and the node keeps its shape.
   - Edges must point to nodes that already appeared.
   - At most 12 nodes and 16 edges.
+  - `hook`, the question a node leaves open, is cut at 90 characters, and only
+    the first two in an answer are kept.
 - Lines without a marker are still spoken (split into sentences), so a reply that
   ignores the format is heard without a diagram.
 - A line cut by `MAX_TOKENS_PER_ANSWER` is dropped. Past 8 sentences the stream is
@@ -333,7 +418,7 @@ Claude answers with one item per line, each starting with a marker:
 
 The final diagram, sent in the `done` event, follows this shape:
 
-    {"title": "...", "nodes": [{"id", "label", "icon"?, "shape", "color", "step"}], "edges": [{"from", "to", "label", "step"}]}
+    {"title": "...", "nodes": [{"id", "label", "icon"?, "shape", "color", "step", "hook"?}], "edges": [{"from", "to", "label", "step"}]}
 
 A node with an `icon` is drawn as a medallion: a coin in the node's color with
 the emoji on both faces, swaying gently so it never turns edge-on. Claude is
@@ -372,9 +457,9 @@ from 32 to 164. The tests check the gravity diagram that showed the problem.
 
 | Direction | Message |
 |---|---|
-| browser -> server | `ask_text {turn, text, language}`, `ask_audio {turn, mime, language}` followed by one binary message (the recording), `cancel {turn}` |
+| browser -> server | `ask_text {turn, text, language, odoo?}`, `ask_audio {turn, mime, language, odoo?}` followed by one binary message (the recording), `ask_node {turn, from, node, language, odoo?}` (go deeper into node `node` of the diagram of turn `from`; `error {code: "node_gone"}` when it is no longer kept), `cancel {turn}`; `odoo: true` asks Odoo AI first |
 | browser -> server (sources) | `source_file {id, name, mime, language}` followed by one binary message (the file), `source_url {id, url, language}`, `source_remove {id}` |
-| server -> browser | `hello {llm, stt, tts, maxQuestionsPerHour, language, sources}`, `transcript`, `title`, `sentence {step, text}`, `diagram_step {step, nodes, edges}`, `audio_start {step, sampleRate}`, `audio_end {step, ok}`, `warning {code, message}`, `done {diagram, stopReason, timings}`, `error {code, message}` |
+| server -> browser | `hello {llm, stt, tts, maxQuestionsPerHour, language, sources, odooAi}`, `transcript`, `title`, `sentence {step, text, kind?}` (`kind: "apology"` after a failure), `odoo_answer {text, links}`, `diagram_step {step, nodes, edges}`, `audio_start {step, sampleRate}`, `audio_end {step, ok}`, `warning {code, message}`, `done {diagram, stopReason, timings}`, `error {code, message}` |
 | server -> browser (sources) | `source_added {id, source: {kind, origin, name, title, url, tokens}}`, `source_error {id, code, message}` |
 
 Every server message about a question carries the `turn` it belongs to. A new
@@ -452,7 +537,23 @@ They cover:
   limits of the list, `count_tokens` against the API stand-in, and a whole session:
   a file and a page are added, every question carries them first with the cache
   breakpoint on the last, and what cannot be read or does not fit is refused in the
-  language of the request.
+  language of the request;
+- Odoo AI: the adapter against a local stand-in of odoo.com's route (the JSON-RPC
+  body and history, links filtered and each listed once, the signature kept, every
+  failure with its code, the timeout, a cancel that stays a cancel), the turn (the
+  answer before Claude's, as a document after the sources, follow-ups, a failure
+  answered without it), the session (only questions with `odoo: true`, typed or
+  spoken), the headset button, and the markdown shown as plain text;
+- going deeper: hooks (cut, two at most) and the seeded node, the question the
+  server builds (the first question of the chain, the connections, the open
+  question, in each language), Odoo AI's plain question, `node_gone`, the memory
+  of 12 diagrams, the hourly limit, the page's chain of parents and explored nodes,
+  and a node pressed in the headset;
+- the page's turn controller with a fake connection, panel and narrators: a node
+  opened again comes back without a message to the server or a word, and
+  **Volver a explicar** replays the kept sentences and speech, or paces them as
+  text without speech; the headset's button shows only when there is something
+  to say again.
 
 ## Production build
 
@@ -469,7 +570,9 @@ They cover:
     |  |- index.js                  HTTP + Vite middleware (dev) or static files (prod) + /ws
     |  |- config.js                 reads and checks the environment
     |  |- session.js                one per connection: history, turn in progress, cancel
-    |  |- turn.js                   one question: Claude stream -> parser -> events, timings
+    |  |- turn.js                   one question: [Odoo AI ->] Claude stream -> parser -> events, timings
+    |  |- odoo_ai.js                Odoo AI (odoo.com/help's assistant): the call, its history, a fake
+    |  |- dive.js                   going deeper into a node: the diagrams kept, the question built
     |  |- history.js                last questions and answers, text only
     |  |- limits.js                 questions per hour
     |  |- timing.js                 per-turn stopwatch
@@ -499,6 +602,8 @@ They cover:
     |     |- status.js              app state, shared by the panel and the teacher
     |     |- turn_controller.js     holds diagram steps until their sentence starts
     |     |- sources.js             the sources on the browser's side, sent again after a reconnect
+    |     |- odoo_mode.js           the Odoo AI switch: offered by the server, remembered choice
+    |     |- exploration.js         which diagram came from which node, explored nodes, open questions
     |     |- net/connection.js      WebSocket with reconnection
     |     |- audio/recorder.js      push-to-talk with MediaRecorder
     |     |- audio/audio_frame.js   reads the binary speech frames
@@ -510,12 +615,13 @@ They cover:
     |     |- xr/interaction.js      what each press does (pure logic)
     |     |- xr/placement.js        floor or desk, facing the viewer (pure logic)
     |     |- xr/captions.js         text inside the headset
-    |     |- xr/xr_menu.js          "Mover al profesor", the language and the suggested questions (sources first)
+    |     |- xr/xr_menu.js          "Mover al profesor", the language, Odoo AI and the suggested questions (sources first)
     |     |- xr/emulator.js         IWER, development only (?emulate)
     |     |- teacher/teacher.js     the character, its animations and state signs
     |     |- teacher/lip_sync.js    voice loudness -> mouth opening
-    |     |- diagram/               layout, 3D view, text sprites
+    |     |- diagram/               layout, 3D view (with focus, back and badges), text sprites
     |     |- ui/push_to_talk.js     talk button and space bar
     |     |- ui/sources_panel.js    upload, URL, drop, the list and "Explícamelo"
-    |     \- ui/desktop_panel.js    question box, status, conversation
+    |     |- ui/node_picker.js      the mouse on the diagram: hover and click on nodes and "‹ ..."
+    |     \- ui/desktop_panel.js    question box, status, Odoo AI switch, conversation
     \- test/                        node:test suites

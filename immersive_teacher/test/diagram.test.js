@@ -120,3 +120,31 @@ test("a node keeps one emoji as its icon, and anything else is dropped", () => {
     assert.equal(nodes[0].icon, "🍎");
     assert.ok(!("icon" in nodes[1]), "a word is not an icon: the node keeps its shape");
 });
+
+test("a node keeps its hook, cleaned and cut, and only the first two are kept", () => {
+    const builder = new DiagramBuilder();
+    const result = builder.addStep(1, JSON.stringify({
+        nodes: [
+            { id: "a", label: "A", hook: "  ¿Por   qué? " },
+            { id: "b", label: "B", hook: 42 },
+            { id: "c", label: "C", hook: "x".repeat(200) },
+            { id: "d", label: "D", hook: "¿Y esta?" },
+        ],
+    }));
+    assert.deepEqual(result.nodes.map((node) => node.hook), ["¿Por qué?", undefined, `${"x".repeat(LIMITS.hook - 1)}…`, undefined]);
+    assert.deepEqual(result.issues, [`hook of node "d" over the limit of ${LIMITS.hooks}`]);
+    assert.equal(result.nodes.length, 4);
+});
+
+test("a seeded node starts the diagram at step 1, without its hook, and Claude can connect to it", () => {
+    const builder = new DiagramBuilder();
+    const seeded = builder.seed({ id: "glucosa", label: "Glucosa", shape: "box", color: "#E67E22", step: 4, icon: "🍬", hook: "¿Adónde va?" });
+    assert.deepEqual(seeded, { id: "glucosa", label: "Glucosa", shape: "box", color: "#E67E22", step: 1, icon: "🍬" });
+    const result = builder.addStep(1, JSON.stringify({
+        nodes: [{ id: "glucosa", label: "Otra vez" }, { id: "celula", label: "Célula" }],
+        edges: [{ from: "glucosa", to: "celula" }],
+    }));
+    assert.deepEqual(result.issues, ['duplicate node id "glucosa"']);
+    assert.deepEqual(result.edges, [{ from: "glucosa", to: "celula", step: 1 }]);
+    assert.deepEqual(builder.toJSON("Más").nodes.map((node) => node.id), ["glucosa", "celula"]);
+});

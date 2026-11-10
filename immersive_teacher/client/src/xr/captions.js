@@ -67,6 +67,15 @@ export class XrCaptions {
         this.#refresh();
     }
 
+    /** An earlier answer is said again: its sentences, by step, become the ones shown. */
+    replayTurn(turnId, sentences) {
+        this.turnId = turnId;
+        this.sentences = new Map(sentences);
+        this.sentence = "";
+        this.question = "";
+        this.#refresh();
+    }
+
     setQuestion(turnId, text) {
         if (turnId === this.turnId) {
             this.question = text;

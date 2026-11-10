@@ -5,6 +5,10 @@
  * dropped with a note in `issues`, and everything else keeps going. The step
  * of every element comes from the caller (the sentence it belongs to), never
  * from Claude.
+ *
+ * A node can carry a `hook`: a short question the explanation leaves open, to
+ * make the person curious about that node. Only the first LIMITS.hooks of
+ * them are kept, so the diagram never turns into a list of questions.
  */
 
 export const SHAPES = Object.freeze(["sphere", "box", "cylinder", "cone", "capsule"]);
@@ -18,6 +22,8 @@ export const LIMITS = Object.freeze({
     label: 28,
     edgeLabel: 20,
     title: 48,
+    hook: 90,
+    hooks: 2,
 });
 
 const HEX6_RE = /^#[0-9a-f]{6}$/i;
@@ -105,6 +111,23 @@ export class DiagramBuilder {
         this.nodes = new Map();
         this.edges = [];
         this.edgeKeys = new Set();
+        this.hooks = 0;
+    }
+
+    /**
+     * Starts the diagram with a node of an earlier one, already validated: the
+     * node the person tapped to go deeper. It belongs to step 1 and loses its
+     * hook (that question is the one being answered now).
+     *
+     * @returns {object} the node as it is kept
+     */
+    seed({ id, label, shape, color, icon }) {
+        const node = { id, label, shape, color, step: 1 };
+        if (icon) {
+            node.icon = icon;
+        }
+        this.nodes.set(id, node);
+        return node;
     }
 
     /**
@@ -131,7 +154,7 @@ export class DiagramBuilder {
         }
 
         for (const item of nodes) {
-            const result = this.#acceptNode(step, item);
+            const result = this.#acceptNode(step, item, accepted.issues);
             if (typeof result === "string") {
                 accepted.issues.push(result);
             } else {
@@ -149,8 +172,11 @@ export class DiagramBuilder {
         return accepted;
     }
 
-    /** Returns the accepted node, or a string saying why it was dropped. */
-    #acceptNode(step, item) {
+    /**
+     * Returns the accepted node, or a string saying why it was dropped. A
+     * repair that keeps the node (a hook too many) goes to `issues`.
+     */
+    #acceptNode(step, item, issues) {
         if (!item || typeof item !== "object") {
             return "node is not an object";
         }
@@ -172,6 +198,13 @@ export class DiagramBuilder {
         const icon = cleanIcon(item.icon);
         if (icon) {
             node.icon = icon;
+        }
+        const hook = cleanText(item.hook, LIMITS.hook);
+        if (hook && this.hooks < LIMITS.hooks) {
+            node.hook = hook;
+            this.hooks += 1;
+        } else if (hook) {
+            issues.push(`hook of node "${id}" over the limit of ${LIMITS.hooks}`);
         }
         this.nodes.set(id, node);
         return node;

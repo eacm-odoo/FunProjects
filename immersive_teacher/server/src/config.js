@@ -7,8 +7,10 @@
  */
 
 import { LANGUAGES } from "./i18n.js";
+import { ODOO_AI_URL } from "./odoo_ai.js";
 
 const LLM_PROVIDERS = ["claude", "fake"];
+const ODOO_AI_MODES = ["on", "off", "fake"];
 const STT_PROVIDERS = ["deepgram", "fake"];
 const TTS_PROVIDERS = ["elevenlabs", "deepgram", "fake", "none"];
 /** Every TTS adapter streams 16-bit mono PCM at this rate. */
@@ -106,6 +108,20 @@ function ttsApiKey(env, provider) {
     }
 }
 
+function readHttpUrl(env, name, fallback) {
+    const raw = (env[name] ?? "").trim() || fallback;
+    let url;
+    try {
+        url = new URL(raw);
+    } catch {
+        throw new ConfigError(`${name}="${raw}" is not a valid URL`);
+    }
+    if (!["http:", "https:"].includes(url.protocol)) {
+        throw new ConfigError(`${name}="${raw}" must start with https:// or http://`);
+    }
+    return url.href;
+}
+
 function requireKey(env, name, why, alternative = "") {
     const value = (env[name] ?? "").trim();
     if (!value) {
@@ -166,6 +182,11 @@ export function loadConfig(env = process.env, argv = process.argv) {
             maxCount: readInt(env, "MAX_SOURCES", 3, { min: 0, max: 10 }),
             maxBytes: readInt(env, "MAX_SOURCE_MB", 10, { min: 1, max: 20 }) * 1024 * 1024,
             maxTokens: readInt(env, "MAX_SOURCE_TOKENS", 100_000, { min: 1_000, max: 900_000 }),
+        }),
+        // Odoo's support assistant, asked first when the page's switch is on.
+        odooAi: Object.freeze({
+            mode: readChoice(env, "ODOO_AI", ODOO_AI_MODES, "on"),
+            url: readHttpUrl(env, "ODOO_AI_URL", ODOO_AI_URL),
         }),
         tts: Object.freeze({
             provider: ttsProvider,

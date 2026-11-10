@@ -1,8 +1,8 @@
 /**
  * The teacher's languages, and everything the server says in each of them:
  * the errors the browser shows, the warnings when the voice fails, the
- * apologies the teacher says out loud, the sentence for a refused question
- * and why a source could not be added.
+ * apologies the teacher says out loud, the sentence for a refused question,
+ * why a source could not be added and the question for a tapped node.
  *
  * The browser sends the language with every question, so one page can switch
  * between them while the server keeps running. Both languages must define the
@@ -45,10 +45,12 @@ export const MESSAGES = Object.freeze({
             bad_audio: "El navegador mandó un audio en un formato que no reconozco.",
             audio_too_long: "La grabación es demasiado larga. Haz la pregunta más corta.",
             rate_limited: "Llegaste al límite de {max} preguntas por hora. Podrás preguntar de nuevo en {minutes} min.",
+            node_gone: "Ese diagrama ya no está en la memoria del profe. Pregúntalo de nuevo.",
         }),
         /**
          * Speech failures do not end the turn: the text goes on and this note
-         * explains the silence. {voice} is the speech provider.
+         * explains the silence. {voice} is the speech provider. Neither does
+         * an Odoo AI failure: the teacher answers on its own.
          */
         warnings: Object.freeze({
             tts_auth: "{voice} rechazó la llave o la voz: sigo en texto. Revisa la llave y la voz en el .env del servidor.",
@@ -59,6 +61,9 @@ export const MESSAGES = Object.freeze({
             tts_network: "El servidor no logra conectarse con {voice}: sigo en texto.",
             tts_timeout: "{voice} tardó demasiado: esa parte sigue en texto.",
             tts_failed: "La voz falló: esa parte sigue en texto. El detalle está en el log del servidor.",
+            odoo_ai_failed: "No pude consultar a Odoo AI: el profe responde con lo que sabe. El detalle está en el log del servidor.",
+            odoo_ai_timeout: "Odoo AI tardó demasiado: el profe responde con lo que sabe.",
+            odoo_ai_empty: "Odoo AI no devolvió una respuesta: el profe responde con lo que sabe.",
         }),
         /** What the teacher says out loud when a turn fails, before the written error. */
         apologies: Object.freeze({
@@ -84,6 +89,18 @@ export const MESSAGES = Object.freeze({
             url_status: "La página respondió con el error {status}. Revisa la dirección o prueba con otra.",
             url_timeout: "La página tardó demasiado en responder. Prueba otra vez.",
             url_failed: "No pude descargar la página ({detail}).",
+        }),
+        /**
+         * The question for a node the person tapped (see dive.js): for Claude,
+         * the node in its diagram and the question the chain started from;
+         * for Odoo AI, a plain question with that same starting point.
+         */
+        dive: Object.freeze({
+            prompt: "Profundiza en «{label}» (id {id}), un nodo de tu diagrama «{title}».\nLa pregunta inicial fue: «{root}».",
+            links: "En ese diagrama: {links}.",
+            hook: "La duda que dejaste abierta: «{hook}».",
+            odoo: "Sobre «{root}»: cuéntame más de «{label}».",
+            odooHook: "Sobre «{root}»: {hook}",
         }),
         /** Said when Claude declines the question and no fallback model answered it. */
         refusal: "Prefiero no responder esa pregunta. ¿Te explico otro tema?",
@@ -112,6 +129,7 @@ export const MESSAGES = Object.freeze({
             bad_audio: "The browser sent audio in a format I do not recognize.",
             audio_too_long: "The recording is too long. Make the question shorter.",
             rate_limited: "You reached the limit of {max} questions per hour. You can ask again in {minutes} min.",
+            node_gone: "The teacher no longer has that diagram in memory. Ask it again.",
         }),
         warnings: Object.freeze({
             tts_auth: "{voice} refused the key or the voice: going on in text. Check the key and the voice in the server's .env.",
@@ -122,6 +140,9 @@ export const MESSAGES = Object.freeze({
             tts_network: "The server cannot reach {voice}: going on in text.",
             tts_timeout: "{voice} took too long: that part stays in text.",
             tts_failed: "The voice failed: that part stays in text. The details are in the server log.",
+            odoo_ai_failed: "I could not reach Odoo AI: the teacher answers from what it knows. The details are in the server log.",
+            odoo_ai_timeout: "Odoo AI took too long: the teacher answers from what it knows.",
+            odoo_ai_empty: "Odoo AI did not send an answer: the teacher answers from what it knows.",
         }),
         apologies: Object.freeze({
             heard: "Sorry, I did not hear you well. Could you say it again?",
@@ -145,6 +166,13 @@ export const MESSAGES = Object.freeze({
             url_status: "The page answered with error {status}. Check the address or try another one.",
             url_timeout: "The page took too long to answer. Try again.",
             url_failed: "I could not download the page ({detail}).",
+        }),
+        dive: Object.freeze({
+            prompt: "Go deeper into “{label}” (id {id}), a node of your diagram “{title}”.\nThe first question was: “{root}”.",
+            links: "In that diagram: {links}.",
+            hook: "The question you left open: “{hook}”.",
+            odoo: "About “{root}”: tell me more about “{label}”.",
+            odooHook: "About “{root}”: {hook}",
         }),
         refusal: "I would rather not answer that question. Shall I explain something else?",
         voice: "The voice",

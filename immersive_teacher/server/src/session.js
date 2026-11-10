@@ -21,12 +21,23 @@
  * and gets back `source_added {id, source}` or `source_error {id, code,
  * message}`. Loading happens beside the questions: asking while a document
  * loads is fine, and the question goes without it.
+ *
+ * A question with `odoo: true` goes first to Odoo AI (see odoo_ai.js) when the
+ * server has it on; `hello.odooAi` tells the page whether to show its switch.
+ * Odoo AI's side of the conversation is kept here, for the follow-ups.
+ *
+ * `ask_node {turn, from, node}` goes deeper into one node of a diagram the
+ * teacher drew in turn `from` (see dive.js). The session keeps the last
+ * finished diagrams for that; when the one named is gone, the answer is the
+ * error `node_gone`.
  */
 
 import { WebSocket } from "ws";
 
+import { DiagramMemory, diveQuestion } from "./dive.js";
 import { ConversationHistory } from "./history.js";
 import { MESSAGES, format, isLanguage } from "./i18n.js";
+import { OdooHistory } from "./odoo_ai.js";
 import { MAX_TURN, encodeAudioFrame } from "./protocol/audio_frame.js";
 import { SourceList, countSourceTokens, isSourceId, readSource } from "./sources/index.js";
 import { runTurn } from "./turn.js";
@@ -45,26 +56,31 @@ export class Session {
      * @param {object} options.llm
      * @param {object} options.stt
      * @param {object|null} options.tts null when TTS_PROVIDER=none
+     * @param {object|null} [options.odooAi] adapter from odoo_ai.js, null when ODOO_AI=off
      * @param {import("./limits.js").HourlyLimiter} options.limiter
      * @param {Console} [options.logger]
      * @param {(address: string) => boolean} [options.isAllowedAddress] where URLs may point; tests open it to a local server
      */
-    constructor({ socket, config, llm, stt, tts, limiter, logger = console, isAllowedAddress }) {
+    constructor({ socket, config, llm, stt, tts, odooAi = null, limiter, logger = console, isAllowedAddress }) {
         this.socket = socket;
         this.config = config;
         this.llm = llm;
         this.stt = stt;
         this.tts = tts;
+        this.odooAi = odooAi;
+        this.odooHistory = new OdooHistory(config.historyTurns);
         this.limiter = limiter;
         this.logger = logger;
         // Turn numbers restart at 1 on every page load; the log shows "connection.turn".
         this.connectionId = ++connectionCount;
         this.history = new ConversationHistory(config.historyTurns);
+        /** Finished diagrams, for going deeper into one of their nodes. */
+        this.diagrams = new DiagramMemory();
         /** @type {{id: number, controller: AbortController} | null} */
         this.current = null;
         /**
          * The announcement waiting for its binary message: a recording or a file.
-         * @type {{kind: "audio", turn: number, mime: string, language: string}
+         * @type {{kind: "audio", turn: number, mime: string, language: string, odoo: boolean}
          *      | {kind: "file", id: string, name: string, mime: string, language: string} | null}
          */
         this.pendingBinary = null;
@@ -93,6 +109,7 @@ export class Session {
                 maxBytes: config.sources.maxBytes,
                 maxTokens: config.sources.maxTokens,
             },
+            odooAi: Boolean(odooAi),
         });
     }
 
@@ -126,6 +143,9 @@ export class Session {
                 break;
             case "ask_audio":
                 this.#announceAudio(message);
+                break;
+            case "ask_node":
+                this.#askNode(message);
                 break;
             case "cancel":
                 if (this.current && this.current.id === message.turn) {
@@ -183,7 +203,30 @@ export class Session {
             this.#error(turn, language, "bad_request", { max: MAX_QUESTION_LENGTH });
             return;
         }
-        this.#startTurn(turn, language, { text: question });
+        this.#startTurn(turn, language, { text: question }, message.odoo === true);
+    }
+
+    #askNode(message) {
+        const { turn, from, node } = message;
+        if (!this.#validTurn(turn)) {
+            return;
+        }
+        if (this.pendingBinary?.kind === "audio") {
+            this.pendingBinary = null;
+        }
+        const language = this.#languageOf(message);
+        const found = this.diagrams.find(from, node);
+        if (!found) {
+            this.logger.warn(`[turn ${this.connectionId}.${turn}] node ${JSON.stringify(node)} of turn ${JSON.stringify(from)} is not kept`);
+            this.#error(turn, language, "node_gone");
+            return;
+        }
+        const { text, odooQuestion } = diveQuestion({ ...found, language });
+        this.#startTurn(turn, language, { text }, message.odoo === true, {
+            node: found.node,
+            odooQuestion,
+            root: found.entry.root,
+        });
     }
 
     #announceAudio(message) {
@@ -196,7 +239,7 @@ export class Session {
             this.#error(turn, language, "bad_audio");
             return;
         }
-        this.pendingBinary = { kind: "audio", turn, mime, language };
+        this.pendingBinary = { kind: "audio", turn, mime, language, odoo: message.odoo === true };
     }
 
     #onBinary(data) {
@@ -224,7 +267,7 @@ export class Session {
             return;
         }
         this.logger.info(`[turn ${this.connectionId}.${pending.turn}] recording received: ${(audio.length / 1024).toFixed(1)} KB ${pending.mime}`);
-        this.#startTurn(pending.turn, pending.language, { audio, mime: pending.mime });
+        this.#startTurn(pending.turn, pending.language, { audio, mime: pending.mime }, pending.odoo);
     }
 
     // --- Sources ------------------------------------------------------------
@@ -358,7 +401,12 @@ export class Session {
 
     // --- Questions ----------------------------------------------------------
 
-    #startTurn(turn, language, input) {
+    /**
+     * @param {boolean} odoo whether the page asked to check with Odoo AI first
+     * @param {{node: object, odooQuestion: string, root: object}|null} dive the node tapped to go
+     *        deeper, and the first question of its chain
+     */
+    #startTurn(turn, language, input, odoo = false, dive = null) {
         // The user asked something new: whatever was going on is stale.
         this.#cancelCurrent("replaced by a new question");
         const quota = this.limiter.tryAcquire();
@@ -385,10 +433,19 @@ export class Session {
             tts: this.tts,
             history: this.history,
             sources: this.sources.blocks(),
+            odooAi: odoo ? this.odooAi : null,
+            odooHistory: this.odooHistory,
+            focus: dive && { node: dive.node, odooQuestion: dive.odooQuestion },
             emit,
             emitAudio,
             signal: controller.signal,
             logger: this.logger,
+        }).then((result) => {
+            // Kept for going deeper; a deeper diagram keeps the first question of its chain.
+            if (result.status === "done" && result.diagram) {
+                const root = dive?.root ?? { question: result.question, title: result.diagram.title };
+                this.diagrams.remember(turn, { diagram: result.diagram, root });
+            }
         }).catch((error) => {
             this.logger.error(`[turn ${label}] crashed`, error);
             emit({ type: "error", code: "internal", message: MESSAGES[language].errors.internal });

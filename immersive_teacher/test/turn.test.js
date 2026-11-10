@@ -43,12 +43,19 @@ test("a full fake answer arrives in order, with steps from the sentences", async
         "transcript", "title",
         "sentence:1", "diagram_step:1", "sentence:2", "diagram_step:2", "sentence:3", "diagram_step:3",
         "sentence:4", "diagram_step:4", "sentence:5", "diagram_step:5",
+        // The question left open: no drawing.
+        "sentence:6",
         "done",
     ]);
     const done = events.at(-1);
     assert.equal(done.diagram.title, "La fotosíntesis");
     assert.equal(done.diagram.nodes.length, 6);
     assert.equal(done.diagram.edges.length, 5);
+    assert.deepEqual(done.diagram.nodes.filter((node) => node.hook).map((node) => [node.id, node.hook]), [
+        ["glucosa", "¿Adónde va la glucosa?"],
+    ]);
+    assert.deepEqual(result, { status: "done", question: "¿Qué es la fotosíntesis?", diagram: done.diagram });
+    assert.match(history.turns[0].answer, /"hook":"¿Adónde va la glucosa\?"/);
     assert.ok(done.timings.first_sentence >= 0);
     assert.equal(history.turns.length, 1);
     assert.match(history.turns[0].answer, /^TITLE: La fotosíntesis\nSAY: /);

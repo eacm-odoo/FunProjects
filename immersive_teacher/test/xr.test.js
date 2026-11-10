@@ -26,6 +26,7 @@ function recorder() {
         onGrabStart: (source) => log.push(`grab ${source}`),
         onGrabEnd: (source) => log.push(`drop ${source}`),
         onControl: (control) => log.push(`press ${control}`),
+        onExplore: (node) => log.push(`explore ${node}`),
         onModeChange: (mode) => log.push(`mode ${mode}`),
     });
     return { interaction, log };
@@ -93,6 +94,27 @@ test("teaching: trigger or pinch on a floating button presses it instead of talk
     interaction.release("right", "select");
     assert.equal(interaction.press("right", "squeeze", { control: "ask:0" }), null, "the grip does not press");
     assert.deepEqual(log, ["press ask:0"]);
+});
+
+test("teaching: trigger or pinch on a node explores it instead of talking; the grip does nothing there", () => {
+    const { interaction, log } = recorder();
+    assert.equal(interaction.press("right", "select", { node: "glucosa" }), null, "nodes do nothing while placing");
+    interaction.release("right", "select");
+
+    interaction.press("right", "select", { surface: true });
+    interaction.release("right", "select");
+    log.length = 0;
+    assert.equal(interaction.press("right", "select", { node: "glucosa" }), "explore");
+    // Releasing it sends no recording.
+    interaction.release("right", "select");
+    assert.equal(interaction.press("left", "squeeze", { node: "glucosa" }), null);
+    interaction.release("left", "squeeze");
+    // The bar and the buttons come first, when the caller reports both.
+    assert.equal(interaction.press("left", "select", { onHandle: true, node: "glucosa" }), "grab");
+    interaction.release("left", "select");
+    assert.equal(interaction.press("left", "select", { control: "move", node: "glucosa" }), "control");
+    interaction.release("left", "select");
+    assert.deepEqual(log, ["explore glucosa", "grab left", "drop left", "press move"]);
 });
 
 test("A or X goes back to placing, lets go of everything, and cancels once placed", () => {
@@ -300,6 +322,45 @@ test("questions about the user's sources lead the suggestions, rebuilt only when
     assert.equal(menu.buttons.length, 6);
     assert.equal(menu.group.children.length, 6, "the old buttons are gone");
     assert.ok(menu.buttons.every((button) => button.holder.visible), "still open");
+});
+
+test("the Odoo AI button shows only when the server has it, and says whether it is on", () => {
+    const texts = [];
+    const menu = new XrMenu({ createLabel: (text, accent) => { texts.push(`${text}${accent ? " *" : ""}`); return fakeLabel(text, accent); } });
+    assert.ok(!menu.buttons.some((button) => button.id === XrMenu.ODOO), "no button before the hello");
+
+    texts.length = 0;
+    menu.setOdoo({ available: true, on: false });
+    assert.deepEqual(menu.buttons.slice(0, 3).map((button) => button.id), [XrMenu.MOVE, XrMenu.LANGUAGE, XrMenu.ODOO]);
+    assert.equal(texts[2], "Odoo AI: no");
+    assert.equal(menu.questionFor(XrMenu.ODOO), null, "a control, not a question");
+    assert.ok(menu.buttons[2].holder.visible, "shown with the suggestions closed");
+
+    const buttons = menu.buttons;
+    menu.setOdoo({ available: true, on: false });
+    assert.equal(menu.buttons, buttons, "the same state does not rebuild the menu");
+
+    texts.length = 0;
+    menu.setOdoo({ available: true, on: true });
+    assert.equal(texts[2], "Odoo AI: sí *", "highlighted when on");
+
+    menu.setOdoo({ available: false, on: true });
+    assert.ok(!menu.buttons.some((button) => button.id === XrMenu.ODOO));
+    assert.equal(menu.group.children.length, menu.buttons.length, "the old buttons are gone");
+});
+
+test("\"Volver a explicar\" shows while the diagram on screen can be said again", () => {
+    const menu = new XrMenu({ createLabel: fakeLabel });
+    assert.ok(!menu.buttons.some((button) => button.id === XrMenu.REPLAY));
+    menu.setReplay(true);
+    const replay = menu.buttons.find((button) => button.id === XrMenu.REPLAY);
+    assert.ok(replay.holder.visible, "shown with the suggestions closed");
+    assert.equal(menu.questionFor(XrMenu.REPLAY), null, "a control, not a question");
+    const buttons = menu.buttons;
+    menu.setReplay(true);
+    assert.equal(menu.buttons, buttons, "the same state does not rebuild the menu");
+    menu.setReplay(false);
+    assert.ok(!menu.buttons.some((button) => button.id === XrMenu.REPLAY));
 });
 
 test("the side menu stands on the teacher's other side, scaled like the diagram on a desk", () => {

@@ -175,6 +175,179 @@ body {
 
 .note { color: var(--muted); }
 .sentence.apology { font-style: italic; }
+
+/* Odoo AI's own answer, folded under the explanation. */
+.odoo-answer {
+    margin: 10px 0 0;
+    padding: 8px 10px;
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    font-size: 13px;
+}
+
+.odoo-answer summary {
+    color: var(--muted);
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.odoo-answer[open] summary {
+    margin-bottom: 6px;
+}
+
+.odoo-answer-text {
+    margin: 0;
+    line-height: 1.45;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+}
+
+.odoo-answer-links {
+    margin: 8px 0 0;
+    padding-left: 18px;
+    line-height: 1.4;
+}
+
+.odoo-answer-links a {
+    color: var(--accent);
+    overflow-wrap: anywhere;
+}
+
+/* Going deeper: the questions left open, the deeper question and the way back. */
+.hooks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 12px 0 0;
+}
+
+.hooks-hint {
+    flex-basis: 100%;
+    margin: 0;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.replay {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 10px 0 0;
+    padding: 4px 10px;
+    border: 1px solid var(--panel-border);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.replay::before {
+    content: "▶";
+    font-size: 10px;
+    color: var(--accent);
+}
+
+.replay:hover {
+    color: var(--text);
+    border-color: var(--accent);
+}
+
+.replay:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.hook,
+.back-link {
+    max-width: 100%;
+    font: inherit;
+    font-size: 13px;
+    line-height: 1.35;
+    text-align: left;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+}
+
+.hook {
+    padding: 5px 10px;
+    border: 1px solid var(--warn);
+    border-radius: 999px;
+    background: rgba(245, 183, 0, 0.1);
+    color: var(--text);
+}
+
+.hook::before {
+    content: "? ";
+    font-weight: 800;
+    color: var(--warn);
+}
+
+.hook:hover {
+    background: rgba(245, 183, 0, 0.2);
+}
+
+.hook.explored {
+    border-color: var(--ok);
+    background: transparent;
+}
+
+.hook.explored::before {
+    content: "✓ ";
+    color: var(--ok);
+}
+
+.hook:focus-visible,
+.back-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.back-link {
+    display: block;
+    margin: 0 0 8px;
+    padding: 2px 0;
+    border: 0;
+    background: none;
+    color: var(--accent);
+}
+
+.back-link:hover {
+    text-decoration: underline;
+}
+
+.question.dive {
+    border: 1px solid var(--warn);
+    background: #3A3320;
+}
+
+.odoo-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 10px;
+    font-size: 13px;
+    color: var(--muted);
+    cursor: pointer;
+}
+
+/* display: flex above would otherwise win over the hidden attribute. */
+.odoo-row[hidden] {
+    display: none;
+}
+
+.odoo-row:has(input:checked) {
+    color: var(--text);
+}
+
+.odoo-row input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
 .error { color: var(--danger); }
 
 .talk-row {

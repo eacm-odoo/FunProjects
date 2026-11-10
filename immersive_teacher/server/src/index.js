@@ -20,6 +20,7 @@ import { WebSocketServer } from "ws";
 import { ConfigError, loadConfig } from "./config.js";
 import { HourlyLimiter } from "./limits.js";
 import { createLlm } from "./llm/index.js";
+import { createOdooAi } from "./odoo_ai.js";
 import { Session } from "./session.js";
 import { createStt } from "./speech/stt/index.js";
 import { createTts } from "./speech/tts/index.js";
@@ -116,6 +117,7 @@ async function main() {
     const llm = createLlm(config.llm);
     const stt = createStt(config.stt);
     const tts = createTts(config.tts);
+    const odooAi = createOdooAi(config.odooAi);
     const limiter = new HourlyLimiter(config.maxQuestionsPerHour);
     const server = http.createServer();
     const handler = config.isProd ? createStaticHandler(DIST_DIR) : await createViteHandler(server);
@@ -148,7 +150,7 @@ async function main() {
         }
         wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
     });
-    wss.on("connection", (socket) => new Session({ socket, config, llm, stt, tts, limiter }));
+    wss.on("connection", (socket) => new Session({ socket, config, llm, stt, tts, odooAi, limiter }));
 
     server.on("error", (error) => {
         if (error.code === "EADDRINUSE") {
@@ -176,6 +178,9 @@ async function main() {
         console.info(sources.maxCount
             ? `Sources: up to ${sources.maxCount}, ${sources.maxBytes / 1024 / 1024} MB each, ${sources.maxTokens} tokens in all`
             : "Sources: off (MAX_SOURCES=0)");
+        console.info(odooAi
+            ? `Odoo AI: ${odooAi.name === "fake" ? "fake answers" : `on (${odooAi.url})`}, asked when the page's switch is on`
+            : "Odoo AI: off (ODOO_AI=off)");
     });
 
     let closing = false;

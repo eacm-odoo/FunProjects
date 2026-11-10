@@ -4,7 +4,10 @@
  * Each controller (or hand, on the Quest a pinch is a "select") gets a ray,
  * a hit-test source and a reticle. What a press does is decided by
  * XrInteraction; this module feeds it what each ray points at and carries
- * out the result: placing the lesson, talking, carrying the diagram.
+ * out the result: placing the lesson, talking, carrying the diagram,
+ * exploring a node. The nearest of the bar, a button and a node along the ray
+ * is the one it points at; pointing at a node with a question left open shows
+ * that question in the captions.
  *
  * Heights are meters above the floor: the reference space is local-floor.
  */
@@ -29,6 +32,8 @@ const HINT_DISTANCE = 1.1;
 const HINT_DROP = 0.25;
 const GRAB_FOLLOW_SECONDS = 0.05;
 const RETICLE_OK = 0x4ADE80;
+/** How long a node's open question stays in the captions once a ray points at it. */
+const HOOK_CAPTION_SECONDS = 2.5;
 const RETICLE_NO = 0x9AA5B1;
 
 const RAY_GEOMETRY = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
@@ -61,10 +66,14 @@ export class XrMode {
      * @param {() => void} options.onTalkEnd
      * @param {(question: string) => void} options.onAsk a suggested question was picked
      * @param {() => void} [options.onSwitchLanguage] the language button was pressed
+     * @param {() => void} [options.onToggleOdoo] the Odoo AI button was pressed
+     * @param {(id: string) => void} [options.onExplore] a node of the diagram, or BACK_ID, was pressed
+     * @param {() => void} [options.onReplay] "Volver a explicar" was pressed
      * @param {(active: boolean) => void} [options.onSessionChange]
      */
     constructor({
-        stage, lesson, captions, menu, onTalkStart, onTalkEnd, onAsk, onSwitchLanguage = () => {}, onSessionChange = () => {},
+        stage, lesson, captions, menu, onTalkStart, onTalkEnd, onAsk, onSwitchLanguage = () => {}, onToggleOdoo = () => {},
+        onExplore = () => {}, onReplay = () => {}, onSessionChange = () => {},
     }) {
         this.stage = stage;
         this.renderer = stage.renderer;
@@ -73,6 +82,8 @@ export class XrMode {
         this.menu = menu;
         this.onAsk = onAsk;
         this.onSwitchLanguage = onSwitchLanguage;
+        this.onToggleOdoo = onToggleOdoo;
+        this.onReplay = onReplay;
         this.onSessionChange = onSessionChange;
         this.session = null;
         this.grab = null;
@@ -91,9 +102,12 @@ export class XrMode {
                 this.grab = null;
             },
             onControl: (control) => this.#pressControl(control),
+            onExplore,
             onModeChange: (mode) => this.captions.setHint(mode),
         });
         this.inputs = [0, 1].map((index) => this.#createInput(index));
+        /** Nodes some ray pointed at in the last frame. */
+        this.hoveredNodes = new Set();
     }
 
     /** True when this browser (or the emulator) can open an immersive-ar session. */
@@ -152,6 +166,7 @@ export class XrMode {
         this.lesson.group.updateWorldMatrix(true, true);
         let anyOnHandle = false;
         const hovered = new Set();
+        const hoveredNodes = new Set();
 
         for (const input of this.inputs) {
             if (!input.source) {
@@ -160,23 +175,26 @@ export class XrMode {
             input.hit = this.#hitTest(input, frame, referenceSpace);
 
             this.raycaster.setFromXRController(input.controller);
-            let handleHit = handleReady
+            const handleHit = handleReady
                 ? this.raycaster.intersectObject(this.lesson.handleHitArea, false)[0]
                 : undefined;
-            let controlHit = this.menu.hit(this.raycaster);
+            const controlHit = this.menu.hit(this.raycaster);
+            const nodeHit = handleReady ? this.lesson.diagram.hit(this.raycaster) : null;
             // Whatever is nearer along the ray wins.
-            if (handleHit && controlHit) {
-                if (controlHit.distance < handleHit.distance) {
-                    handleHit = undefined;
-                } else {
-                    controlHit = null;
-                }
-            }
-            input.onHandle = Boolean(handleHit);
-            input.control = controlHit?.id ?? null;
+            const [nearest] = [
+                handleHit && { kind: "handle", distance: handleHit.distance },
+                controlHit && { kind: "control", id: controlHit.id, distance: controlHit.distance },
+                nodeHit && { kind: "node", id: nodeHit.id, distance: nodeHit.distance },
+            ].filter(Boolean).sort((a, b) => a.distance - b.distance);
+            input.onHandle = nearest?.kind === "handle";
+            input.control = nearest?.kind === "control" ? nearest.id : null;
+            input.node = nearest?.kind === "node" ? nearest.id : null;
             anyOnHandle ||= input.onHandle;
             if (input.control) {
                 hovered.add(input.control);
+            }
+            if (input.node) {
+                hoveredNodes.add(input.node);
             }
 
             input.reticle.visible = placing && Boolean(input.hit);
@@ -189,7 +207,7 @@ export class XrMode {
                 input.reticle.userData.material.color.setHex(input.hit.placeable ? RETICLE_OK : RETICLE_NO);
             }
             const surfaceDistance = input.hit ? this.raycaster.ray.origin.distanceTo(input.hit.position) : RAY_LENGTH;
-            input.ray.scale.z = handleHit?.distance ?? controlHit?.distance ?? (placing ? surfaceDistance : RAY_LENGTH);
+            input.ray.scale.z = nearest?.distance ?? (placing ? surfaceDistance : RAY_LENGTH);
 
             const buttons = input.source.gamepad?.buttons;
             const menuPressed = Boolean(buttons?.[MENU_BUTTON]?.pressed);
@@ -205,6 +223,7 @@ export class XrMode {
         }
 
         this.menu.setHover(hovered);
+        this.#hoverNodes(hoveredNodes);
         this.lesson.setHandleHighlight(this.grab ? 1 : anyOnHandle ? 0.6 : 0);
         this.#updateGrab(dt);
         this.#placeCaptions();
@@ -246,6 +265,7 @@ export class XrMode {
             hit: null,
             onHandle: false,
             control: null,
+            node: null,
             menuWasPressed: false,
             suggestionsWasPressed: false,
         };
@@ -286,6 +306,7 @@ export class XrMode {
         input.hit = null;
         input.onHandle = false;
         input.control = null;
+        input.node = null;
         input.ray.visible = false;
         input.reticle.visible = false;
         if (this.grab?.input === input) {
@@ -301,6 +322,7 @@ export class XrMode {
             onHandle: input.onHandle,
             surface: Boolean(input.hit?.placeable),
             control: input.control,
+            node: input.node,
         });
         if (action) {
             this.#pulse(input, action === "talk" ? 0.3 : 0.6, 40);
@@ -321,6 +343,18 @@ export class XrMode {
         return { matrix, position: new THREE.Vector3().setFromMatrixPosition(matrix), placeable: isPlaceable(normalY) };
     }
 
+    /** Highlights the nodes the rays point at; a newly pointed one shows its open question. */
+    #hoverNodes(ids) {
+        for (const id of ids) {
+            const hook = this.hoveredNodes.has(id) ? null : this.lesson.diagram.nodeData(id)?.hook;
+            if (hook) {
+                this.captions.flash(hook, HOOK_CAPTION_SECONDS);
+            }
+        }
+        this.hoveredNodes = ids;
+        this.lesson.diagram.setHover(ids);
+    }
+
     /** Without a microphone the suggested questions are the way to ask. */
     showSuggestions() {
         this.menu.setSuggestionsVisible(true);
@@ -333,6 +367,14 @@ export class XrMode {
         }
         if (control === XrMenu.LANGUAGE) {
             this.onSwitchLanguage();
+            return;
+        }
+        if (control === XrMenu.ODOO) {
+            this.onToggleOdoo();
+            return;
+        }
+        if (control === XrMenu.REPLAY) {
+            this.onReplay();
             return;
         }
         const question = this.menu.questionFor(control);
@@ -434,6 +476,7 @@ export class XrMode {
         }
         this.session = null;
         this.grab = null;
+        this.#hoverNodes(new Set());
         this.stage.setXrPresenting(false);
         this.lesson.setHandleVisible(false);
         this.menu.group.visible = false;

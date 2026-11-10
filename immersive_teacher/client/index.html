@@ -54,6 +54,11 @@
             </section>
             <div id="conversation" aria-live="polite"></div>
             <div class="talk-row">
+                <label id="odoo-row" class="odoo-row" hidden data-i18n-title="odoo.title"
+                       title="Cada pregunta va primero al asistente de soporte de odoo.com/help, y el profe explica su respuesta">
+                    <input id="odoo-switch" type="checkbox" role="switch">
+                    <span data-i18n="odoo.toggle">Consultar primero a Odoo AI</span>
+                </label>
                 <button id="talk" type="button" aria-pressed="false" disabled>
                     <svg class="talk-icon" viewBox="0 0 24 24" aria-hidden="true">
                         <rect x="9" y="3" width="6" height="11" rx="3"></rect>

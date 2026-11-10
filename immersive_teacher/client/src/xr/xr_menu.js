@@ -5,6 +5,10 @@
  *   "Mover al profesor"   choose a new place (hands have no A or X button)
  *   "English"/"Español"   switch the language (named in the language it
  *                         switches to, so whoever speaks it finds it)
+ *   "Odoo AI: on/off"     check with Odoo's support assistant first; only
+ *                         when the server has Odoo AI
+ *   "Volver a explicar"   says the explanation of the diagram on screen
+ *                         again; only when there is one to say
  *   suggested questions   shown when there is no microphone, or with B or Y;
  *                         "explain this source" ones come first when the user
  *                         loaded documents or pages
@@ -21,6 +25,8 @@ import { list, t } from "../i18n.js";
 
 const MOVE_ID = "move";
 const LANGUAGE_ID = "language";
+const ODOO_ID = "odoo";
+const REPLAY_ID = "replay";
 const GAP = 0.018;
 const HIT_DEPTH = 0.02;
 
@@ -50,6 +56,10 @@ export class XrMenu {
         this.suggestionsVisible = false;
         /** Questions about the user's sources, before the usual suggestions. */
         this.extraQuestions = [];
+        /** The Odoo AI button: shown when the server has it, highlighted when on. */
+        this.odoo = { available: false, on: false };
+        /** The "explain it again" button: shown while the diagram on screen can be said again. */
+        this.replay = false;
         this.#build();
     }
 
@@ -59,6 +69,14 @@ export class XrMenu {
 
     static get LANGUAGE() {
         return LANGUAGE_ID;
+    }
+
+    static get ODOO() {
+        return ODOO_ID;
+    }
+
+    static get REPLAY() {
+        return REPLAY_ID;
     }
 
     /** Rebuilds every button in the current language. */
@@ -73,6 +91,24 @@ export class XrMenu {
         this.#build();
     }
 
+    /** Shows the Odoo AI button and its state; rebuilds only when they changed. */
+    setOdoo({ available, on }) {
+        if (available === this.odoo.available && on === this.odoo.on) {
+            return;
+        }
+        this.odoo = { available, on };
+        this.relabel();
+    }
+
+    /** Shows or hides "Volver a explicar"; rebuilds only when that changed. */
+    setReplay(available) {
+        if (available === this.replay) {
+            return;
+        }
+        this.replay = available;
+        this.relabel();
+    }
+
     /** Puts these questions first among the suggestions; rebuilds only when they changed. */
     setExtraQuestions(questions) {
         if (questions.join("\n") === this.extraQuestions.join("\n")) {
@@ -85,6 +121,12 @@ export class XrMenu {
     #build() {
         this.#add(MOVE_ID, t("menu.move"), null, true);
         this.#add(LANGUAGE_ID, t("language.switchTo"), null, false);
+        if (this.odoo.available) {
+            this.#add(ODOO_ID, t(this.odoo.on ? "odoo.menuOn" : "odoo.menuOff"), null, this.odoo.on);
+        }
+        if (this.replay) {
+            this.#add(REPLAY_ID, t("explore.replay"), null, false);
+        }
         [...this.extraQuestions, ...list("suggestions")]
             .forEach((question, index) => this.#add(`ask:${index}`, question, question, false));
         this.#layout();
