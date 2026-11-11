@@ -8,7 +8,9 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { test } from "node:test";
 
+import { crumbId, crumbTurn, visibleCrumbs } from "../client/src/diagram/diagram_view.js";
 import { Exploration } from "../client/src/exploration.js";
+import { LEVELS, level, nextLevel, onLevelChange, setLevel } from "../client/src/level.js";
 import { loadConfig } from "../server/src/config.js";
 import { DiagramMemory, diveQuestion } from "../server/src/dive.js";
 import { MESSAGES } from "../server/src/i18n.js";
@@ -122,6 +124,62 @@ test("a node no longer kept is node_gone, and Claude is not asked", async () => 
         assert.deepEqual(error, { type: "error", code: "node_gone", message: MESSAGES.es.errors.node_gone, turn });
     }
     assert.equal(requests.length, 1);
+});
+
+test("a new connection goes deeper from the page's copy, checked as Claude's lines are", async () => {
+    const first = openSession();
+    const done = await first.socket.ask({ type: "ask_text", turn: 1, text: FIRST_QUESTION, language: "es" });
+    await first.socket.ask({ type: "ask_node", turn: 2, from: 1, node: "glucosa", language: "es" });
+    const root = { question: FIRST_QUESTION, title: done.diagram.title };
+
+    // The page reconnected, or the server restarted: this session never drew turn 1.
+    const { socket, requests } = openSession();
+    const reply = await socket.ask({ type: "ask_node", turn: 2, from: 1, node: "glucosa", diagram: done.diagram, root, language: "es" });
+    assert.equal(reply.type, "done");
+    assert.equal(lastQuestion(requests[0]), lastQuestion(first.requests[1]));
+    const seeded = (events) => events.find((event) => event.type === "diagram_step");
+    assert.deepEqual(seeded(socket.eventsOf(2)), seeded(first.socket.eventsOf(2)));
+
+    // Labels are cut as Claude's are; without the first question, the title stands for it.
+    const nodes = done.diagram.nodes.map((node) => (node.id === "glucosa" ? { ...node, label: "x".repeat(200) } : node));
+    await socket.ask({ type: "ask_node", turn: 3, from: 1, node: "glucosa", diagram: { ...done.diagram, nodes }, language: "es" });
+    assert.match(lastQuestion(requests[1]), /^Profundiza en «x{27}…» \(id glucosa\)/);
+    assert.match(lastQuestion(requests[1]), /La pregunta inicial fue: «La fotosíntesis»/);
+
+    // A copy the server could not have drawn, or without that node, is node_gone.
+    const extra = Array.from({ length: 13 - done.diagram.nodes.length }, (_, index) => ({ id: `extra${index}`, label: "Extra" }));
+    const withoutNode = done.diagram.nodes.filter((node) => node.id !== "glucosa");
+    for (const [turn, copy] of [
+        [4, { diagram: { ...done.diagram, nodes: [...done.diagram.nodes, ...extra] }, root }],
+        [5, { diagram: { ...done.diagram, nodes: withoutNode }, root }],
+        [6, { diagram: "glucosa", root }],
+        [7, { diagram: { title: "", nodes: done.diagram.nodes, edges: [] } }],
+    ]) {
+        const error = await socket.ask({ type: "ask_node", turn, from: 1, node: "glucosa", ...copy, language: "es" });
+        assert.equal(error.code, "node_gone", `turn ${turn}`);
+    }
+    assert.equal(requests.length, 2);
+});
+
+test("the server's own diagram wins over the page's copy", async () => {
+    const { socket, requests } = openSession();
+    const done = await socket.ask({ type: "ask_text", turn: 1, text: FIRST_QUESTION, language: "es" });
+    const nodes = done.diagram.nodes.map((node) => (node.id === "glucosa" ? { ...node, label: "Otra cosa" } : node));
+    await socket.ask({
+        type: "ask_node", turn: 2, from: 1, node: "glucosa",
+        diagram: { ...done.diagram, nodes }, root: { question: "Otra pregunta" }, language: "es",
+    });
+    assert.match(lastQuestion(requests[1]), /^Profundiza en «Glucosa»/);
+    assert.match(lastQuestion(requests[1]), new RegExp(`La pregunta inicial fue: «${FIRST_QUESTION.replace("?", "\\?")}»`));
+});
+
+test("each question, typed or tapped, goes at the level the page names", async () => {
+    const { socket, requests } = openSession();
+    await socket.ask({ type: "ask_text", turn: 1, text: FIRST_QUESTION, language: "es", level: "expert" });
+    await socket.ask({ type: "ask_node", turn: 2, from: 1, node: "glucosa", language: "es", level: "kid" });
+    const noteOf = (request) => request.messages.at(-1).content.at(-1).text;
+    assert.equal(noteOf(requests[0]), MESSAGES.es.levels.expert);
+    assert.equal(noteOf(requests[1]), MESSAGES.es.levels.kid);
 });
 
 test("Odoo AI gets a plain question with the first one, not the text for Claude", async () => {
@@ -239,4 +297,45 @@ test("the page keeps what each answer said, and the diagram a node already gave"
     exploration.addSentence(3, 1, "Prefiero no responder.");
     exploration.finish(3, null);
     assert.equal(exploration.replayable(3), false);
+});
+
+test("the path above a diagram names every diagram up the chain, and its labels lead back to them", () => {
+    const exploration = new Exploration();
+    const diagram = (title) => ({ title, nodes: [{ id: "a" }, { id: "b" }], edges: [] });
+    exploration.begin(1);
+    exploration.finish(1, diagram("La fotosíntesis"));
+    exploration.begin(2, { from: 1, node: "a" });
+    exploration.finish(2, diagram("Más de Glucosa"));
+    exploration.begin(3, { from: 2, node: "b" });
+    exploration.finish(3, diagram("La respiración"));
+    assert.deepEqual(exploration.pathTo(1), []);
+    assert.deepEqual(exploration.pathTo(3), [{ turnId: 1, title: "La fotosíntesis" }, { turnId: 2, title: "Más de Glucosa" }]);
+    // Where the user left nodes is kept per diagram, empty at first.
+    assert.equal(exploration.entry(3).pins.size, 0);
+
+    assert.equal(crumbTurn(crumbId(12)), 12);
+    for (const other of ["glucosa", "<crumb:x>", "<crumb:3", 7, null]) {
+        assert.equal(crumbTurn(other), null, String(other));
+    }
+    const long = [1, 2, 3, 4, 5].map((turnId) => ({ turnId, title: `T${turnId}` }));
+    assert.deepEqual(visibleCrumbs(long).map((crumb) => crumb.title), ["T1", "…", "T4", "T5"]);
+    assert.equal(visibleCrumbs(long)[1].turnId, null, "the dots lead nowhere");
+    assert.deepEqual(visibleCrumbs(long.slice(0, 3)), long.slice(0, 3));
+});
+
+test("the level goes round child, normal, expert, and tells its listeners", () => {
+    assert.deepEqual(LEVELS, ["kid", "normal", "expert"]);
+    assert.equal(level(), "normal");
+    const heard = [];
+    const stop = onLevelChange(() => heard.push(level()));
+    try {
+        setLevel(nextLevel());
+        setLevel(nextLevel());
+        setLevel("wizard");
+        setLevel(nextLevel());
+        assert.deepEqual(heard, ["expert", "kid", "normal"]);
+    } finally {
+        stop();
+        setLevel("normal");
+    }
 });

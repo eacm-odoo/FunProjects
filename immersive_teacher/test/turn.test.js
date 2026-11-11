@@ -200,3 +200,75 @@ test("both languages say the same things and have their own prompt", () => {
     assert.match(SYSTEM_PROMPTS.es, /Responde siempre en español/);
     assert.match(SYSTEM_PROMPTS.en, /Always answer in English/);
 });
+
+test("a level other than normal adds its note after the question, for this request only", async () => {
+    const requests = [];
+    const fake = createFakeLlm({ firstTokenMs: 0, chunkMs: 0 });
+    const llm = { ...fake, stream: (params) => { requests.push(params); return fake.stream(params); } };
+    const history = new ConversationHistory(4);
+    const ask = (level, question) => runTurn({
+        id: requests.length + 1, input: { text: question }, language: "es", level, llm, history,
+        emit() {}, logger: quietLogger,
+    });
+
+    await ask("kid", "¿Qué es la fotosíntesis?");
+    assert.deepEqual(requests[0].messages.at(-1).content, [
+        { type: "text", text: "¿Qué es la fotosíntesis?" },
+        { type: "text", text: MESSAGES.es.levels.kid },
+    ]);
+    // The history keeps the question alone, and "normal" (or anything unknown) adds nothing.
+    await ask("normal", "¿Y las plantas de noche?");
+    assert.equal(requests[1].messages[0].content, "¿Qué es la fotosíntesis?");
+    assert.equal(requests[1].messages.at(-1).content, "¿Y las plantas de noche?");
+    await ask("wizard", "¿Y en invierno?");
+    assert.equal(requests[2].messages.at(-1).content, "¿Y en invierno?");
+    for (const language of LANGUAGES) {
+        assert.deepEqual(Object.keys(MESSAGES[language].levels), ["kid", "expert"]);
+    }
+});
+
+test("a citation goes with the sentence that holds its text, once per place", async () => {
+    const page = (start, end) => ({
+        type: "page_location", document_index: 0, document_title: "Manual.pdf",
+        start_page_number: start, end_page_number: end, cited_text: "  El pedido\nse confirma.  ",
+    });
+    const { events } = await run({
+        llm: scriptedLlm([
+            { type: "text", text: "TITLE: Pedidos\nSAY: Primero se crea el pedido." },
+            // Its text starts after the line break: it belongs to the second sentence.
+            { type: "citation", citation: page(4, 5) },
+            { type: "text", text: "\nSAY: Luego " },
+            { type: "citation", citation: page(4, 5) },
+            { type: "citation", citation: { ...page(6, 8), document_title: null, document_index: 1 } },
+            { type: "text", text: "se confirma.\n" },
+            { type: "end", stopReason: "end_turn" },
+        ]),
+    });
+    const citations = events.filter((event) => event.type === "citation");
+    assert.deepEqual(citations, [
+        { type: "citation", step: 2, source: "Manual.pdf", pages: { from: 4, to: 4 }, quote: "El pedido se confirma." },
+        { type: "citation", step: 2, source: "#2", pages: { from: 6, to: 7 }, quote: "El pedido se confirma." },
+    ]);
+    // Right after its sentence, before the next one.
+    const types = events.map((event) => (event.step ? `${event.type}:${event.step}` : event.type));
+    assert.deepEqual(types.slice(types.indexOf("sentence:2"), types.indexOf("sentence:2") + 3), ["sentence:2", "citation:2", "citation:2"]);
+});
+
+test("the person's documents are cited by the fake as Claude does, with the pages of a PDF", async () => {
+    const history = new ConversationHistory(4);
+    const text = { type: "document", source: { type: "text", media_type: "text/plain", data: "Guía de pedidos de venta." },
+        title: "Guía", citations: { enabled: true } };
+    const pdf = { type: "document", source: { type: "base64", media_type: "application/pdf", data: "JVBERi0=" },
+        title: "Manual.pdf", citations: { enabled: true } };
+    for (const [document, expected] of [
+        [text, { source: "Guía", pages: null, quote: "Guía de pedidos de venta." }],
+        [pdf, { source: "Manual.pdf", pages: { from: 1, to: 1 }, quote: "" }],
+    ]) {
+        const events = [];
+        await runTurn({
+            id: 1, input: { text: "Explícame el documento" }, language: "es", llm: createFakeLlm({ firstTokenMs: 0, chunkMs: 0 }),
+            history, sources: [document], emit: (event) => events.push(event), logger: quietLogger,
+        });
+        assert.deepEqual(events.filter((event) => event.type === "citation"), [{ type: "citation", step: 2, ...expected }]);
+    }
+});

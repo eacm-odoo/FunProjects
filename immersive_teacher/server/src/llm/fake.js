@@ -268,6 +268,24 @@ function odooAnswerIn(messages) {
     return Array.isArray(content) ? content.find((block) => block.type === "document" && block.title === "Odoo AI") : undefined;
 }
 
+/**
+ * Where the fake cites the person's first document, as Claude does with
+ * citations on: just before the text of its second sentence. Null without a
+ * document with citations on.
+ */
+function fakeCitation(text, documents) {
+    const [document] = documents;
+    const at = text.indexOf("SAY:", text.indexOf("SAY:") + 1);
+    if (!document?.citations?.enabled || at < 0) {
+        return null;
+    }
+    const body = document.source?.type === "text" ? document.source.data : "";
+    const citation = body
+        ? { type: "char_location", start_char_index: 0, end_char_index: Math.min(body.length, 120), cited_text: body.slice(0, 120) }
+        : { type: "page_location", start_page_number: 1, end_page_number: 2, cited_text: "" };
+    return { at, citation: { ...citation, document_index: 0, document_title: document.title ?? null } };
+}
+
 function pickAnswer(question, language, documents = [], odoo = undefined) {
     const dive = diveTarget(question);
     if (dive) {
@@ -314,10 +332,23 @@ export function createFakeLlm({ firstTokenMs = 350, chunkMs = 25, chunkSize = 6,
         },
 
         async *stream({ messages, language = "es", signal }) {
-            const text = answer ?? pickAnswer(textOf(messages.at(-1)), language, documentsIn(messages), odooAnswerIn(messages));
+            const documents = documentsIn(messages);
+            const text = answer ?? pickAnswer(textOf(messages.at(-1)), language, documents, odooAnswerIn(messages));
+            let cite = answer ? null : fakeCitation(text, documents);
             await sleep(firstTokenMs, signal);
-            for (let index = 0; index < text.length; index += chunkSize) {
+            let index = 0;
+            while (index < text.length) {
+                if (cite && index + chunkSize > cite.at) {
+                    // The text before the cited one, then the citation, then the cited text.
+                    if (index < cite.at) {
+                        yield { type: "text", text: text.slice(index, cite.at) };
+                        index = cite.at;
+                    }
+                    yield { type: "citation", citation: cite.citation };
+                    cite = null;
+                }
                 yield { type: "text", text: text.slice(index, index + chunkSize) };
+                index += chunkSize;
                 if (chunkMs) {
                     await sleep(chunkMs, signal);
                 }

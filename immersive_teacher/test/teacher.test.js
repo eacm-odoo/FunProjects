@@ -112,7 +112,7 @@ test("asleep, it closes its eyes and stops looking at the viewer", () => {
     assert.ok(teacher.headPitch < -0.25, "the head did not drop");
 });
 
-test("it glances and points at a new part of the diagram, then looks back", () => {
+test("it glances at a new part of the diagram and points its arm at it, then looks back", () => {
     const teacher = new Teacher();
     teacher.setState("speaking");
     run(teacher, 1);
@@ -128,8 +128,17 @@ test("it glances and points at a new part of the diagram, then looks back", () =
     assert.ok(Math.abs(right.shoulder.rotation.z - rest.right) < 0.05, "the other arm moved");
     assert.ok(right.finger.scale.y < 0.4);
 
-    run(teacher, 1.5);
+    // The arm aims at the point: the hand ends up on the line from the shoulder to it.
+    const shoulder = left.shoulder.getWorldPosition(new THREE.Vector3());
+    const hand = left.hand.getWorldPosition(new THREE.Vector3());
+    const toPoint = new THREE.Vector3(1, 1.5, 0.1).sub(shoulder).normalize();
+    assert.ok(hand.sub(shoulder).normalize().dot(toPoint) > 0.97, "the arm does not aim at the point");
+
+    // The head comes back first; the arm keeps pointing a little longer.
+    run(teacher, 1.0);
     assert.ok(Math.abs(teacher.headYaw) < 0.15, `still looking away: ${teacher.headYaw}`);
+    assert.ok(left.finger.scale.y > 0.9, "the arm stopped pointing with the glance");
+    run(teacher, 1.6);
     assert.ok(left.shoulder.rotation.z < rest.left + 0.1);
     assert.ok(left.finger.scale.y < 0.4);
 });

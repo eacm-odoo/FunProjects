@@ -32,6 +32,7 @@
 import { decodeAudioFrame } from "./audio/audio_frame.js";
 import { Exploration } from "./exploration.js";
 import { language, t } from "./i18n.js";
+import { level } from "./level.js";
 import { odooActive } from "./odoo_mode.js";
 
 function formatTimings(timings = {}) {
@@ -59,6 +60,7 @@ export class TurnController {
         this.onTrouble = onTrouble;
         this.onReplayable = onReplayable;
         this.replayableShown = false;
+        this.replayableTurn = null;
         /** The turn being explained again, null otherwise. */
         this.replaying = null;
         this.diagram = diagram;
@@ -75,7 +77,7 @@ export class TurnController {
         this.#resetTurnState();
 
         const types = [
-            "transcript", "title", "sentence", "diagram_step", "odoo_answer", "audio_start", "audio_end", "warning", "done", "error",
+            "transcript", "title", "sentence", "citation", "diagram_step", "odoo_answer", "audio_start", "audio_end", "warning", "done", "error",
         ];
         for (const type of types) {
             connection.on(type, (event) => {
@@ -174,21 +176,28 @@ export class TurnController {
         if (this.exploration.shown !== fromTurnId) {
             this.#showDiagram(fromTurnId);
         }
-        const parentTitle = this.exploration.entry(fromTurnId).diagram.title;
+        this.#askNode(fromTurnId, node);
+        return true;
+    }
+
+    /** Asks about `node` of the diagram of `fromTurnId`; the diagram on screen must hold that node. */
+    #askNode(fromTurnId, node) {
+        const nodeId = node.id;
+        const path = [...this.exploration.pathTo(fromTurnId), { turnId: fromTurnId, title: this.exploration.entry(fromTurnId).diagram.title }];
         this.#begin(node.hook ?? t("explore.question", { label: node.label }), performance.now(), {
             from: fromTurnId,
             node: nodeId,
-            parentTitle,
+            path,
         });
-        this.panel.setBack(this.turnId, parentTitle, () => this.showTurn(fromTurnId));
+        this.panel.setPath(this.turnId, path, (turnId) => this.showTurn(turnId));
         this.panel.markExplored(fromTurnId, nodeId);
         const sent = this.connection.send({
-            type: "ask_node", turn: this.turnId, from: fromTurnId, node: nodeId, ...this.#askOptions(),
+            type: "ask_node", turn: this.turnId, from: fromTurnId, node: nodeId,
+            ...this.exploration.copyOf(fromTurnId), ...this.#askOptions(),
         });
         if (!sent) {
             this.#offline();
         }
-        return true;
     }
 
     /** Goes deeper into a node of the diagram on screen. */
@@ -217,9 +226,17 @@ export class TurnController {
      * Says the explanation of `turnId` again, sentence by sentence, from what
      * was received the first time: nothing is asked, nothing is paid. Its
      * diagram comes back on screen if another one was there.
+     *
+     * When the level changed since it was asked (too basic, too expert), the
+     * same question is asked again at the level chosen now instead: a new
+     * answer, which counts and costs like any question.
      * @returns {boolean} false when that explanation is not kept whole
      */
     replay(turnId) {
+        const entry = this.exploration.entry(turnId);
+        if (entry?.complete && entry.diagram && entry.level !== level()) {
+            return this.#explainAgain(entry);
+        }
         if (!this.exploration.replayable(turnId)) {
             return false;
         }
@@ -234,7 +251,7 @@ export class TurnController {
         const withVoice = this.speechEnabled && this.audioNarrator.unlocked && speech.size > 0;
         this.narrator = withVoice ? this.audioNarrator : this.timedNarrator;
         this.replaying = turnId;
-        this.panel.replayTurn(turnId, sentences);
+        this.panel.replayTurn(turnId, sentences, this.exploration.entry(turnId).citations);
         for (const step of [...sentences.keys()].sort((a, b) => a - b)) {
             this.narrator.enqueue(step, sentences.get(step));
             if (withVoice) {
@@ -251,6 +268,31 @@ export class TurnController {
         }
         this.narrator.finish();
         return true;
+    }
+
+    /** The question of `entry` asked again, at the level chosen now. */
+    #explainAgain(entry) {
+        const node = entry.parentTurnId === null ? null : this.exploration.node(entry.parentTurnId, entry.focusId);
+        if (node) {
+            // Its diagram already holds that node: it stays, and the new answer builds up around it.
+            if (this.exploration.shown !== entry.turnId) {
+                this.#showDiagram(entry.turnId);
+            }
+            this.#askNode(entry.parentTurnId, node);
+            return true;
+        }
+        // A first question, or a deeper one whose diagram above is gone: the question as it was asked.
+        const question = entry.asked || entry.root?.question;
+        if (!question) {
+            return false;
+        }
+        this.ask(question);
+        return true;
+    }
+
+    /** The level the answer on screen was asked at, null before the first one. */
+    shownLevel() {
+        return this.exploration.entry(this.exploration.shown)?.level ?? null;
     }
 
     /** Says the explanation of the diagram on screen again. */
@@ -275,52 +317,78 @@ export class TurnController {
     }
 
     #showDiagram(turnId) {
+        this.#keepArrangement();
         const entry = this.exploration.entry(turnId);
         this.exploration.shown = turnId;
         this.diagram.show(entry.diagram, {
-            parentTitle: this.exploration.parentTitle(turnId),
+            path: this.exploration.pathTo(turnId),
             hooks: this.exploration.hooksOf(turnId).map((hook) => hook.id),
             explored: entry.explored,
+            pins: entry.pins,
         });
         this.#refreshReplayable();
     }
 
-    /** Tells onReplayable when the diagram on screen starts or stops being one that can be said again. */
+    /** Before another diagram takes the screen: where the user left the nodes of this one. */
+    #keepArrangement() {
+        const entry = this.exploration.entry(this.exploration.shown);
+        if (entry?.complete) {
+            entry.pins = this.diagram.pins();
+        }
+    }
+
+    /**
+     * Tells onReplayable when the diagram on screen starts or stops being one
+     * that can be said again, or another one takes the screen (it may have
+     * been asked at another level).
+     */
     #refreshReplayable() {
-        const available = this.exploration.replayable(this.exploration.shown);
-        if (available !== this.replayableShown) {
+        const shown = this.exploration.shown;
+        const available = this.exploration.replayable(shown);
+        if (available !== this.replayableShown || shown !== this.replayableTurn) {
             this.replayableShown = available;
+            this.replayableTurn = shown;
             this.onReplayable(available);
         }
     }
 
     /** What every question carries besides itself. */
     #askOptions() {
-        return odooActive() ? { language: language(), odoo: true } : { language: language() };
+        const options = { language: language() };
+        if (odooActive()) {
+            options.odoo = true;
+        }
+        // "normal" is left out: the question goes exactly as without levels.
+        if (level() !== "normal") {
+            options.level = level();
+        }
+        return options;
     }
 
     /**
      * @param {string|null} question null for a recording not transcribed yet
      * @param {number} [startedAt]
-     * @param {{from: number, node: string, parentTitle: string}|null} [dive] the node it goes deeper into
+     * @param {{from: number, node: string, path: object[]}|null} [dive] the node it goes deeper into,
+     *        and the diagrams above the new one
      */
     #begin(question, startedAt = performance.now(), dive = null) {
         this.interrupt();
+        this.#keepArrangement();
         if (dive) {
-            this.diagram.focus(dive.node, dive.parentTitle);
+            this.diagram.focus(dive.node, dive.path);
         } else {
             this.diagram.clear();
         }
         this.turnId += 1;
         this.#resetTurnState();
-        this.exploration.begin(this.turnId, dive && { from: dive.from, node: dive.node });
+        this.exploration.begin(this.turnId, dive && { from: dive.from, node: dive.node }, { level: level(), question });
         this.#refreshReplayable();
         this.active = true;
         this.startedAt = startedAt;
         this.fromVoice = question === null;
         // Speech plays only once a click or key has unlocked audio in this page.
         this.narrator = this.speechEnabled && this.audioNarrator.unlocked ? this.audioNarrator : this.timedNarrator;
-        this.panel.startTurn(this.turnId, question, { dive: Boolean(dive) });
+        this.panel.startTurn(this.turnId, question, { dive: Boolean(dive), level: level() });
         this.status.set("thinking");
     }
 
@@ -350,11 +418,18 @@ export class TurnController {
     #handle(event) {
         switch (event.type) {
             case "transcript":
+                this.exploration.setQuestion(this.turnId, event.text);
                 if (this.fromVoice) {
                     this.panel.setQuestion(this.turnId, event.text || t("turn.nothingHeard"));
                     console.info(`[turn ${this.turnId}] release->transcript=${this.#elapsed()}ms`);
                 }
                 break;
+            case "citation": {
+                const citation = { source: event.source, pages: event.pages ?? null, quote: event.quote ?? "" };
+                this.exploration.addCitation(this.turnId, event.step, citation);
+                this.panel.addCitation(this.turnId, event.step, citation);
+                break;
+            }
             case "title":
                 this.diagram.setTitle(event.text);
                 this.panel.setTitle(this.turnId, event.text);
@@ -399,7 +474,7 @@ export class TurnController {
                 this.diagram.interactive = Boolean(event.diagram);
                 if (this.exploration.replayable(this.turnId)) {
                     const turnId = this.turnId;
-                    this.panel.setReplay(turnId, () => this.replay(turnId));
+                    this.panel.setReplay(turnId, () => this.replay(turnId), this.exploration.entry(turnId).level);
                 }
                 this.#refreshReplayable();
                 console.info(`[turn ${this.turnId}] ${this.fromVoice ? "release" : "ask"}->done=${this.#elapsed()}ms | server ${formatTimings(event.timings)}`);
@@ -449,9 +524,10 @@ export class TurnController {
             return;
         }
         if (this.replaying !== null) {
-            // The diagram is already whole: only the sentence moves on.
+            // The diagram is already whole: only the sentence moves on, and the teacher points at its part.
             this.status.set("explaining");
             this.panel.highlightStep(this.replaying, step);
+            this.diagram.pointAtStep(step);
             return;
         }
         if (!this.firstStepLogged && narrator === this.audioNarrator) {

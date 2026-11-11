@@ -78,8 +78,11 @@ function decodeText(data, mime) {
     return text.includes("\u0000") ? null : text;
 }
 
+/** Claude cites the passages it uses (see turn.js), and the page shows where each fact comes from. */
+const CITATIONS = Object.freeze({ enabled: true });
+
 function textBlock(text, title, context) {
-    return { type: "document", source: { type: "text", media_type: "text/plain", data: text }, title, context };
+    return { type: "document", source: { type: "text", media_type: "text/plain", data: text }, title, context, citations: CITATIONS };
 }
 
 /**
@@ -104,6 +107,7 @@ export function documentFromBytes({ data, name, mime = "", url = null }) {
             source: { type: "base64", media_type: "application/pdf", data: data.toString("base64") },
             title: shownName,
             context,
+            citations: CITATIONS,
         };
         return { kind: "pdf", title: shownName, block, chars: null };
     }

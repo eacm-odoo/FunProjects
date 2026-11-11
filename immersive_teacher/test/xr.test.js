@@ -14,7 +14,8 @@ import { Teacher } from "../client/src/teacher/teacher.js";
 import { list, setLanguage, t } from "../client/src/i18n.js";
 import { XrCaptions } from "../client/src/xr/captions.js";
 import { XrInteraction } from "../client/src/xr/interaction.js";
-import { isPlaceable, placementFor } from "../client/src/xr/placement.js";
+import { WALL_GAP, boardPlacement, isPlaceable, placementFor, surfaceKind } from "../client/src/xr/placement.js";
+import { XR_FOVEATION, XR_SCALE, xrQuality } from "../client/src/xr/quality.js";
 import { XrMenu } from "../client/src/xr/xr_menu.js";
 
 function recorder() {
@@ -26,7 +27,8 @@ function recorder() {
         onGrabStart: (source) => log.push(`grab ${source}`),
         onGrabEnd: (source) => log.push(`drop ${source}`),
         onControl: (control) => log.push(`press ${control}`),
-        onExplore: (node) => log.push(`explore ${node}`),
+        onNodeDown: (source, node) => log.push(`hold ${node}`),
+        onNodeUp: (source, node, { cancelled }) => log.push(`${cancelled ? "cancel" : "let go"} ${node}`),
         onModeChange: (mode) => log.push(`mode ${mode}`),
     });
     return { interaction, log };
@@ -96,7 +98,7 @@ test("teaching: trigger or pinch on a floating button presses it instead of talk
     assert.deepEqual(log, ["press ask:0"]);
 });
 
-test("teaching: trigger or pinch on a node explores it instead of talking; the grip does nothing there", () => {
+test("teaching: trigger or pinch on a node holds it instead of talking; the grip does nothing there", () => {
     const { interaction, log } = recorder();
     assert.equal(interaction.press("right", "select", { node: "glucosa" }), null, "nodes do nothing while placing");
     interaction.release("right", "select");
@@ -104,8 +106,8 @@ test("teaching: trigger or pinch on a node explores it instead of talking; the g
     interaction.press("right", "select", { surface: true });
     interaction.release("right", "select");
     log.length = 0;
-    assert.equal(interaction.press("right", "select", { node: "glucosa" }), "explore");
-    // Releasing it sends no recording.
+    assert.equal(interaction.press("right", "select", { node: "glucosa" }), "node");
+    // Letting go is what explores (or ends a move); it sends no recording.
     interaction.release("right", "select");
     assert.equal(interaction.press("left", "squeeze", { node: "glucosa" }), null);
     interaction.release("left", "squeeze");
@@ -114,7 +116,13 @@ test("teaching: trigger or pinch on a node explores it instead of talking; the g
     interaction.release("left", "select");
     assert.equal(interaction.press("left", "select", { control: "move", node: "glucosa" }), "control");
     interaction.release("left", "select");
-    assert.deepEqual(log, ["explore glucosa", "grab left", "drop left", "press move"]);
+    assert.deepEqual(log, ["hold glucosa", "let go glucosa", "grab left", "drop left", "press move"]);
+
+    // A or X while holding a node lets go of it without exploring.
+    log.length = 0;
+    interaction.press("right", "select", { node: "agua" });
+    interaction.menu();
+    assert.deepEqual(log, ["hold agua", "cancel agua", "mode placing"]);
 });
 
 test("A or X goes back to placing, lets go of everything, and cancels once placed", () => {
@@ -262,11 +270,11 @@ test("the side menu: a move button, and the suggested questions on demand", () =
     menu.group.visible = true;
     menu.group.updateMatrixWorld(true);
     const visible = () => menu.buttons.filter((button) => button.holder.visible).map((button) => button.id);
-    assert.deepEqual(visible(), ["move", "language"]);
+    assert.deepEqual(visible(), ["move", "language", "level"]);
 
     menu.setSuggestionsVisible(true);
     menu.group.updateMatrixWorld(true);
-    assert.deepEqual(visible(), ["move", "language", "ask:0", "ask:1", "ask:2", "ask:3"]);
+    assert.deepEqual(visible(), ["move", "language", "level", "ask:0", "ask:1", "ask:2", "ask:3"]);
     assert.equal(menu.questionFor("ask:1"), list("suggestions")[1]);
     assert.equal(menu.questionFor("move"), null);
     assert.equal(menu.questionFor("language"), null);
@@ -274,9 +282,9 @@ test("the side menu: a move button, and the suggested questions on demand", () =
     const ys = menu.buttons.map((button) => button.holder.position.y);
     assert.ok(ys.every((y, index) => index === 0 || y < ys[index - 1]));
 
-    // A ray from in front, aimed at the fourth button, hits that one.
+    // A ray from in front, aimed at the fifth button, hits that one.
     const raycaster = new THREE.Raycaster();
-    const target = menu.buttons[3].holder.getWorldPosition(new THREE.Vector3());
+    const target = menu.buttons[4].holder.getWorldPosition(new THREE.Vector3());
     raycaster.set(new THREE.Vector3(target.x, target.y, 1), new THREE.Vector3(0, 0, -1));
     assert.equal(menu.hit(raycaster).id, "ask:1");
     menu.toggleSuggestions();
@@ -290,17 +298,17 @@ test("the side menu: a move button, and the suggested questions on demand", () =
 test("the language button is named in the other language, and a switch rebuilds the menu", () => {
     const texts = [];
     const menu = new XrMenu({ createLabel: (text, accent) => { texts.push(text); return fakeLabel(text, accent); } });
-    assert.deepEqual(texts.slice(0, 2), ["Mover al profesor", "English"]);
+    assert.deepEqual(texts.slice(0, 3), ["Mover al profesor", "English", "Nivel: Normal"]);
     menu.setSuggestionsVisible(true);
     try {
         setLanguage("en", { remember: false });
         texts.length = 0;
         menu.relabel();
-        assert.deepEqual(texts.slice(0, 2), ["Move the teacher", "Español"]);
+        assert.deepEqual(texts.slice(0, 3), ["Move the teacher", "Español", "Level: Normal"]);
         assert.equal(menu.questionFor("ask:0"), "How does the water cycle work?");
         // Still open, and the old buttons are gone.
-        assert.equal(menu.buttons.length, 6);
-        assert.equal(menu.group.children.length, 6);
+        assert.equal(menu.buttons.length, 7);
+        assert.equal(menu.group.children.length, 7);
         assert.ok(menu.buttons.every((button) => button.holder.visible));
     } finally {
         setLanguage("es", { remember: false });
@@ -314,13 +322,13 @@ test("questions about the user's sources lead the suggestions, rebuilt only when
     menu.setExtraQuestions([question]);
     assert.equal(menu.questionFor("ask:0"), question);
     assert.equal(menu.questionFor("ask:1"), list("suggestions")[0]);
-    assert.equal(menu.buttons.length, 7);
+    assert.equal(menu.buttons.length, 8);
     const buttons = menu.buttons;
     menu.setExtraQuestions([question]);
     assert.equal(menu.buttons, buttons, "the same questions do not rebuild the menu");
     menu.setExtraQuestions([]);
-    assert.equal(menu.buttons.length, 6);
-    assert.equal(menu.group.children.length, 6, "the old buttons are gone");
+    assert.equal(menu.buttons.length, 7);
+    assert.equal(menu.group.children.length, 7, "the old buttons are gone");
     assert.ok(menu.buttons.every((button) => button.holder.visible), "still open");
 });
 
@@ -331,10 +339,10 @@ test("the Odoo AI button shows only when the server has it, and says whether it 
 
     texts.length = 0;
     menu.setOdoo({ available: true, on: false });
-    assert.deepEqual(menu.buttons.slice(0, 3).map((button) => button.id), [XrMenu.MOVE, XrMenu.LANGUAGE, XrMenu.ODOO]);
-    assert.equal(texts[2], "Odoo AI: no");
+    assert.deepEqual(menu.buttons.slice(0, 4).map((button) => button.id), [XrMenu.MOVE, XrMenu.LANGUAGE, XrMenu.LEVEL, XrMenu.ODOO]);
+    assert.equal(texts[3], "Odoo AI: no");
     assert.equal(menu.questionFor(XrMenu.ODOO), null, "a control, not a question");
-    assert.ok(menu.buttons[2].holder.visible, "shown with the suggestions closed");
+    assert.ok(menu.buttons[3].holder.visible, "shown with the suggestions closed");
 
     const buttons = menu.buttons;
     menu.setOdoo({ available: true, on: false });
@@ -342,7 +350,7 @@ test("the Odoo AI button shows only when the server has it, and says whether it 
 
     texts.length = 0;
     menu.setOdoo({ available: true, on: true });
-    assert.equal(texts[2], "Odoo AI: sí *", "highlighted when on");
+    assert.equal(texts[3], "Odoo AI: sí *", "highlighted when on");
 
     menu.setOdoo({ available: false, on: true });
     assert.ok(!menu.buttons.some((button) => button.id === XrMenu.ODOO));
@@ -363,6 +371,19 @@ test("\"Volver a explicar\" shows while the diagram on screen can be said again"
     assert.ok(!menu.buttons.some((button) => button.id === XrMenu.REPLAY));
 });
 
+test("after a level change, the headset's button asks the explanation again at that level", () => {
+    const texts = [];
+    const menu = new XrMenu({ createLabel: (text, accent) => { texts.push(`${text}${accent ? " *" : ""}`); return fakeLabel(text, accent); } });
+    menu.setReplay(true);
+    assert.ok(texts.includes("Volver a explicar"));
+    texts.length = 0;
+    menu.setReplay(true, "kid");
+    assert.ok(texts.includes("Explicar de nuevo: Niño *"), texts.join(" | "));
+    const buttons = menu.buttons;
+    menu.setReplay(true, "kid");
+    assert.equal(menu.buttons, buttons, "the same state does not rebuild the menu");
+});
+
 test("the side menu stands on the teacher's other side, scaled like the diagram on a desk", () => {
     const lesson = new Lesson(new Teacher(), new DiagramView());
     lesson.placeAt({ x: 0, y: 0, z: 0 }, 0, "floor");
@@ -376,4 +397,65 @@ test("the side menu stands on the teacher's other side, scaled like the diagram 
     const sideScale = lesson.side.getWorldScale(new THREE.Vector3()).x;
     const boardScale = lesson.board.getWorldScale(new THREE.Vector3()).x;
     assert.ok(Math.abs(sideScale - boardScale) < 1e-9);
+});
+
+test("the headset draws sharper than three.js's defaults, and the URL can tune it", () => {
+    assert.deepEqual(xrQuality(""), { scale: XR_SCALE, foveation: XR_FOVEATION });
+    assert.ok(XR_SCALE > 1 && XR_FOVEATION < 1, "no sharper than three.js's defaults (scale 1, foveation 1)");
+    assert.deepEqual(xrQuality("?xrscale=1.2&foveation=0"), { scale: 1.2, foveation: 0 });
+    // Out of range is clamped; nonsense keeps the default.
+    assert.deepEqual(xrQuality("?xrscale=9&foveation=-1"), { scale: 2, foveation: 0 });
+    assert.deepEqual(xrQuality("?xrscale=abc&foveation="), { scale: XR_SCALE, foveation: XR_FOVEATION });
+});
+
+test("the diagram let go near a table stands on it facing the user, near a wall it hangs flat on it", () => {
+    assert.equal(surfaceKind(1, 0.75), "table");
+    assert.equal(surfaceKind(1, 0.02), null, "not on the floor");
+    assert.equal(surfaceKind(0.05, 1.2), "wall");
+    assert.equal(surfaceKind(0.6, 1), null, "not on a slope");
+
+    const viewer = { x: 0, y: 1.6, z: 1 };
+    const table = boardPlacement({ kind: "table", point: { x: 0, y: 0.75, z: -1 }, normal: { x: 0, y: 1, z: 0 }, viewer, lift: 0.3 });
+    assert.deepEqual(table.position, { x: 0, y: 1.05, z: -1 });
+    assert.ok(Math.abs(table.yaw) < 1e-9, "its front (+Z) faces the user");
+
+    // A wall to the user's left, facing +X: the board hangs off it, its front facing out.
+    const wall = boardPlacement({ kind: "wall", point: { x: -2, y: 1.4, z: 0 }, normal: { x: 1, y: 0.02, z: 0 }, viewer });
+    assert.ok(Math.abs(wall.position.x - (-2 + WALL_GAP)) < 1e-9 && wall.position.y === 1.4);
+    assert.ok(Math.abs(wall.yaw - Math.PI / 2) < 1e-9);
+});
+
+test("the level button names the level, and is highlighted unless it is normal", () => {
+    const texts = [];
+    const menu = new XrMenu({ createLabel: (text, accent) => { texts.push(`${text}${accent ? " *" : ""}`); return fakeLabel(text, accent); } });
+    assert.ok(texts.includes("Nivel: Normal"));
+    texts.length = 0;
+    menu.setLevel("kid");
+    assert.ok(texts.includes("Nivel: Niño *"));
+    const buttons = menu.buttons;
+    menu.setLevel("kid");
+    assert.equal(menu.buttons, buttons, "the same level does not rebuild the menu");
+    assert.equal(menu.questionFor(XrMenu.LEVEL), null, "a control, not a question");
+});
+
+test("under the sentence being said, the captions name where its facts come from", () => {
+    const captions = new XrCaptions();
+    captions.startTurn(1);
+    captions.addSentence(1, 1, "Primero se crea el pedido.");
+    captions.addSentence(1, 2, "Luego se confirma.");
+    captions.addCitation(1, 2, { source: "Manual.pdf", pages: { from: 4, to: 4 } });
+    captions.addCitation(1, 2, { source: "Manual.pdf", pages: { from: 4, to: 4 } });
+    captions.addCitation(1, 2, { source: "Guía", pages: null });
+    captions.highlightStep(1, 1);
+    assert.equal(captions.currentSource(), "");
+    captions.highlightStep(1, 2);
+    assert.equal(captions.currentSource(), "Fuente: Manual.pdf, p. 4; Guía");
+    captions.flash("Aviso");
+    assert.equal(captions.currentSource(), "", "a warning hides it");
+
+    // Said again: the citations come back with the sentences.
+    const replay = new XrCaptions();
+    replay.replayTurn(1, new Map([[1, "Uno."]]), new Map([[1, [{ source: "Manual.pdf", pages: { from: 2, to: 3 } }]]]));
+    replay.highlightStep(1, 1);
+    assert.equal(replay.currentSource(), "Fuente: Manual.pdf, pp. 2-3");
 });

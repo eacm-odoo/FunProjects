@@ -5,14 +5,18 @@
  * or a table to place it, and hold the trigger or pinch to talk.
  *
  * The ES / EN switch (and a button in the headset menu) changes the language
- * of the page and of the teacher at once; see i18n.js.
+ * of the page and of the teacher at once; see i18n.js. The level switch
+ * (child, normal, expert; also in the headset menu) sets how deep the next
+ * answers go; see level.js.
  *
  * "Sources" takes documents (upload or drop a file) and public pages (by
  * their address); the teacher answers from them, and "Explain it" asks about
  * one. In the headset, those questions lead the suggested ones.
  *
  * A node of a finished diagram can be clicked (or pointed at and pressed in
- * the headset) to go deeper into it; "‹ parent" above the diagram goes back.
+ * the headset) to go deeper into it, or dragged (held, in the headset) to
+ * rearrange it. The path above the diagram ("‹ Photosynthesis › Glucose")
+ * goes back to any diagram above.
  *
  * URL options:
  *   ?q=...      asks that question as soon as the server is connected. Without
@@ -25,8 +29,9 @@
 import "./styles.css";
 
 import { PushToTalkRecorder, microphoneErrorMessage } from "./audio/recorder.js";
-import { BACK_ID, DiagramView } from "./diagram/diagram_view.js";
+import { DiagramView, crumbTurn } from "./diagram/diagram_view.js";
 import { LANGUAGES, language, languageChosen, onLanguageChange, setLanguage, t, translatePage } from "./i18n.js";
+import { level, nextLevel, onLevelChange, setLevel } from "./level.js";
 import { odooAvailable, odooMode, onOdooModeChange, setOdooAvailable, setOdooMode } from "./odoo_mode.js";
 import { AudioNarrator } from "./narration/audio_narrator.js";
 import { TimedNarrator } from "./narration/timed_narrator.js";
@@ -115,6 +120,7 @@ const panel = new DesktopPanel(document.getElementById("panel"), {
     },
     onLanguage: (next) => setLanguage(next),
     onOdoo: (on) => setOdooMode(on),
+    onLevel: (next) => setLevel(next),
 });
 panel.applyLanguage();
 const ui = combinePanels(panel, captions);
@@ -126,7 +132,7 @@ controller = new TurnController({
     audioNarrator,
     timedNarrator,
     onTrouble: () => teacher.react("confused"),
-    onReplayable: (available) => menu.setReplay(available),
+    onReplayable: () => refreshReplay(),
 });
 status.subscribe((state) => {
     ui.setStatus(state);
@@ -196,11 +202,12 @@ bindPushToTalk({
     onRelease: () => stopTalking(),
 });
 
-/** A node of the diagram (or the "‹ parent" label) was clicked or pressed. */
+/** A node of the diagram (or a label of the path above it) was clicked or pressed. */
 function pickNode(id) {
     audioNarrator.unlock();
-    if (id === BACK_ID) {
-        controller.goBack();
+    const crumb = crumbTurn(id);
+    if (crumb !== null) {
+        controller.showTurn(crumb);
     } else if (connection.isOpen) {
         controller.exploreShown(id);
     }
@@ -226,6 +233,7 @@ const xr = new XrMode({
     },
     onSwitchLanguage: () => setLanguage(LANGUAGES.find((other) => other !== language())),
     onToggleOdoo: () => setOdooMode(!odooMode()),
+    onNextLevel: () => setLevel(nextLevel()),
     onExplore: (id) => pickNode(id),
     onReplay: () => {
         audioNarrator.unlock();
@@ -243,6 +251,7 @@ bindNodePicker({
     canvas: stage.renderer.domElement,
     camera: stage.camera,
     diagram,
+    controls: stage.controls,
     isActive: () => !xr.active,
     onPick: (id) => pickNode(id),
 });
@@ -312,6 +321,23 @@ function refreshOdoo() {
 }
 onOdooModeChange(refreshOdoo);
 refreshOdoo();
+
+// --- Level -----------------------------------------------------------------
+
+function refreshLevel() {
+    panel.setLevel(level());
+    menu.setLevel(level());
+    refreshReplay();
+}
+
+/** The headset's "explain it again": as it was, or asked again when the level changed since. */
+function refreshReplay() {
+    const available = controller.replayableShown;
+    const asked = controller.shownLevel();
+    menu.setReplay(available, available && asked !== level() ? level() : null);
+}
+onLevelChange(refreshLevel);
+refreshLevel();
 
 function refreshMenuSources() {
     menu.setExtraQuestions(sources.ready.map(explainQuestion));

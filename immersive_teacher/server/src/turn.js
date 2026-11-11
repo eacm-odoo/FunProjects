@@ -32,6 +32,14 @@
  * node starts the new diagram (step 1, before Claude says anything), so it
  * stays on screen while the rest of the old diagram goes, and Odoo AI gets a
  * plain question instead of the one written for Claude.
+ *
+ * A `level` other than "normal" (a child, an expert) adds a short note after
+ * the question, in this request only: the history keeps the question alone.
+ *
+ * The user's documents have citations on: Claude backs what it takes from
+ * them with citations, which arrive just before the text they back. Each one
+ * goes to the browser as `citation {step, source, pages, quote}` right after
+ * the sentence that holds that text, so the page can show where it comes from.
  */
 
 import { LANGUAGES, MESSAGES, format } from "./i18n.js";
@@ -45,6 +53,9 @@ import { TurnTimer, describeUsage } from "./timing.js";
 export const MAX_SENTENCES = 8;
 /** The title of Odoo AI's answer in Claude's request; the system prompt names it. */
 export const ODOO_TITLE = "Odoo AI";
+/** Citations shown per sentence, and how much of the cited passage goes along. */
+const MAX_CITATIONS_PER_SENTENCE = 3;
+const MAX_QUOTE_CHARS = 200;
 
 /** The apology for a failure: what went wrong, said as the teacher would. */
 export function apologyFor(code, language = LANGUAGES[0]) {
@@ -92,6 +103,32 @@ export function withOdooAnswer(messages, block) {
     return [...messages.slice(0, -1), { role: "user", content: [block, ...blocksOf(last.content)] }];
 }
 
+/** Puts the level note after the question, in the last message; "normal" (or an unknown level) adds nothing. */
+export function withLevel(messages, level, language) {
+    const note = MESSAGES[language].levels[level];
+    if (!note) {
+        return messages;
+    }
+    const last = messages.at(-1);
+    return [...messages.slice(0, -1), { role: "user", content: [...blocksOf(last.content), { type: "text", text: note }] }];
+}
+
+/**
+ * A citation from Claude as the page shows it: the document's title, its
+ * pages for a PDF (null otherwise) and the start of the cited passage.
+ */
+export function describeCitation(citation) {
+    const source = cleanText(citation.document_title ?? "", LIMITS.title)
+        || (Number.isInteger(citation.document_index) ? `#${citation.document_index + 1}` : "?");
+    let pages = null;
+    if (citation.type === "page_location" && Number.isInteger(citation.start_page_number)) {
+        // end_page_number is past the last page cited.
+        const last = Math.max(citation.start_page_number, (citation.end_page_number ?? 0) - 1);
+        pages = { from: citation.start_page_number, to: last };
+    }
+    return { source, pages, quote: cleanText(citation.cited_text ?? "", MAX_QUOTE_CHARS) };
+}
+
 /** Odoo AI's answer, with the documentation pages it used, as a document for Claude. */
 export function odooDocument({ text, links }) {
     const lines = [text];
@@ -103,6 +140,8 @@ export function odooDocument({ text, links }) {
         source: { type: "text", media_type: "text/plain", data: lines.join("\n") },
         title: ODOO_TITLE,
         context: "Answer from Odoo AI, the official support assistant on odoo.com, to the question that follows. Explain this answer.",
+        // Like the user's documents, so the citations are on for every document of a request.
+        citations: { enabled: true },
     };
 }
 
@@ -132,6 +171,7 @@ function linkAbort(signal, controller) {
  * @param {string} [options.label] how the turn appears in the log (default: the id)
  * @param {{text: string} | {audio: Uint8Array, mime: string}} options.input
  * @param {string} [options.language] one of LANGUAGES (default: the first)
+ * @param {string} [options.level] one of LEVELS (default: "normal", no note)
  * @param {object} options.llm adapter from llm/index.js
  * @param {object} [options.stt] adapter from speech/stt/index.js (needed for audio input)
  * @param {object|null} [options.tts] adapter from speech/tts/index.js, null for text only
@@ -149,8 +189,8 @@ function linkAbort(signal, controller) {
  *          the question and the whole diagram when done
  */
 export async function runTurn({
-    id, label = String(id), input, language = LANGUAGES[0], llm, stt, tts = null, history, sources = [], odooAi = null,
-    odooHistory = null, focus = null, emit, emitAudio = () => {}, signal, logger = console,
+    id, label = String(id), input, language = LANGUAGES[0], level = "normal", llm, stt, tts = null, history, sources = [],
+    odooAi = null, odooHistory = null, focus = null, emit, emitAudio = () => {}, signal, logger = console,
 }) {
     const messages = MESSAGES[language];
     const timer = new TurnTimer(label);
@@ -197,6 +237,9 @@ export async function runTurn({
     let unmarkedLines = 0;
     let overLimit = false;
     let end = null;
+    /** Citations whose text has arrived, for the next sentence of Claude's. */
+    let cited = [];
+    let citationsSent = 0;
 
     function say(text, kind) {
         sentences += 1;
@@ -224,6 +267,7 @@ export async function runTurn({
             }
             answered += 1;
             say(item.text);
+            sendCitations();
             historyLines.push(`SAY: ${item.text}`);
             return;
         }
@@ -238,6 +282,21 @@ export async function runTurn({
                 historyLines.push(historyDrawLine(result));
             }
         }
+    }
+
+    /** The citations of the sentence just said, each place once. */
+    function sendCitations() {
+        const seen = new Set();
+        for (const citation of cited) {
+            const described = describeCitation(citation);
+            const key = `${described.source}|${described.pages?.from ?? ""}|${described.pages?.to ?? ""}`;
+            if (!seen.has(key) && seen.size < MAX_CITATIONS_PER_SENTENCE) {
+                seen.add(key);
+                emit({ type: "citation", step: sentences, ...described });
+            }
+        }
+        citationsSent += seen.size;
+        cited = [];
     }
 
     /**
@@ -316,7 +375,7 @@ export async function runTurn({
             emit({ type: "diagram_step", step: 1, nodes: [diagram.seed(focus.node)], edges: [] });
         }
 
-        let request = history.messagesFor(question);
+        let request = withLevel(history.messagesFor(question), level, language);
         if (odooAi) {
             request = withOdooAnswer(request, await askOdoo());
         }
@@ -328,15 +387,37 @@ export async function runTurn({
             language,
             signal: llmAbort.signal,
         });
+        /** Citations received whose text has not started yet. */
+        let waiting = [];
+        const read = (text) => {
+            for (const item of parser.push(text)) {
+                handle(item);
+            }
+        };
         for await (const event of events) {
             if (event.type === "end") {
                 end = event;
                 continue;
             }
-            timer.mark("claude_ttft");
-            for (const item of parser.push(event.text)) {
-                handle(item);
+            if (event.type === "citation") {
+                waiting.push(event.citation);
+                continue;
             }
+            timer.mark("claude_ttft");
+            let text = event.text;
+            if (waiting.length) {
+                // A line break before the cited text ends the line before it, which is not the one cited.
+                const lead = /^[\r\n]*/.exec(text)[0];
+                if (lead) {
+                    read(lead);
+                    text = text.slice(lead.length);
+                }
+                if (text) {
+                    cited.push(...waiting);
+                    waiting = [];
+                }
+            }
+            read(text);
             if (overLimit) {
                 logger.warn(`[turn ${label}] more than ${MAX_SENTENCES} sentences, stream cut`);
                 llmAbort.abort();
@@ -411,6 +492,12 @@ export async function runTurn({
     }
     if (focus) {
         details.push(`dive=${focus.node.id}`);
+    }
+    if (level !== "normal") {
+        details.push(`level=${level}`);
+    }
+    if (citationsSent) {
+        details.push(`citations=${citationsSent}`);
     }
     logger.info(timer.line(details.filter(Boolean).join(" | ")));
     return { status: "done", question, diagram: result };

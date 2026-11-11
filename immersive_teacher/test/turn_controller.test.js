@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { setLevel } from "../client/src/level.js";
 import { TurnController } from "../client/src/turn_controller.js";
 
 class FakeConnection {
@@ -161,7 +162,8 @@ test("a node explored before shows the diagram it gave, without asking or talkin
     controller.ask("¿Cómo hacen las plantas la fotosíntesis?");
     answer(connection, 1, PHOTOSYNTHESIS, ["Frase uno.", "Frase dos."]);
     assert.equal(controller.explore(1, "glucosa"), true);
-    assert.deepEqual(connection.sent.at(-1), { type: "ask_node", turn: 2, from: 1, node: "glucosa", language: "es" });
+    const { type, turn, from, node } = connection.sent.at(-1);
+    assert.deepEqual({ type, turn, from, node }, { type: "ask_node", turn: 2, from: 1, node: "glucosa" });
     answer(connection, 2, GLUCOSE, ["Más uno.", "Más dos."]);
 
     assert.equal(controller.goBack(), true);
@@ -174,7 +176,7 @@ test("a node explored before shows the diagram it gave, without asking or talkin
     const shown = diagram.calls.filter(([name]) => name === "show");
     assert.equal(shown.length, 1);
     assert.equal(shown[0][1], GLUCOSE);
-    assert.equal(shown[0][2].parentTitle, "La fotosíntesis");
+    assert.deepEqual(shown[0][2].path, [{ turnId: 1, title: "La fotosíntesis" }]);
     assert.equal(controller.exploration.shown, 2);
     assert.ok(panel.calls.some(([name, turn]) => name === "revealTurn" && turn === 2));
 }));
@@ -217,4 +219,90 @@ test("without speech the explanation is paced as text, and a deeper answer in pr
     // A failed answer is never said again.
     connection.emit({ type: "error", turn: 2, code: "llm_failed", message: "x" });
     assert.equal(controller.replay(2), false);
+}));
+
+test("a tapped node takes its diagram and the first question along, for a server that lost them", () => quietly(() => {
+    const { controller, connection } = setUp();
+    const question = "¿Cómo hacen las plantas la fotosíntesis?";
+    controller.ask(question);
+    connection.emit({ type: "transcript", turn: 1, text: question });
+    answer(connection, 1, PHOTOSYNTHESIS, ["Frase uno.", "Frase dos."]);
+    controller.explore(1, "glucosa");
+    const root = { question, title: "La fotosíntesis" };
+    assert.deepEqual(connection.sent.at(-1), {
+        type: "ask_node", turn: 2, from: 1, node: "glucosa", diagram: PHOTOSYNTHESIS, root, language: "es",
+    });
+
+    // One level down, the text the server built for Claude does not replace the first question.
+    connection.emit({ type: "transcript", turn: 2, text: "Profundiza en «Glucosa» (id glucosa)" });
+    answer(connection, 2, GLUCOSE, ["Más uno.", "Más dos."]);
+    controller.explore(2, "celula");
+    assert.deepEqual(connection.sent.at(-1), {
+        type: "ask_node", turn: 3, from: 2, node: "celula", diagram: GLUCOSE, root, language: "es",
+    });
+}));
+
+test("citations go under their sentence, come back when it is said again, and the level goes with the question", () => quietly(() => {
+    const { controller, connection, panel } = setUp();
+    controller.ask("Explícame el manual");
+    const citation = { source: "Manual.pdf", pages: { from: 4, to: 4 }, quote: "El pedido se confirma." };
+    connection.emit({ type: "sentence", turn: 1, step: 1, text: "Uno." });
+    connection.emit({ type: "citation", turn: 1, step: 1, ...citation });
+    answer(connection, 1, PHOTOSYNTHESIS, ["Uno.", "Dos."]);
+    assert.ok(panel.calls.some(([name, turn, step, cited]) => name === "addCitation" && turn === 1 && step === 1
+        && cited.source === "Manual.pdf"));
+    panel.calls.length = 0;
+    controller.replay(1);
+    const [, , , citations] = panel.calls.find(([name]) => name === "replayTurn");
+    assert.deepEqual(citations.get(1), [citation]);
+
+    setLevel("expert");
+    try {
+        controller.ask("¿Y la factura?");
+        assert.equal(connection.sent.at(-1).level, "expert");
+        setLevel("normal");
+        controller.ask("¿Y el pago?");
+        assert.ok(!("level" in connection.sent.at(-1)), "normal goes as before");
+    } finally {
+        setLevel("normal");
+    }
+}));
+
+test("at another level, \"explain it again\" asks the same question again at that level", () => quietly(() => {
+    const { controller, connection, diagram } = setUp();
+    const question = "¿Cómo hacen las plantas la fotosíntesis?";
+    controller.ask(question);
+    connection.emit({ type: "transcript", turn: 1, text: question });
+    answer(connection, 1, PHOTOSYNTHESIS, ["Uno.", "Dos."]);
+    try {
+        // The same level: said again from what was kept, nothing asked.
+        const sent = connection.sent.length;
+        assert.equal(controller.replay(1), true);
+        assert.equal(connection.sent.length, sent);
+
+        setLevel("kid");
+        assert.equal(controller.replay(1), true);
+        const again = connection.sent.at(-1);
+        assert.deepEqual(again, { type: "ask_text", turn: again.turn, text: question, language: "es", level: "kid" });
+        answer(connection, again.turn, PHOTOSYNTHESIS, ["Uno.", "Dos."]);
+        assert.equal(controller.shownLevel(), "kid");
+
+        // A deeper answer: the same node is asked about again, and its diagram stays on screen around it.
+        controller.explore(again.turn, "glucosa");
+        const dive = connection.sent.at(-1);
+        answer(connection, dive.turn, GLUCOSE, ["Más uno.", "Más dos."]);
+        setLevel("expert");
+        diagram.calls.length = 0;
+        assert.equal(controller.replay(dive.turn), true);
+        const deeper = connection.sent.at(-1);
+        assert.equal(deeper.type, "ask_node");
+        assert.deepEqual([deeper.from, deeper.node, deeper.level], [again.turn, "glucosa", "expert"]);
+        assert.ok(!diagram.calls.some(([name]) => name === "show"), "the diagram above does not come back");
+        assert.ok(diagram.calls.some(([name, id]) => name === "focus" && id === "glucosa"));
+        // From now on, that node opens the new answer.
+        answer(connection, deeper.turn, GLUCOSE, ["Más uno.", "Más dos."]);
+        assert.equal(controller.exploration.childOf(again.turn, "glucosa").turnId, deeper.turn);
+    } finally {
+        setLevel("normal");
+    }
 }));

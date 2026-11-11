@@ -15,7 +15,7 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { WebSocketServer } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 
 import { ConfigError, loadConfig } from "./config.js";
 import { HourlyLimiter } from "./limits.js";
@@ -33,6 +33,10 @@ const WS_PATH = "/ws";
 // MAX_SOURCE_MB; the socket's hard stop is a little above the larger of both.
 const MIN_WS_PAYLOAD = 4 * 1024 * 1024;
 const WS_PAYLOAD_MARGIN = 1024 * 1024;
+// Proxies on the way, such as Cloudflare's tunnel, close a WebSocket that
+// stays quiet for a while, and nothing travels while the person looks at a
+// diagram. A ping this often keeps it open; the browser answers it on its own.
+const WS_PING_SECONDS = 30;
 
 const MIME_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -151,6 +155,14 @@ async function main() {
         wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
     });
     wss.on("connection", (socket) => new Session({ socket, config, llm, stt, tts, odooAi, limiter }));
+    const pings = setInterval(() => {
+        for (const client of wss.clients) {
+            if (client.readyState === WebSocket.OPEN) {
+                client.ping();
+            }
+        }
+    }, WS_PING_SECONDS * 1000);
+    pings.unref();
 
     server.on("error", (error) => {
         if (error.code === "EADDRINUSE") {
@@ -189,6 +201,7 @@ async function main() {
             process.exit(1);
         }
         closing = true;
+        clearInterval(pings);
         for (const client of wss.clients) {
             client.terminate();
         }

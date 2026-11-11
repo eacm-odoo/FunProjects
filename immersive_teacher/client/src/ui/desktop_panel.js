@@ -1,15 +1,19 @@
 /**
  * Side panel of the desktop view: the question box, the talk button, the
- * status, the language switch, the Odoo AI switch and the conversation, with
+ * status, the language and level switches, the Odoo AI switch and the conversation, with
  * the sentence being spoken highlighted. Switching language relabels the
  * panel; the conversation already on screen stays as it was said.
  *
- * Under a finished answer, "Volver a explicar" says it again and the questions
+ * Under a finished answer, "Volver a explicar" says it again (or, when the
+ * level changed since, "Explicar de nuevo: Niño" asks it again at the new
+ * level); a question asked at a level other than normal carries its name; and the questions
  * it left open are buttons that go deeper into their node; a deeper answer
  * starts with a button back to the diagram it came from.
  */
 
+import { citationPlace } from "../citation.js";
 import { language, t } from "../i18n.js";
+import { level } from "../level.js";
 
 function element(tag, className, text) {
     const node = document.createElement(tag);
@@ -46,15 +50,19 @@ export class DesktopPanel {
     /**
      * @param {HTMLElement} root
      * @param {{onAsk: (question: string) => void, onLanguage: (language: string) => void,
-     *   onOdoo?: (on: boolean) => void}} handlers
+     *   onOdoo?: (on: boolean) => void, onLevel?: (level: string) => void}} handlers
      */
-    constructor(root, { onAsk, onLanguage, onOdoo = () => {} }) {
+    constructor(root, { onAsk, onLanguage, onOdoo = () => {}, onLevel = () => {} }) {
         this.statusEl = root.querySelector("#status");
         this.state = this.statusEl.dataset.state;
         this.recording = false;
         this.languageButtons = [...root.querySelectorAll("#language-switch [data-language]")];
         for (const button of this.languageButtons) {
             button.addEventListener("click", () => onLanguage(button.dataset.language));
+        }
+        this.levelButtons = [...root.querySelectorAll("#level-switch [data-level]")];
+        for (const button of this.levelButtons) {
+            button.addEventListener("click", () => onLevel(button.dataset.level));
         }
         this.odooRow = root.querySelector("#odoo-row");
         this.odooInput = root.querySelector("#odoo-switch");
@@ -95,7 +103,10 @@ export class DesktopPanel {
     applyLanguage() {
         for (const turn of this.turns.values()) {
             if (turn.replay) {
-                turn.replay.textContent = t("explore.replay");
+                this.#labelReplay(turn);
+            }
+            if (turn.levelTag) {
+                turn.levelTag.textContent = t(`level.${turn.levelTag.dataset.level}`);
             }
         }
         for (const button of this.languageButtons) {
@@ -110,6 +121,18 @@ export class DesktopPanel {
     }
 
     /** The Odoo AI switch: shown when the server has it, checked when the user turned it on. */
+    /** Marks the level the next question goes at; the "explain again" buttons follow it. */
+    setLevel(current) {
+        for (const button of this.levelButtons) {
+            button.setAttribute("aria-pressed", String(button.dataset.level === current));
+        }
+        for (const turn of this.turns.values()) {
+            if (turn.replay) {
+                this.#labelReplay(turn);
+            }
+        }
+    }
+
     setOdoo({ available, on }) {
         this.odooRow.hidden = !available;
         this.odooInput.checked = on;
@@ -151,11 +174,17 @@ export class DesktopPanel {
      * @param {string|null} question null for a recording not transcribed yet
      * @param {{dive?: boolean}} [options] dive: the question goes deeper into a node
      */
-    startTurn(turnId, question, { dive = false } = {}) {
+    startTurn(turnId, question, { dive = false, level: asked = "normal" } = {}) {
         const block = element("section", "turn");
         const questionEl = question === null
             ? element("p", "question transcribing", t("turn.transcribing"))
             : element("p", dive ? "question dive" : "question", question);
+        // The level the question went at, unless normal.
+        const levelTag = asked === "normal" ? null : element("span", "level-tag", t(`level.${asked}`));
+        if (levelTag) {
+            levelTag.dataset.level = asked;
+            questionEl.append(levelTag);
+        }
         block.append(questionEl);
         const answer = element("div", "answer");
         const title = element("h2", "answer-title");
@@ -163,7 +192,7 @@ export class DesktopPanel {
         answer.append(title, list);
         block.append(answer);
         this.conversationEl.append(block);
-        this.turns.set(turnId, { block, questionEl, answer, title, list, sentences: new Map() });
+        this.turns.set(turnId, { block, questionEl, levelTag, answer, title, list, sentences: new Map() });
         this.#scrollToEnd();
     }
 
@@ -171,6 +200,9 @@ export class DesktopPanel {
         const turn = this.turns.get(turnId);
         if (turn) {
             turn.questionEl.textContent = text;
+            if (turn.levelTag) {
+                turn.questionEl.append(turn.levelTag);
+            }
             turn.questionEl.classList.remove("transcribing");
         }
     }
@@ -195,6 +227,19 @@ export class DesktopPanel {
     }
 
     /** Marks `step` as the sentence being said and the earlier ones as said. */
+    /** Where a fact of sentence `step` comes from: the document and its page, the passage on hover. */
+    addCitation(turnId, step, citation) {
+        const item = this.turns.get(turnId)?.sentences.get(step);
+        if (!item) {
+            return;
+        }
+        const chip = element("span", "cite", citationPlace(citation));
+        if (citation.quote) {
+            chip.title = citation.quote;
+        }
+        item.append(chip);
+    }
+
     highlightStep(turnId, step) {
         const turn = this.turns.get(turnId);
         if (!turn) {
@@ -233,22 +278,28 @@ export class DesktopPanel {
     }
 
     /** The button back to the diagram a deeper answer came from, before its question. */
-    setBack(turnId, title, onBack) {
+    /**
+     * The diagrams above a deeper answer, at the start of its block: each one
+     * is a button back to it ("‹ Photosynthesis › Glucose").
+     * @param {{turnId: number, title: string}[]} path the top of the chain first
+     * @param {(turnId: number) => void} onPick
+     */
+    setPath(turnId, path, onPick) {
         const turn = this.turns.get(turnId);
-        if (!turn) {
+        if (!turn || !path.length) {
             return;
         }
-        const button = element("button", "back-link", t("explore.back", { title }));
-        button.type = "button";
-        button.addEventListener("click", () => onBack());
-        turn.block.prepend(button);
+        const nav = element("nav", "path");
+        nav.setAttribute("aria-label", t("explore.path"));
+        path.forEach((crumb, index) => {
+            const button = element("button", "back-link", `${index === 0 ? "‹" : "›"} ${crumb.title}`);
+            button.type = "button";
+            button.addEventListener("click", () => onPick(crumb.turnId));
+            nav.append(button);
+        });
+        turn.block.prepend(nav);
     }
 
-    /**
-     * The questions the answer left open, as buttons that go deeper into their node.
-     * @param {{id: string, label: string, hook: string}[]} hooks
-     * @param {(nodeId: string) => void} onPick
-     */
     setHooks(turnId, hooks, onPick) {
         const turn = this.turns.get(turnId);
         if (!turn || turn.hooks) {
@@ -280,17 +331,29 @@ export class DesktopPanel {
         this.turns.get(turnId)?.block.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
 
-    /** The button that says this answer again, from what was received: nothing is asked. */
-    setReplay(turnId, onReplay) {
+    /**
+     * The button that says this answer again, from what was received: nothing
+     * is asked. At another level than `asked`, it asks again at that level.
+     */
+    setReplay(turnId, onReplay, asked = "normal") {
         const turn = this.turns.get(turnId);
         if (!turn || turn.replay) {
             return;
         }
-        const button = element("button", "replay", t("explore.replay"));
+        const button = element("button", "replay");
         button.type = "button";
         button.addEventListener("click", () => onReplay());
         turn.replay = button;
+        turn.replayLevel = asked;
+        this.#labelReplay(turn);
         turn.answer.append(button);
+    }
+
+    /** "Volver a explicar" at the level it was asked at, "Explicar de nuevo: Niño" at another one. */
+    #labelReplay(turn) {
+        const again = turn.replayLevel !== level();
+        turn.replay.textContent = again ? t("explore.reexplain", { level: t(`level.${level()}`) }) : t("explore.replay");
+        turn.replay.classList.toggle("again", again);
     }
 
     /** That answer is being said again: its sentences light up one by one, as the first time. */

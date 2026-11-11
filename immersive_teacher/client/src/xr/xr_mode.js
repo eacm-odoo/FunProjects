@@ -5,9 +5,14 @@
  * a hit-test source and a reticle. What a press does is decided by
  * XrInteraction; this module feeds it what each ray points at and carries
  * out the result: placing the lesson, talking, carrying the diagram,
- * exploring a node. The nearest of the bar, a button and a node along the ray
- * is the one it points at; pointing at a node with a question left open shows
- * that question in the captions.
+ * exploring or moving a node. The nearest of the bar, a button and a node
+ * along the ray is the one it points at; pointing at a node with a question
+ * left open shows that question in the captions.
+ *
+ * A node pressed and let go is explored; held and moved, it follows the ray
+ * and stays where it is let go. The diagram carried by its bar and let go
+ * near a table stands on it, near a wall it hangs on it (the reticle shows
+ * where, while carrying).
  *
  * Heights are meters above the floor: the reference space is local-floor.
  */
@@ -15,7 +20,9 @@
 import * as THREE from "three";
 
 import { XrInteraction } from "./interaction.js";
-import { DESK_MIN_HEIGHT, isPlaceable, placementFor } from "./placement.js";
+import { crumbTurn } from "../diagram/diagram_view.js";
+import { DESK_MIN_HEIGHT, boardPlacement, isPlaceable, placementFor, surfaceKind } from "./placement.js";
+import { xrQuality } from "./quality.js";
 import { XrMenu } from "./xr_menu.js";
 
 const SESSION_INIT = Object.freeze({
@@ -35,6 +42,12 @@ const RETICLE_OK = 0x4ADE80;
 /** How long a node's open question stays in the captions once a ray points at it. */
 const HOOK_CAPTION_SECONDS = 2.5;
 const RETICLE_NO = 0x9AA5B1;
+/** A held node starts to move once the ray's point has gone this far (meters). */
+const NODE_DRAG_START = 0.025;
+/** The diagram snaps to a surface the ray hits this close to it (meters). */
+const SNAP_REACH = 0.5;
+/** Room left under the bar when the diagram stands on a table (board meters). */
+const BOARD_FOOT = 0.04;
 
 const RAY_GEOMETRY = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
 const RAY_MATERIAL = new THREE.LineBasicMaterial({ color: 0xFFFFFF, transparent: true, opacity: 0.55 });
@@ -67,13 +80,14 @@ export class XrMode {
      * @param {(question: string) => void} options.onAsk a suggested question was picked
      * @param {() => void} [options.onSwitchLanguage] the language button was pressed
      * @param {() => void} [options.onToggleOdoo] the Odoo AI button was pressed
-     * @param {(id: string) => void} [options.onExplore] a node of the diagram, or BACK_ID, was pressed
+     * @param {() => void} [options.onNextLevel] the level button was pressed
+     * @param {(id: string) => void} [options.onExplore] a node of the diagram, or a label of its path, was pressed
      * @param {() => void} [options.onReplay] "Volver a explicar" was pressed
      * @param {(active: boolean) => void} [options.onSessionChange]
      */
     constructor({
         stage, lesson, captions, menu, onTalkStart, onTalkEnd, onAsk, onSwitchLanguage = () => {}, onToggleOdoo = () => {},
-        onExplore = () => {}, onReplay = () => {}, onSessionChange = () => {},
+        onNextLevel = () => {}, onExplore = () => {}, onReplay = () => {}, onSessionChange = () => {},
     }) {
         this.stage = stage;
         this.renderer = stage.renderer;
@@ -83,10 +97,14 @@ export class XrMode {
         this.onAsk = onAsk;
         this.onSwitchLanguage = onSwitchLanguage;
         this.onToggleOdoo = onToggleOdoo;
+        this.onNextLevel = onNextLevel;
         this.onReplay = onReplay;
+        this.onExplore = onExplore;
         this.onSessionChange = onSessionChange;
         this.session = null;
         this.grab = null;
+        /** The node a ray holds: it follows the ray once it has moved a little. */
+        this.nodeDrag = null;
         this.hintPlaced = false;
         /** The user's head this frame, from the viewer pose (meters, local-floor). */
         this.head = new THREE.Vector3();
@@ -99,10 +117,12 @@ export class XrMode {
             onTalkEnd,
             onGrabStart: (source) => this.#startGrab(source),
             onGrabEnd: () => {
+                this.#dropBoard();
                 this.grab = null;
             },
             onControl: (control) => this.#pressControl(control),
-            onExplore,
+            onNodeDown: (source, id) => this.#startNodeDrag(source, id),
+            onNodeUp: (source, id, { cancelled }) => this.#endNodeDrag(id, cancelled),
             onModeChange: (mode) => this.captions.setHint(mode),
         });
         this.inputs = [0, 1].map((index) => this.#createInput(index));
@@ -136,6 +156,10 @@ export class XrMode {
         this.session = session;
         session.addEventListener("end", () => this.#onEnd(), { once: true });
         this.renderer.xr.setReferenceSpaceType("local-floor");
+        // Both only take effect when set before the session starts.
+        const { scale, foveation } = xrQuality(window.location.search);
+        this.renderer.xr.setFramebufferScaleFactor(scale);
+        this.renderer.xr.setFoveation(foveation);
         await this.renderer.xr.setSession(session);
         this.stage.setXrPresenting(true);
         // Nothing stands in the room until the user picks a place.
@@ -189,6 +213,8 @@ export class XrMode {
             input.onHandle = nearest?.kind === "handle";
             input.control = nearest?.kind === "control" ? nearest.id : null;
             input.node = nearest?.kind === "node" ? nearest.id : null;
+            input.nodeDistance = input.node ? nearest.distance : null;
+            input.snap = this.grab?.input === input ? this.#snapFor(input) : null;
             anyOnHandle ||= input.onHandle;
             if (input.control) {
                 hovered.add(input.control);
@@ -197,14 +223,14 @@ export class XrMode {
                 hoveredNodes.add(input.node);
             }
 
-            input.reticle.visible = placing && Boolean(input.hit);
+            input.reticle.visible = (placing || Boolean(input.snap)) && Boolean(input.hit);
             if (input.reticle.visible) {
                 input.reticle.matrix.copy(input.hit.matrix);
-                // A smaller ring on a desk: the teacher will be small there too.
-                if (input.hit.position.y >= DESK_MIN_HEIGHT) {
+                // A smaller ring on a desk (the teacher will be small there too) and where the diagram lands.
+                if (input.snap || input.hit.position.y >= DESK_MIN_HEIGHT) {
                     input.reticle.matrix.scale(tmpScale.setScalar(0.6));
                 }
-                input.reticle.userData.material.color.setHex(input.hit.placeable ? RETICLE_OK : RETICLE_NO);
+                input.reticle.userData.material.color.setHex(input.snap || input.hit.placeable ? RETICLE_OK : RETICLE_NO);
             }
             const surfaceDistance = input.hit ? this.raycaster.ray.origin.distanceTo(input.hit.position) : RAY_LENGTH;
             input.ray.scale.z = nearest?.distance ?? (placing ? surfaceDistance : RAY_LENGTH);
@@ -226,6 +252,7 @@ export class XrMode {
         this.#hoverNodes(hoveredNodes);
         this.lesson.setHandleHighlight(this.grab ? 1 : anyOnHandle ? 0.6 : 0);
         this.#updateGrab(dt);
+        this.#updateNodeDrag();
         this.#placeCaptions();
     }
 
@@ -266,6 +293,9 @@ export class XrMode {
             onHandle: false,
             control: null,
             node: null,
+            nodeDistance: null,
+            /** Where the diagram would land if let go now: {kind, hit}, or null. */
+            snap: null,
             menuWasPressed: false,
             suggestionsWasPressed: false,
         };
@@ -307,10 +337,14 @@ export class XrMode {
         input.onHandle = false;
         input.control = null;
         input.node = null;
+        input.snap = null;
         input.ray.visible = false;
         input.reticle.visible = false;
         if (this.grab?.input === input) {
             this.grab = null;
+        }
+        if (this.nodeDrag?.input === input) {
+            this.nodeDrag = null;
         }
     }
 
@@ -339,8 +373,8 @@ export class XrMode {
         }
         const matrix = new THREE.Matrix4().fromArray(pose.transform.matrix);
         // The hit pose's Y axis is the surface normal.
-        const normalY = matrix.elements[5];
-        return { matrix, position: new THREE.Vector3().setFromMatrixPosition(matrix), placeable: isPlaceable(normalY) };
+        const normal = new THREE.Vector3().setFromMatrixColumn(matrix, 1).normalize();
+        return { matrix, position: new THREE.Vector3().setFromMatrixPosition(matrix), normal, placeable: isPlaceable(normal.y) };
     }
 
     /** Highlights the nodes the rays point at; a newly pointed one shows its open question. */
@@ -371,6 +405,10 @@ export class XrMode {
         }
         if (control === XrMenu.ODOO) {
             this.onToggleOdoo();
+            return;
+        }
+        if (control === XrMenu.LEVEL) {
+            this.onNextLevel();
             return;
         }
         if (control === XrMenu.REPLAY) {
@@ -436,6 +474,83 @@ export class XrMode {
         board.rotation.set(0, worldYaw - this.lesson.group.rotation.y, 0);
     }
 
+    /** The table or wall the carried diagram would land on, when the ray hits one close to it. */
+    #snapFor(input) {
+        const hit = input.hit;
+        if (!hit) {
+            return null;
+        }
+        const kind = surfaceKind(hit.normal.y, hit.position.y);
+        const board = this.lesson.board.getWorldPosition(tmpVector);
+        return kind && hit.position.distanceTo(board) <= SNAP_REACH ? { kind, hit } : null;
+    }
+
+    /** The carried diagram let go: onto the table or wall under the reticle, if there is one. */
+    #dropBoard() {
+        const snap = this.grab?.input.snap;
+        if (!snap) {
+            return;
+        }
+        const board = this.lesson.board;
+        const scale = board.getWorldScale(tmpScale).x;
+        const bottom = this.lesson.handle.position.y - BOARD_FOOT;
+        const { position, yaw } = boardPlacement({
+            kind: snap.kind,
+            point: snap.hit.position,
+            normal: snap.hit.normal,
+            viewer: this.head,
+            lift: -bottom * scale,
+        });
+        board.position.copy(this.lesson.group.worldToLocal(new THREE.Vector3(position.x, position.y, position.z)));
+        board.rotation.set(0, yaw - this.lesson.group.rotation.y, 0);
+        this.#pulse(this.grab.input, 0.8, 60);
+    }
+
+    #startNodeDrag(sourceId, id) {
+        const input = this.#findInput(sourceId);
+        if (!input) {
+            return;
+        }
+        // A label of the path is only pressed, never carried.
+        if (crumbTurn(id) !== null || input.nodeDistance === null) {
+            this.nodeDrag = { input, id, moved: false, fixed: true };
+            return;
+        }
+        this.raycaster.setFromXRController(input.controller);
+        const start = this.raycaster.ray.at(input.nodeDistance, new THREE.Vector3());
+        const diagram = this.lesson.diagram;
+        diagram.group.updateWorldMatrix(true, false);
+        const offset = diagram.nodePosition(id).sub(diagram.group.worldToLocal(start.clone()));
+        this.nodeDrag = { input, id, distance: input.nodeDistance, start, offset, moved: false, fixed: false };
+    }
+
+    /** The held node follows the ray, on the diagram's plane, once it has moved a little. */
+    #updateNodeDrag() {
+        const drag = this.nodeDrag;
+        if (!drag || drag.fixed) {
+            return;
+        }
+        this.raycaster.setFromXRController(drag.input.controller);
+        const point = this.raycaster.ray.at(drag.distance, new THREE.Vector3());
+        if (!drag.moved && point.distanceTo(drag.start) > NODE_DRAG_START) {
+            drag.moved = true;
+            this.#pulse(drag.input, 0.3, 20);
+        }
+        if (drag.moved) {
+            const diagram = this.lesson.diagram;
+            diagram.moveNode(drag.id, diagram.group.worldToLocal(point).add(drag.offset));
+        }
+    }
+
+    /** Let go: a node that did not move was a press, and goes deeper. */
+    #endNodeDrag(id, cancelled) {
+        const drag = this.nodeDrag;
+        this.nodeDrag = null;
+        if (!cancelled && !drag?.moved) {
+            this.onExplore(id);
+        }
+    }
+
     /** Before the lesson is placed, in front of the user; then under the diagram. */
     #placeCaptions() {
         const captions = this.captions.group;
@@ -476,6 +591,7 @@ export class XrMode {
         }
         this.session = null;
         this.grab = null;
+        this.nodeDrag = null;
         this.#hoverNodes(new Set());
         this.stage.setXrPresenting(false);
         this.lesson.setHandleVisible(false);

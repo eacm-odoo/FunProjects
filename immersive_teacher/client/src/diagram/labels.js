@@ -5,7 +5,14 @@
 
 import * as THREE from "three";
 
-const FONT_PX = 64;
+/**
+ * Canvas pixels per line of text. A label is a few centimeters tall, and in
+ * the headset it is read from half a meter: fewer pixels than this look
+ * blurry there. The world size does not depend on it.
+ */
+const FONT_PX = 96;
+/** Sharper at a slant (labels seen from a side). */
+const ANISOTROPY = 8;
 const LINE_HEIGHT = 1.22;
 const FONT_FAMILY = "system-ui, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif";
 
@@ -87,7 +94,7 @@ export function createTextSprite(text, {
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
-    texture.anisotropy = 4;
+    texture.anisotropy = ANISOTROPY;
     const material = new THREE.SpriteMaterial({
         map: texture,
         transparent: true,
@@ -117,7 +124,7 @@ const EMOJI_FONT = "\"Noto Color Emoji\", \"Apple Color Emoji\", \"Segoe UI Emoj
  * @param {string} color the node's color, "#RRGGBB"
  * @returns {THREE.CanvasTexture}
  */
-export function createEmojiTexture(emoji, color, size = 128) {
+export function createEmojiTexture(emoji, color, size = 256) {
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
@@ -133,6 +140,6 @@ export function createEmojiTexture(emoji, color, size = 128) {
     context.fillText(emoji, size / 2, size * 0.54);
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
-    texture.anisotropy = 4;
+    texture.anisotropy = ANISOTROPY;
     return texture;
 }

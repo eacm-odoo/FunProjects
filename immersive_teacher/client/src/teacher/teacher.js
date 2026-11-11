@@ -8,7 +8,8 @@
  *
  *     setState(state)        idle | listening | thinking | speaking | asleep
  *     react("confused")      a short shrug over the current state (after a failure)
- *     glanceAt(worldPoint)   look and point there for a moment
+ *     glanceAt(worldPoint)   look there for a moment, and point there with
+ *                            the arm on that side a little longer
  *     update(dt, { viewer, voiceLevel })   once per frame
  *
  * Units are meters, the group's origin is between its feet and it faces +Z at
@@ -111,6 +112,15 @@ const REACTIONS = Object.freeze({
 
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
 const tmpVector = new THREE.Vector3();
+const tmpDirection = new THREE.Vector3();
+const tmpEuler = new THREE.Euler();
+const tmpRest = new THREE.Quaternion();
+const tmpAim = new THREE.Quaternion();
+/** The way an arm hangs from its shoulder, at rest. */
+const ARM_DOWN = new THREE.Vector3(0, -1, 0);
+/** How long the head turns to a new part of the diagram, and how long the arm points at it. */
+const GLANCE_SECONDS = 1.2;
+const POINT_SECONDS = 2.4;
 
 function approach(current, target, seconds, dt) {
     return current + (target - current) * (1 - Math.exp(-dt / seconds));
@@ -253,7 +263,9 @@ export class Teacher {
         this.pose = { ...POSES.idle };
         this.lipSync = new LipSync();
         this.blink = { wait: this.#nextBlinkGap(), t: -1 };
-        this.glance = { world: new THREE.Vector3(), remaining: 0, side: 1 };
+        this.glance = { world: new THREE.Vector3(), remaining: 0 };
+        /** What the arm on `side` points at (1 its left, -1 its right; 0 until picked). */
+        this.point = { world: new THREE.Vector3(), remaining: 0, side: 1 };
         this.pointing = 0;
         this.reaction = null;
 
@@ -276,11 +288,16 @@ export class Teacher {
         this.reaction = { pose: reaction.pose, remaining: reaction.seconds };
     }
 
-    /** Looks at `worldPoint` (and points at it) for `seconds`, then back at the viewer. */
-    glanceAt(worldPoint, seconds = 1.2) {
+    /**
+     * Looks at `worldPoint` for `seconds`, then back at the viewer; the arm on
+     * that side points at it a little longer, aimed at the point itself.
+     */
+    glanceAt(worldPoint, seconds = GLANCE_SECONDS) {
         this.glance.world.copy(worldPoint);
         this.glance.remaining = seconds;
-        this.glance.side = 0; // picked on the next update, from where the point is
+        this.point.world.copy(worldPoint);
+        this.point.remaining = Math.max(seconds, POINT_SECONDS);
+        this.point.side = 0; // picked on the next update, from where the point is
     }
 
     /**
@@ -614,14 +631,8 @@ export class Teacher {
         let target = asleep ? null : viewerLocal;
         if (this.glance.remaining > 0) {
             this.glance.remaining -= dt;
-            const point = this.group.worldToLocal(tmpVector.copy(this.glance.world));
-            if (!this.glance.side) {
-                // Which hand points: the one on the point's side of the body.
-                const bodyX = point.x * Math.cos(this.bodyYaw) - point.z * Math.sin(this.bodyYaw);
-                this.glance.side = bodyX >= 0 ? 1 : -1;
-            }
             if (!asleep) {
-                target = point;
+                target = this.group.worldToLocal(tmpVector.copy(this.glance.world));
             }
         }
 
@@ -645,16 +656,36 @@ export class Teacher {
     }
 
     #updateArms(dt) {
-        const pointing = this.glance.remaining > 0 && this.state !== "asleep";
+        const point = this.point;
+        point.remaining = Math.max(0, point.remaining - dt);
+        const pointing = point.remaining > 0 && this.state !== "asleep";
         this.pointing = approach(this.pointing, pointing ? 1 : 0, 0.2, dt);
+        // The point in the body's frame: the body turns toward the viewer on its own.
+        this.body.updateWorldMatrix(true, false);
+        const local = this.body.worldToLocal(tmpVector.copy(point.world));
+        if (!point.side) {
+            // Which hand points: the one on the point's side of the body.
+            point.side = local.x >= 0 ? 1 : -1;
+        }
         const shrug = clamp(this.pose.arms / REACTIONS.confused.pose.arms, 0, 1);
         for (const { side, shoulder, hand, finger } of this.arms) {
-            const raise = side === this.glance.side ? this.pointing : 0;
-            // Out to the side and a bit forward: toward the diagram when
-            // pointing, both arms a little for a shrug.
-            const lift = 0.95 * raise + this.pose.arms;
-            const forward = ARM_FORWARD + 0.35 * raise + 0.3 * this.pose.arms;
-            shoulder.rotation.set(-forward, 0, side * (ARM_SPREAD + 0.015 * this.breath + lift));
+            const raise = side === point.side ? this.pointing : 0;
+            // At rest out to the side and a bit forward; both arms a little up for a shrug.
+            const lift = this.pose.arms;
+            const forward = ARM_FORWARD + 0.3 * this.pose.arms;
+            tmpEuler.set(-forward, 0, side * (ARM_SPREAD + 0.015 * this.breath + lift));
+            tmpRest.setFromEuler(tmpEuler);
+            if (raise > 0.001) {
+                // Pointing: the arm turns from hanging down to the line from its shoulder to the point.
+                tmpDirection.subVectors(local, shoulder.position);
+                if (tmpDirection.lengthSq() < 1e-6) {
+                    tmpDirection.set(side, 0, 1);
+                }
+                tmpAim.setFromUnitVectors(ARM_DOWN, tmpDirection.normalize());
+                shoulder.quaternion.slerpQuaternions(tmpRest, tmpAim, raise);
+            } else {
+                shoulder.quaternion.copy(tmpRest);
+            }
             // The pointing hand stretches its index finger; in a shrug the palms turn out.
             finger.scale.y = lerp(0.35, 1, raise);
             hand.rotation.y = side * 1.3 * shrug;

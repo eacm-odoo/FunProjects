@@ -4,14 +4,16 @@
  * Every LLM adapter exposes the same shape:
  *
  *     llm.stream({ system, messages, language, signal })
- *         -> AsyncIterable<{ type: "text", text } | { type: "end", stopReason, usage, model }>
+ *         -> AsyncIterable<{ type: "text", text } | { type: "citation", citation }
+ *                          | { type: "end", stopReason, usage, model }>
  *     llm.countTokens({ messages, signal }) -> Promise<number>
  *
  * Claude gets the language through the system prompt (one per language), so
  * this adapter ignores `language`; the fake one uses it to pick its answers.
  *
  * Thinking blocks and fallback markers are ignored: only text deltas matter to
- * the line parser.
+ * the line parser. A citation (the user's documents have citations on) comes
+ * as its own event, just before the text it backs.
  *
  * A watchdog ends the request when Claude goes quiet: nothing for IDLE_MS,
  * from the request to the first block or between two tokens of the answer.
@@ -140,6 +142,8 @@ export function createClaudeLlm(llmConfig, { idleMs = IDLE_MS, thinkingIdleMs = 
                     }
                     if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
                         yield { type: "text", text: event.delta.text };
+                    } else if (event.type === "content_block_delta" && event.delta.type === "citations_delta") {
+                        yield { type: "citation", citation: event.delta.citation };
                     }
                 }
                 clearTimeout(watchdog);

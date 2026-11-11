@@ -2,16 +2,23 @@
  * Going deeper into a node: the person taps a node of a diagram the teacher
  * drew, and the teacher explains that node.
  *
- * The browser only names the diagram (by its turn) and the node (by its id).
- * The question for Claude is built here, from what the server itself kept of
+ * The browser names the diagram (by its turn) and the node (by its id). The
+ * question for Claude is built here, from what the server itself kept of
  * that diagram: the node, its connections, the question it leaves open (its
  * hook) and the first question of the chain, so every level stays tied to
  * what the person asked at the start. Odoo AI gets a plain question with that
  * same starting point.
+ *
+ * The page also sends its own copy of that diagram and of the first question.
+ * It is used only when the server no longer keeps them: after a reconnection
+ * or a restart of the server, the session's memory starts empty while the
+ * page still shows the diagram. The copy goes through the same checks as
+ * Claude's DRAW lines, and the question is built from it the same way. That
+ * opens nothing new: the page can already type any question.
  */
 
 import { MESSAGES, format } from "./i18n.js";
-import { cleanText } from "./protocol/diagram.js";
+import { DiagramBuilder, LIMITS, cleanText } from "./protocol/diagram.js";
 
 /** Finished diagrams a session keeps, the newest ones. */
 export const DIAGRAM_MEMORY = 12;
@@ -42,10 +49,38 @@ export class DiagramMemory {
 
     /** The node `id` of the diagram of `turn`, with that entry; null when either is gone. */
     find(turn, id) {
-        const entry = this.get(turn);
-        const node = typeof id === "string" ? entry?.diagram.nodes.find((item) => item.id === id) : undefined;
-        return node ? { entry, node } : null;
+        return findNode(this.get(turn), id);
     }
+}
+
+/** The node `id` of the diagram of `entry`, with that entry; null when there is none. */
+export function findNode(entry, id) {
+    const node = typeof id === "string" ? entry?.diagram.nodes.find((item) => item.id === id) : undefined;
+    return node ? { entry, node } : null;
+}
+
+/**
+ * The page's copy of a diagram, checked as Claude's DRAW lines are, as an
+ * entry of the memory; null when it is not one the server could have drawn.
+ * Without the first question, the diagram's title stands for it.
+ *
+ * @param {{diagram?: {title?: string, nodes?: object[], edges?: object[]}, root?: {question?: string, title?: string}}} copy
+ * @returns {{diagram: object, root: {question: string, title: string}}|null}
+ */
+export function restoreEntry(copy) {
+    const nodes = copy?.diagram?.nodes;
+    const edges = copy?.diagram?.edges ?? [];
+    if (!Array.isArray(nodes) || !Array.isArray(edges) || nodes.length > LIMITS.nodes || edges.length > LIMITS.edges) {
+        return null;
+    }
+    const builder = new DiagramBuilder();
+    builder.addStep(1, { nodes, edges });
+    const diagram = builder.toJSON(copy.diagram.title);
+    const question = cleanText(copy.root?.question, MAX_ROOT_CHARS) || diagram?.title;
+    if (!question) {
+        return null;
+    }
+    return { diagram, root: { question, title: cleanText(copy.root?.title, LIMITS.title) || diagram.title } };
 }
 
 /** "Planta → Glucosa (produce)" for each connection of `node`, up to MAX_LINKS. */

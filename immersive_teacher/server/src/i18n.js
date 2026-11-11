@@ -16,6 +16,13 @@ export function isLanguage(value) {
 }
 
 /** Replaces each {name} in `template` with values[name]. */
+/** How deep the teacher explains: "normal" adds nothing to the question. */
+export const LEVELS = Object.freeze(["kid", "normal", "expert"]);
+
+export function isLevel(value) {
+    return LEVELS.includes(value);
+}
+
 export function format(template, values = {}) {
     return template.replace(/\{(\w+)\}/g, (match, name) => (name in values ? String(values[name]) : match));
 }
@@ -102,6 +109,15 @@ export const MESSAGES = Object.freeze({
             odoo: "Sobre «{root}»: cuéntame más de «{label}».",
             odooHook: "Sobre «{root}»: {hook}",
         }),
+        /**
+         * The note added after the question for a level other than "normal"
+         * (see LEVELS): it goes in the message, not in the system prompt, so
+         * the cached prompt is the same for every level.
+         */
+        levels: Object.freeze({
+            kid: "(Nota de nivel: explícalo para un niño de 10 años, con palabras sencillas y comparaciones con cosas de todos los días, sin términos técnicos.)",
+            expert: "(Nota de nivel: explícalo para alguien que ya domina el tema, con los términos técnicos precisos, los mecanismos y los matices, sin repetir lo básico.)",
+        }),
         /** Said when Claude declines the question and no fallback model answered it. */
         refusal: "Prefiero no responder esa pregunta. ¿Te explico otro tema?",
         voice: "La voz",
@@ -173,6 +189,10 @@ export const MESSAGES = Object.freeze({
             hook: "The question you left open: “{hook}”.",
             odoo: "About “{root}”: tell me more about “{label}”.",
             odooHook: "About “{root}”: {hook}",
+        }),
+        levels: Object.freeze({
+            kid: "(Level note: explain it for a 10-year-old, with simple words and comparisons to everyday things, and no technical terms.)",
+            expert: "(Level note: explain it for someone who already knows the subject well, with the precise technical terms, the mechanisms and the nuances, without repeating the basics.)",
         }),
         refusal: "I would rather not answer that question. Shall I explain something else?",
         voice: "The voice",

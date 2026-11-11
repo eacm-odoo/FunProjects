@@ -134,13 +134,13 @@ export class DiagramBuilder {
      * Validates one DRAW line and keeps what passes.
      *
      * @param {number} step sentence the elements belong to (1-based)
-     * @param {string} raw JSON text of the DRAW line
+     * @param {string|object} raw JSON text of the DRAW line, or the object it holds
      * @returns {{nodes: object[], edges: object[], issues: string[]}}
      */
     addStep(step, raw) {
         const accepted = { nodes: [], edges: [], issues: [] };
-        const data = parseJsonObject(raw);
-        if (!data) {
+        const data = typeof raw === "string" ? parseJsonObject(raw) : raw;
+        if (!data || typeof data !== "object" || Array.isArray(data)) {
             accepted.issues.push("not a JSON object");
             return accepted;
         }

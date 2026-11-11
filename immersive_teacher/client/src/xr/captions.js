@@ -6,15 +6,19 @@
  * highlightStep, showError...), so the turn controller feeds both at once.
  * One line of text at a time, by priority: a warning or error for a few
  * seconds, else the sentence being said, else the current state, else a hint.
+ * Under the sentence being said, a smaller line names where its facts come
+ * from, when the teacher took them from the user's documents.
  * The hint and the states follow the page's language (relabel() after a switch).
  */
 
 import * as THREE from "three";
 
 import { createTextSprite, disposeSprite } from "../diagram/labels.js";
+import { citationPlace } from "../citation.js";
 import { t } from "../i18n.js";
 
 const FLASH_SECONDS = 6;
+const SOURCE_GAP = 0.008;
 
 /** States that have their own line; the others show the hint. */
 const STATES_WITH_TEXT = new Set(["connecting", "offline", "listening", "thinking"]);
@@ -26,6 +30,8 @@ export class XrCaptions {
         this.group.visible = false;
         this.sprite = null;
         this.text = "";
+        this.sourceSprite = null;
+        this.sourceText = "";
         /** "placing" or "teaching", the interaction mode the hint explains */
         this.hintMode = "placing";
         this.state = "ready";
@@ -35,6 +41,9 @@ export class XrCaptions {
         this.flashLeft = 0;
         /** @type {Map<number, string>} step -> sentence, for the current turn */
         this.sentences = new Map();
+        /** @type {Map<number, object[]>} step -> where its facts come from */
+        this.citations = new Map();
+        this.step = null;
         this.turnId = null;
     }
 
@@ -62,15 +71,19 @@ export class XrCaptions {
     startTurn(turnId) {
         this.turnId = turnId;
         this.sentences.clear();
+        this.citations = new Map();
+        this.step = null;
         this.sentence = "";
         this.question = "";
         this.#refresh();
     }
 
     /** An earlier answer is said again: its sentences, by step, become the ones shown. */
-    replayTurn(turnId, sentences) {
+    replayTurn(turnId, sentences, citations = new Map()) {
         this.turnId = turnId;
         this.sentences = new Map(sentences);
+        this.citations = new Map(citations);
+        this.step = null;
         this.sentence = "";
         this.question = "";
         this.#refresh();
@@ -91,8 +104,18 @@ export class XrCaptions {
 
     highlightStep(turnId, step) {
         if (turnId === this.turnId && this.sentences.has(step)) {
+            this.step = step;
             this.sentence = this.sentences.get(step);
             this.#refresh();
+        }
+    }
+
+    addCitation(turnId, step, citation) {
+        if (turnId === this.turnId) {
+            this.citations.set(step, [...(this.citations.get(step) ?? []), citation]);
+            if (step === this.step) {
+                this.#refresh();
+            }
         }
     }
 
@@ -134,6 +157,15 @@ export class XrCaptions {
         }
     }
 
+    /** The smaller line under the sentence being said: where its facts come from, or "". */
+    currentSource() {
+        if (this.flashText || !this.sentence) {
+            return "";
+        }
+        const places = [...new Set((this.citations.get(this.step) ?? []).map(citationPlace))];
+        return places.length ? t("cite.caption", { where: places.join("; ") }) : "";
+    }
+
     /** The line shown right now (also handy for tests and the console). */
     currentText() {
         if (this.flashText) {
@@ -150,10 +182,17 @@ export class XrCaptions {
 
     #refresh() {
         const text = this.currentText();
-        if (text === this.text) {
+        const source = this.currentSource();
+        if (text === this.text && source === this.sourceText) {
             return;
         }
         this.text = text;
+        this.sourceText = source;
+        if (this.sourceSprite) {
+            this.group.remove(this.sourceSprite);
+            disposeSprite(this.sourceSprite);
+            this.sourceSprite = null;
+        }
         if (this.sprite) {
             this.group.remove(this.sprite);
             disposeSprite(this.sprite);
@@ -172,5 +211,19 @@ export class XrCaptions {
         });
         this.sprite.renderOrder = 5;
         this.group.add(this.sprite);
+        if (source) {
+            this.sourceSprite = createTextSprite(source, {
+                lineHeight: 0.026,
+                maxChars: 48,
+                maxLines: 2,
+                weight: 500,
+                color: "#BFD7D9",
+                anchor: [0.5, 1],
+                onTop: true,
+            });
+            this.sourceSprite.position.y = -this.sprite.scale.y - SOURCE_GAP;
+            this.sourceSprite.renderOrder = 5;
+            this.group.add(this.sourceSprite);
+        }
     }
 }

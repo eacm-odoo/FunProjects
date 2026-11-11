@@ -5,10 +5,14 @@
  *   "Mover al profesor"   choose a new place (hands have no A or X button)
  *   "English"/"Español"   switch the language (named in the language it
  *                         switches to, so whoever speaks it finds it)
+ *   "Nivel: Normal"       the level of the explanation; each press goes to
+ *                         the next one (child, normal, expert)
  *   "Odoo AI: on/off"     check with Odoo's support assistant first; only
  *                         when the server has Odoo AI
  *   "Volver a explicar"   says the explanation of the diagram on screen
- *                         again; only when there is one to say
+ *                         again; only when there is one to say. After a
+ *                         level change it reads "Explicar de nuevo: Niño"
+ *                         and asks it again at that level
  *   suggested questions   shown when there is no microphone, or with B or Y;
  *                         "explain this source" ones come first when the user
  *                         loaded documents or pages
@@ -26,6 +30,7 @@ import { list, t } from "../i18n.js";
 const MOVE_ID = "move";
 const LANGUAGE_ID = "language";
 const ODOO_ID = "odoo";
+const LEVEL_ID = "level";
 const REPLAY_ID = "replay";
 const GAP = 0.018;
 const HIT_DEPTH = 0.02;
@@ -58,8 +63,12 @@ export class XrMenu {
         this.extraQuestions = [];
         /** The Odoo AI button: shown when the server has it, highlighted when on. */
         this.odoo = { available: false, on: false };
+        /** The level the next question goes at (see level.js). */
+        this.level = "normal";
         /** The "explain it again" button: shown while the diagram on screen can be said again. */
         this.replay = false;
+        /** The level it would be asked again at, or null to say it again as it was. */
+        this.replayLevel = null;
         this.#build();
     }
 
@@ -77,6 +86,10 @@ export class XrMenu {
 
     static get REPLAY() {
         return REPLAY_ID;
+    }
+
+    static get LEVEL() {
+        return LEVEL_ID;
     }
 
     /** Rebuilds every button in the current language. */
@@ -100,12 +113,25 @@ export class XrMenu {
         this.relabel();
     }
 
-    /** Shows or hides "Volver a explicar"; rebuilds only when that changed. */
-    setReplay(available) {
-        if (available === this.replay) {
+    /** Names the level on its button; rebuilds only when it changed. */
+    setLevel(current) {
+        if (current === this.level) {
+            return;
+        }
+        this.level = current;
+        this.relabel();
+    }
+
+    /**
+     * Shows or hides "Volver a explicar"; with `again`, a level, it asks the
+     * answer again at that level. Rebuilds only when that changed.
+     */
+    setReplay(available, again = null) {
+        if (available === this.replay && again === this.replayLevel) {
             return;
         }
         this.replay = available;
+        this.replayLevel = again;
         this.relabel();
     }
 
@@ -121,11 +147,15 @@ export class XrMenu {
     #build() {
         this.#add(MOVE_ID, t("menu.move"), null, true);
         this.#add(LANGUAGE_ID, t("language.switchTo"), null, false);
+        this.#add(LEVEL_ID, t("level.menu", { level: t(`level.${this.level}`) }), null, this.level !== "normal");
         if (this.odoo.available) {
             this.#add(ODOO_ID, t(this.odoo.on ? "odoo.menuOn" : "odoo.menuOff"), null, this.odoo.on);
         }
         if (this.replay) {
-            this.#add(REPLAY_ID, t("explore.replay"), null, false);
+            const label = this.replayLevel
+                ? t("explore.reexplain", { level: t(`level.${this.replayLevel}`) })
+                : t("explore.replay");
+            this.#add(REPLAY_ID, label, null, Boolean(this.replayLevel));
         }
         [...this.extraQuestions, ...list("suggestions")]
             .forEach((question, index) => this.#add(`ask:${index}`, question, question, false));

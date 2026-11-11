@@ -7,9 +7,11 @@
  *             a flat surface puts the lesson there
  *   teaching  hold trigger or pinch to talk; aim at the bar under the diagram
  *             and hold trigger, pinch or grip to carry the diagram; trigger or
- *             pinch on a floating button presses it, and on a node of the
- *             diagram (or the "‹ parent" label above it) explores it; A or X
- *             goes back to placing (and, once placed, A or X again cancels)
+ *             pinch on a floating button presses it; on a node of the diagram
+ *             (or a label of the path above it) it holds that node: the
+ *             caller moves it while the ray moves, and on release explores it
+ *             if it did not move; A or X goes back to placing (and, once
+ *             placed, A or X again cancels)
  *
  * Pure logic, no WebXR: the caller describes each press (which source, which
  * button, what the ray points at) and gets the resulting callbacks. On the
@@ -25,15 +27,19 @@ export class XrInteraction {
      * @param {(source: string) => void} handlers.onGrabStart
      * @param {(source: string) => void} handlers.onGrabEnd
      * @param {(control: string) => void} [handlers.onControl] a floating button was pressed
-     * @param {(node: string) => void} [handlers.onExplore] a node of the diagram (or the "‹ parent" label) was pressed
+     * @param {(source: string, node: string) => void} [handlers.onNodeDown] a node (or a label of the path) is held
+     * @param {(source: string, node: string, options: {cancelled: boolean}) => void} [handlers.onNodeUp]
+     *        it was let go; `cancelled` when A or X, or a lost controller, let go of it
      * @param {(mode: "placing"|"teaching") => void} [handlers.onModeChange]
      */
     constructor(handlers) {
         this.handlers = handlers;
         this.mode = "placing";
         this.placed = false;
-        /** "source:button" -> the action that press started ("place", "talk", "grab" or null) */
+        /** "source:button" -> the action that press started ("place", "talk", "grab", "node" or null) */
         this.held = new Map();
+        /** "source:button" -> the node that press holds */
+        this.heldNodes = new Map();
     }
 
     get talking() {
@@ -49,7 +55,7 @@ export class XrInteraction {
      * @param {"select"|"squeeze"} button
      * @param {{onHandle?: boolean, surface?: boolean, control?: string|null, node?: string|null}} [target]
      *   what the ray points at: the grab bar, a flat surface, a floating button, a node of the diagram
-     * @returns {"place"|"talk"|"grab"|"control"|"explore"|null} what the press started
+     * @returns {"place"|"talk"|"grab"|"control"|"node"|null} what the press started
      */
     press(source, button, { onHandle = false, surface = false, control = null, node = null } = {}) {
         const key = `${source}:${button}`;
@@ -66,7 +72,7 @@ export class XrInteraction {
         } else if (control && button === "select") {
             action = "control";
         } else if (node && button === "select") {
-            action = "explore";
+            action = "node";
         } else if (button === "select" && !this.talking) {
             action = "talk";
         }
@@ -80,19 +86,24 @@ export class XrInteraction {
             this.handlers.onGrabStart(source);
         } else if (action === "control") {
             this.handlers.onControl?.(control);
-        } else if (action === "explore") {
-            this.handlers.onExplore?.(node);
+        } else if (action === "node") {
+            this.heldNodes.set(key, node);
+            this.handlers.onNodeDown?.(source, node);
         } else if (action === "talk") {
             this.handlers.onTalkStart();
         }
         return action;
     }
 
-    release(source, button) {
+    release(source, button, { cancelled = false } = {}) {
         const key = `${source}:${button}`;
         const action = this.held.get(key);
         this.held.delete(key);
-        if (action === "talk") {
+        if (action === "node") {
+            const node = this.heldNodes.get(key);
+            this.heldNodes.delete(key);
+            this.handlers.onNodeUp?.(source, node, { cancelled });
+        } else if (action === "talk") {
             this.handlers.onTalkEnd();
         } else if (action === "grab") {
             this.handlers.onGrabEnd(source);
@@ -113,7 +124,7 @@ export class XrInteraction {
     lost(source) {
         for (const key of [...this.held.keys()]) {
             if (key.startsWith(`${source}:`)) {
-                this.release(source, key.slice(source.length + 1));
+                this.release(source, key.slice(source.length + 1), { cancelled: true });
             }
         }
     }
@@ -128,7 +139,7 @@ export class XrInteraction {
     #letGoOfEverything() {
         for (const key of [...this.held.keys()]) {
             const separator = key.lastIndexOf(":");
-            this.release(key.slice(0, separator), key.slice(separator + 1));
+            this.release(key.slice(0, separator), key.slice(separator + 1), { cancelled: true });
         }
     }
 
