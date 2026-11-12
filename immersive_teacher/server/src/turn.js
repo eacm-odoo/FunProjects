@@ -40,9 +40,21 @@
  * them with citations, which arrive just before the text they back. Each one
  * goes to the browser as `citation {step, source, pages, quote}` right after
  * the sentence that holds that text, so the page can show where it comes from.
+ *
+ * With a `seal` function (see shares.js), a finished answer's `done` carries
+ * the seal of its diagram, sentences and citations: what lets the page share
+ * that explanation later.
+ *
+ * With a `cache` (see answer_cache.js), the question is first looked up once
+ * it is known (after the transcription, for a recording): a kept answer is
+ * sent as it was, at once, and neither Claude nor the voice is asked. Missing,
+ * the answer is recorded as it goes out and kept when it ends well. `admit`
+ * is asked right before anything is paid (the hourly limit): a kept answer
+ * does not count.
  */
 
 import { LANGUAGES, MESSAGES, format } from "./i18n.js";
+import { MAX_KEPT_AUDIO_BYTES } from "./answer_cache.js";
 import { DiagramBuilder, LIMITS, cleanText } from "./protocol/diagram.js";
 import { LineParser } from "./protocol/line_parser.js";
 import { SYSTEM_PROMPTS } from "./llm/system_prompt.js";
@@ -67,7 +79,7 @@ export function apologyFor(code, language = LANGUAGES[0]) {
 }
 
 /** DRAW line for the history: only what was accepted, without the step. */
-function historyDrawLine(result) {
+export function historyDrawLine(result) {
     const data = {};
     if (result.nodes.length) {
         data.nodes = result.nodes.map(({ id, label, icon, shape, color, hook }) => ({
@@ -181,16 +193,23 @@ function linkAbort(signal, controller) {
  * @param {import("./odoo_ai.js").OdooHistory|null} [options.odooHistory] Odoo AI's side of the conversation
  * @param {{node: object, odooQuestion: string}|null} [options.focus] the node tapped to go deeper, and
  *        the question for Odoo AI about it
+ * @param {((answer: {diagram: object, sentences: string[], citations: object[]}) => string)|null} [options.seal]
+ *        seals a finished answer, for sharing it
+ * @param {{lookup: (question: string) => Promise<object|null>, save: (question: string, answer: object) => Promise<unknown>}|null}
+ *        [options.cache] kept answers, when this question may use them
+ * @param {(() => boolean)|null} [options.admit] whether the question may be paid for now; when not,
+ *        it has already told the browser why
  * @param {(event: object) => void} options.emit sends one JSON event to the browser
  * @param {(step: number, pcm: Uint8Array) => void} [options.emitAudio] sends one PCM chunk
  * @param {AbortSignal} [options.signal] aborted when the user cancels
  * @param {Console} [options.logger]
- * @returns {Promise<{status: "done"|"cancelled"|"error", code?: string, question?: string, diagram?: object|null}>}
- *          the question and the whole diagram when done
+ * @returns {Promise<{status: "done"|"cancelled"|"error"|"refused", code?: string, question?: string,
+ *          diagram?: object|null, cached?: boolean}>} the question and the whole diagram when done
  */
 export async function runTurn({
     id, label = String(id), input, language = LANGUAGES[0], level = "normal", llm, stt, tts = null, history, sources = [],
-    odooAi = null, odooHistory = null, focus = null, emit, emitAudio = () => {}, signal, logger = console,
+    odooAi = null, odooHistory = null, focus = null, seal = null, cache = null, admit = null,
+    emit: emitToPage, emitAudio: audioToPage = () => {}, signal, logger = console,
 }) {
     const messages = MESSAGES[language];
     const timer = new TurnTimer(label);
@@ -203,6 +222,32 @@ export async function runTurn({
     // Claude alone can also be cut when the answer runs past MAX_SENTENCES.
     const llmAbort = new AbortController();
     const unlinkLlm = linkAbort(turnAbort.signal, llmAbort);
+
+    /** What this answer sends, in order, while it may be kept: events, and {type: "pcm"} for speech. */
+    let recording = null;
+    const recordedAudio = [];
+    let recordedBytes = 0;
+    /** Part of the voice was lost: such an answer is not kept. */
+    let spoiled = false;
+
+    function emit(event) {
+        if (recording && event.type !== "done" && event.type !== "error") {
+            recording.push(event);
+        }
+        if (event.type === "warning") {
+            spoiled = true;
+        }
+        emitToPage(event);
+    }
+
+    function emitAudio(step, pcm) {
+        if (recording) {
+            recording.push({ type: "pcm", step, bytes: pcm.length });
+            recordedAudio.push(Buffer.from(pcm));
+            recordedBytes += pcm.length;
+        }
+        audioToPage(step, pcm);
+    }
 
     let warned = false;
     const speech = tts && new TtsQueue({
@@ -240,9 +285,13 @@ export async function runTurn({
     /** Citations whose text has arrived, for the next sentence of Claude's. */
     let cited = [];
     let citationsSent = 0;
+    /** What the page got, as the seal covers it: every sentence, and every citation with its step. */
+    const said = [];
+    const citationList = [];
 
     function say(text, kind) {
         sentences += 1;
+        said.push(text);
         timer.mark("first_sentence");
         emit(kind ? { type: "sentence", step: sentences, text, kind } : { type: "sentence", step: sentences, text });
         speech?.push(sentences, text);
@@ -293,6 +342,7 @@ export async function runTurn({
             if (!seen.has(key) && seen.size < MAX_CITATIONS_PER_SENTENCE) {
                 seen.add(key);
                 emit({ type: "citation", step: sentences, ...described });
+                citationList.push({ step: sentences, ...described });
             }
         }
         citationsSent += seen.size;
@@ -330,6 +380,45 @@ export async function runTurn({
         return { status: "cancelled" };
     }
 
+    /** The hourly limit said no; the browser already knows. */
+    function refusedTurn() {
+        unlinkLlm();
+        unlinkTurn();
+        return { status: "refused" };
+    }
+
+    /** The answer kept for this same question, sent as it went out the first time. */
+    function answerFromCache(kept) {
+        unlinkLlm();
+        unlinkTurn();
+        const said = [];
+        const cited = [];
+        let offset = 0;
+        for (const item of kept.events) {
+            if (item.type === "pcm") {
+                audioToPage(item.step, kept.audio.subarray(offset, offset + item.bytes));
+                offset += item.bytes;
+                continue;
+            }
+            if (item.type === "sentence") {
+                said.push(item.text);
+            } else if (item.type === "citation") {
+                cited.push({ step: item.step, source: item.source, pages: item.pages, quote: item.quote });
+            }
+            emitToPage(item);
+        }
+        timer.mark("cached");
+        const done = { type: "done", diagram: kept.diagram, stopReason: kept.stopReason, sentences: said.length, timings: timer.toJSON() };
+        if (seal && kept.diagram) {
+            done.seal = seal({ diagram: kept.diagram, sentences: said, citations: cited });
+        }
+        emitToPage(done);
+        history.add(question, kept.historyAnswer);
+        const speechKb = (kept.audio.length / 1024).toFixed(0);
+        logger.info(timer.line(`answered from the cache | ${said.length} sentence(s), ${speechKb} KB of speech | nothing paid`));
+        return { status: "done", question, diagram: kept.diagram, cached: true };
+    }
+
     /**
      * Asks Odoo AI before Claude. Returns the block for Claude: the answer,
      * or the note that it could not be reached. A cancellation goes up as it is.
@@ -357,6 +446,10 @@ export async function runTurn({
     }
 
     try {
+        // Without kept answers to look in, the limit goes first: a refused recording is not even transcribed.
+        if (!cache && admit && !admit()) {
+            return refusedTurn();
+        }
         if ("audio" in input) {
             const { text } = await stt.transcribe(input.audio, { mime: input.mime, language, signal: turnAbort.signal });
             timer.mark("stt");
@@ -371,6 +464,24 @@ export async function runTurn({
             question = input.text;
         }
         emit({ type: "transcript", text: question });
+        if (cache) {
+            const kept = await cache.lookup(question).catch((error) => {
+                logger.warn(`[turn ${label}] could not look in the answer cache (${error.message})`);
+                return null;
+            });
+            if (signal?.aborted) {
+                unlinkLlm();
+                unlinkTurn();
+                return cancelled();
+            }
+            if (kept) {
+                return answerFromCache(kept);
+            }
+            if (admit && !admit()) {
+                return refusedTurn();
+            }
+            recording = [];
+        }
         if (focus) {
             emit({ type: "diagram_step", step: 1, nodes: [diagram.seed(focus.node)], edges: [] });
         }
@@ -473,12 +584,22 @@ export async function runTurn({
 
     timer.mark("done");
     const result = diagram.toJSON(title);
-    emit({ type: "done", diagram: result, stopReason, sentences, timings: timer.toJSON() });
+    const done = { type: "done", diagram: result, stopReason, sentences, timings: timer.toJSON() };
+    if (seal && result && !refused) {
+        done.seal = seal({ diagram: result, sentences: said, citations: citationList });
+    }
+    emit(done);
     if (!refused) {
         history.add(question, historyLines.join("\n"));
     }
     if (odooExchange) {
         odooHistory?.add(odooExchange);
+    }
+    if (recording && !refused && !spoiled && recordedBytes <= MAX_KEPT_AUDIO_BYTES) {
+        const answer = {
+            events: recording, historyAnswer: historyLines.join("\n"), diagram: result, stopReason, audio: Buffer.concat(recordedAudio),
+        };
+        cache.save(question, answer).catch((error) => logger.warn(`[turn ${label}] could not keep the answer (${error.message})`));
     }
     const details = [describeUsage(end?.usage), `stop=${stopReason}`, `model=${end?.model ?? llm.model}`];
     if (sources.length) {

@@ -1,0 +1,9 @@
+# Kept out of the image: the keys, local data and anything rebuilt inside.
+.env
+.env.*
+node_modules/
+client/dist/
+shares/
+cache/
+test/
+*.log

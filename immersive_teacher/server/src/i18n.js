@@ -53,6 +53,10 @@ export const MESSAGES = Object.freeze({
             audio_too_long: "La grabación es demasiado larga. Haz la pregunta más corta.",
             rate_limited: "Llegaste al límite de {max} preguntas por hora. Podrás preguntar de nuevo en {minutes} min.",
             node_gone: "Ese diagrama ya no está en la memoria del profe. Pregúntalo de nuevo.",
+            share_off: "Este servidor no guarda exploraciones compartidas (MAX_SHARES=0).",
+            share_gone: "Ese link ya no existe: caducó o se borró.",
+            share_invalid: "No pude compartirlo: el servidor ya no reconoce esas explicaciones como suyas. Pregúntalas de nuevo y compártelas.",
+            share_failed: "No pude guardar el link. El detalle está en el log del servidor.",
         }),
         /**
          * Speech failures do not end the turn: the text goes on and this note
@@ -121,6 +125,12 @@ export const MESSAGES = Object.freeze({
         /** Said when Claude declines the question and no fallback model answered it. */
         refusal: "Prefiero no responder esa pregunta. ¿Te explico otro tema?",
         voice: "La voz",
+        /** The card of a shared link (see share_page.js); {title} is the explanation's. */
+        preview: Object.freeze({
+            site: "Profesor inmersivo",
+            title: "{title} - Profesor inmersivo",
+            description: "Una explicación con un diagrama en 3D. Ábrela para escucharla y seguir explorando.",
+        }),
     }),
     en: Object.freeze({
         errors: Object.freeze({
@@ -146,6 +156,10 @@ export const MESSAGES = Object.freeze({
             audio_too_long: "The recording is too long. Make the question shorter.",
             rate_limited: "You reached the limit of {max} questions per hour. You can ask again in {minutes} min.",
             node_gone: "The teacher no longer has that diagram in memory. Ask it again.",
+            share_off: "This server does not keep shared explorations (MAX_SHARES=0).",
+            share_gone: "That link no longer exists: it expired or was deleted.",
+            share_invalid: "I could not share it: the server no longer knows those explanations as its own. Ask them again and share them.",
+            share_failed: "I could not save the link. The details are in the server log.",
         }),
         warnings: Object.freeze({
             tts_auth: "{voice} refused the key or the voice: going on in text. Check the key and the voice in the server's .env.",
@@ -196,5 +210,10 @@ export const MESSAGES = Object.freeze({
         }),
         refusal: "I would rather not answer that question. Shall I explain something else?",
         voice: "The voice",
+        preview: Object.freeze({
+            site: "Immersive teacher",
+            title: "{title} - Immersive teacher",
+            description: "An explanation with a 3D diagram. Open it to hear it and keep exploring.",
+        }),
     }),
 });

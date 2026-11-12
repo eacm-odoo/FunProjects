@@ -10,6 +10,8 @@ import { afterEach, test } from "node:test";
 import { createDeepgramStt } from "../server/src/speech/stt/deepgram.js";
 import { createDeepgramTts } from "../server/src/speech/tts/deepgram.js";
 import { createElevenLabsTts } from "../server/src/speech/tts/elevenlabs.js";
+import { speedFor } from "../server/src/speech/tts/speed.js";
+import { ConfigError, TTS_SPEED, loadConfig } from "../server/src/config.js";
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -163,4 +165,63 @@ test("Deepgram's voice gets one sentence and returns raw 24 kHz PCM, in the voic
 
     stubFetch(() => new Response("bad key", { status: 401 }));
     await assert.rejects(collect(tts.synthesize("Hola.")), { code: "tts_auth" });
+});
+
+test("TTS_SPEED goes to each voice in its own range, and nothing is sent at 1", async () => {
+    assert.equal(speedFor("elevenlabs", 1.1), 1.1);
+    assert.equal(speedFor("elevenlabs", 1.5), 1.2, "clamped to ElevenLabs' range");
+    assert.equal(speedFor("deepgram", 1.5), 1.5);
+    assert.equal(speedFor("deepgram", 0.5), 0.7);
+    assert.equal(speedFor("deepgram", 1), null);
+
+    let calls = stubFetch(() => new Response(streamOf([1, 2])));
+    await collect(createElevenLabsTts({ ...ELEVENLABS, speed: 1.1 }).synthesize("Hola.", { language: "es" }));
+    assert.deepEqual(JSON.parse(calls[0].init.body).voice_settings, { speed: 1.1 });
+    calls = stubFetch(() => new Response(streamOf([1, 2])));
+    await collect(createElevenLabsTts({ ...ELEVENLABS, speed: 1 }).synthesize("Hola.", { language: "es" }));
+    assert.ok(!("voice_settings" in JSON.parse(calls[0].init.body)), "the request as without the setting");
+
+    calls = stubFetch(() => new Response(streamOf([1, 2])));
+    const voices = { es: "aura-2-estrella-es", en: "aura-2-thalia-en" };
+    await collect(createDeepgramTts({ apiKey: "dg-key", voices, sampleRate: 24000, speed: 1.1 }).synthesize("Hola.", { language: "es" }));
+    assert.equal(calls[0].url.searchParams.get("speed"), "1.1");
+});
+
+test("a voice that refuses the speed speaks at its normal pace instead of going silent", async () => {
+    const voices = { es: "aura-2-estrella-es", en: "aura-2-thalia-en" };
+    const warn = console.warn;
+    const warnings = [];
+    console.warn = (message) => warnings.push(message);
+    try {
+        // A 400 only with the speed: asked again without it, and never sent again.
+        let calls = stubFetch((url) => (url.searchParams.has("speed")
+            ? new Response("unknown parameter speed", { status: 400 })
+            : new Response(streamOf([1, 2, 3, 4]))));
+        const tts = createDeepgramTts({ apiKey: "dg-key", voices, sampleRate: 24000, speed: 1.1 });
+        const chunks = await collect(tts.synthesize("Hola.", { language: "es" }));
+        assert.deepEqual(chunks.flatMap((chunk) => [...chunk]), [1, 2, 3, 4]);
+        await collect(tts.synthesize("Adiós.", { language: "es" }));
+        assert.deepEqual(calls.map((call) => call.url.searchParams.get("speed")), ["1.1", null, null]);
+        assert.equal(warnings.length, 1);
+
+        // A 400 for another reason: the error goes up, and the speed stays for the next sentence.
+        calls = stubFetch(() => new Response("text too long", { status: 400 }));
+        const other = createElevenLabsTts({ ...ELEVENLABS, speed: 1.1 });
+        await assert.rejects(collect(other.synthesize("Hola.", { language: "es" })), { code: "tts_bad_request" });
+        calls = stubFetch(() => new Response(streamOf([1, 2])));
+        await collect(other.synthesize("Hola.", { language: "es" }));
+        assert.deepEqual(JSON.parse(calls[0].init.body).voice_settings, { speed: 1.1 });
+    } finally {
+        console.warn = warn;
+    }
+});
+
+test("TTS_SPEED is a little faster by default, and a number in range", () => {
+    const base = { LLM_PROVIDER: "fake", STT_PROVIDER: "fake", TTS_PROVIDER: "fake" };
+    assert.equal(loadConfig(base, []).tts.speed, TTS_SPEED);
+    assert.ok(TTS_SPEED > 1);
+    assert.equal(loadConfig({ ...base, TTS_SPEED: "1.25" }, []).tts.speed, 1.25);
+    for (const bad of ["fast", "3", "0.2"]) {
+        assert.throws(() => loadConfig({ ...base, TTS_SPEED: bad }, []), ConfigError, bad);
+    }
 });

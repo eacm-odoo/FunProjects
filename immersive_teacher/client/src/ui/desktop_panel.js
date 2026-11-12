@@ -9,6 +9,9 @@
  * level); a question asked at a level other than normal carries its name; and the questions
  * it left open are buttons that go deeper into their node; a deeper answer
  * starts with a button back to the diagram it came from.
+ *
+ * "Compartir" makes a link to that answer (and the path to it) or, when it
+ * has more, to its whole tree, and copies it.
  */
 
 import { citationPlace } from "../citation.js";
@@ -107,6 +110,9 @@ export class DesktopPanel {
             }
             if (turn.levelTag) {
                 turn.levelTag.textContent = t(`level.${turn.levelTag.dataset.level}`);
+            }
+            if (turn.shareButton && !turn.shareButton.disabled) {
+                turn.shareButton.textContent = t("share.button");
             }
         }
         for (const button of this.languageButtons) {
@@ -347,6 +353,98 @@ export class DesktopPanel {
         turn.replayLevel = asked;
         this.#labelReplay(turn);
         turn.answer.append(button);
+    }
+
+    /**
+     * "Compartir" under an answer. With more explanations in its tree than on
+     * its path, it first asks which link: this explanation, or the whole tree.
+     * @param {{sizes: () => {path: number, tree: number}, onShare: (scope: "path"|"tree") => Promise<string>}} options
+     *        onShare resolves to the link, or rejects with the message to show
+     */
+    setShare(turnId, { sizes, onShare }) {
+        const turn = this.turns.get(turnId);
+        if (!turn || turn.shareButton) {
+            return;
+        }
+        const button = element("button", "share-button", t("share.button"));
+        button.type = "button";
+        // Under the buttons: the two kinds of link to choose from, then the link.
+        const box = element("div", "share");
+        const choices = element("div", "share-choices");
+        choices.hidden = true;
+        const result = element("div", "share-result");
+        result.hidden = true;
+        box.append(choices, result);
+
+        const run = async (scope) => {
+            choices.hidden = true;
+            button.disabled = true;
+            button.textContent = t("share.creating");
+            try {
+                this.#showLink(result, await onShare(scope));
+            } catch (error) {
+                result.replaceChildren(element("p", "error", error.message || t("share.failed")));
+                result.hidden = false;
+            } finally {
+                button.disabled = false;
+                button.textContent = t("share.button");
+            }
+        };
+        const choice = (scope, label, title) => {
+            const option = element("button", "share-choice", label);
+            option.type = "button";
+            option.title = title;
+            option.addEventListener("click", () => run(scope));
+            return option;
+        };
+        button.addEventListener("click", () => {
+            const { path, tree } = sizes();
+            if (tree <= path) {
+                run("path");
+                return;
+            }
+            choices.replaceChildren(
+                choice("path", t("share.path"), t("share.pathTitle", { count: path })),
+                choice("tree", t("share.tree", { count: tree }), t("share.treeTitle")),
+            );
+            choices.hidden = !choices.hidden;
+        });
+        turn.shareButton = button;
+        // Beside "Volver a explicar" when it is there.
+        if (turn.replay) {
+            turn.replay.after(button, box);
+        } else {
+            turn.answer.append(button, box);
+        }
+    }
+
+    /** The link, ready to copy: copied right away when the browser lets the page do it. */
+    #showLink(result, url) {
+        const input = element("input", "share-link");
+        input.type = "text";
+        input.readOnly = true;
+        input.value = url;
+        input.setAttribute("aria-label", t("share.label"));
+        input.addEventListener("focus", () => input.select());
+        const copy = element("button", "share-copy", t("share.copy"));
+        copy.type = "button";
+        const note = element("p", "share-note");
+        const copyLink = async () => {
+            input.focus();
+            input.select();
+            try {
+                await navigator.clipboard.writeText(url);
+                note.textContent = t("share.copied");
+            } catch {
+                note.textContent = t("share.copyByHand");
+            }
+        };
+        copy.addEventListener("click", copyLink);
+        const row = element("div", "share-row");
+        row.append(input, copy);
+        result.replaceChildren(row, note);
+        result.hidden = false;
+        void copyLink();
     }
 
     /** "Volver a explicar" at the level it was asked at, "Explicar de nuevo: Niño" at another one. */

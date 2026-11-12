@@ -79,6 +79,11 @@ whoever speaks that language finds it. The browser remembers the choice.
     `DEEPGRAM_VOICE_EN` (default `aura-2-thalia-en`).
   - An ElevenLabs voice speaks both languages, with `language_code` set per
     sentence. `ELEVENLABS_VOICE_ID_EN` gives English a native voice.
+  - `TTS_SPEED` (default 1.2, faster than the voice's own pace) sets
+    how fast the teacher speaks. The provider speeds the voice up itself, so it
+    keeps its pitch: ElevenLabs takes 0.7 to 1.2, Deepgram 0.7 to 1.5, and a
+    value past that is clamped. If a provider refuses it, the voice goes on at
+    its normal pace and the log says so once.
 - `TEACHER_LANGUAGE` (default `es`) is the language a page starts in until the
   user picks one. A region (`es-419`, `en-GB`) only reaches the transcription of
   that language.
@@ -245,6 +250,90 @@ under it in the panel ("Manual.pdf, p. 4", the cited passage on hover) and a
 titles or pages out loud. Answers from Odoo AI can be cited the same way.
 "Volver a explicar" shows the same sources again.
 
+### Sharing an exploration
+
+**Compartir / Share**, under each answer, makes a link that opens what you
+explored on someone else's screen, starting where you are:
+- With more than one level below the first question, it asks what goes in the
+  link: **Esta explicación** (that answer and the ones above it, so the path
+  works) or **Todo el árbol** (every answer of that tree).
+- The link is copied right away, and also shown to copy by hand. It looks like
+  `https://your-domain/?share=k3Vx9QaZ2m1p`.
+- Whoever opens it gets every answer in the panel, the diagram where you left
+  it (nodes you dragged included), the path above it, the nodes you explored
+  marked, and the open questions. Nodes you explored open without asking.
+- **Volver a explicar** on a shared answer has the server say its sentences
+  again, the first time only: the page keeps that speech. It does not ask
+  Claude. Each voicing counts in its own hourly window, as long as
+  `MAX_QUESTIONS_PER_HOUR`. With `TTS_PROVIDER=none` it is paced as text.
+- A new node, or a new question, is a question like any other, on this server:
+  it counts for `MAX_QUESTIONS_PER_HOUR` and is paid with your keys. The
+  server starts that person's conversation with the chain that led to the
+  answer shared, so a follow-up question follows from it.
+- The link takes the questions, the diagrams, what the teacher said, the
+  cited passages (up to 200 characters each, from your documents too) and
+  where nodes were left. It does not take the speech, the documents or Odoo
+  AI's own answer: whoever goes on asking does so without your documents.
+
+Only the teacher's own words can be shared. Every finished answer comes with
+a seal, an HMAC of its title, diagram, sentences and citations, made with a
+secret only the server has (`SHARES_DIR/.secret`, created on first start). A
+link is refused if anything in it does not match its seal, so nobody can make
+a link of your domain where the teacher says something it never said, and
+the voice only ever reads those sentences. The rest (questions as shown,
+positions, explored nodes) is checked and cut to size.
+
+Links are small JSON files in `SHARES_DIR` (default `immersive_teacher/shares`,
+ignored by git), about 20 KB each, 256 KB at most. They expire after
+`SHARE_DAYS` (default 30), and past `MAX_SHARES` (default 500) the oldest go
+first. `MAX_SHARES=0` turns sharing off and hides the button. A link only works
+while the server answers at the same address: with a quick tunnel whose
+address changes, links made before a restart stop opening.
+
+**The preview card.** Pasted in LinkedIn, WhatsApp or Slack, a link shows a
+card: a picture of the teacher pointing at the diagram the link opens at, the
+diagram's title ("Más de Glucosa - Profesor inmersivo") and the first two
+sentences of that explanation.
+- The picture is drawn by the page when you share, apart from what is on
+  screen: 1200 x 630, about 40 KB, kept beside the link as `<id>.jpg`.
+- The server puts the card's tags in the page it sends for `/?share=...`,
+  since those sites do not run JavaScript, and serves the picture at
+  `/share/<id>.jpg`.
+- The addresses in the card come from `ALLOWED_ORIGINS`, the one the request
+  came to. Put your public `https://` address there, as the WebSocket already
+  needs; share from that address, not from `localhost`.
+- LinkedIn keeps a card for days: the Post Inspector
+  (linkedin.com/post-inspector) shows it and fetches it again.
+- The words in the card are sealed, the picture is not: the server only
+  checks that it is a JPEG of 100 to 2400 pixels a side, under 400 KB. Someone
+  writing their own requests could attach another picture to a real
+  explanation.
+
+### Kept answers
+
+A question asked again is answered from what was kept: the same sentences,
+diagram and speech, sent at once. It does not ask Claude or the voice, and it
+does not count for `MAX_QUESTIONS_PER_HOUR`. On a public demo where many
+people try the same suggested questions, most answers cost nothing and start
+in a fraction of a second.
+- "The same" is the same words once lower-cased and without accents or
+  punctuation ("como hacen las plantas la FOTOSINTESIS" finds "¿Cómo hacen las
+  plantas la fotosíntesis?"), in the same language and at the same level.
+- Only answers that depend on nothing but their question: the first question
+  of a conversation, and going deeper into a node (its question carries all
+  it needs). A follow-up is always asked, since it leans on the conversation;
+  so is anything with documents loaded or Odoo AI on.
+- An answer that failed, was refused or lost part of its voice is not kept.
+- Each answer is two files in `CACHE_DIR` (default `immersive_teacher/cache`,
+  ignored by git): about 1.4 MB with its speech, 15 KB of text. Past
+  `MAX_CACHED_ANSWERS` (default 200, about 300 MB at most) the least recently
+  used go first. `MAX_CACHED_ANSWERS=0` turns it off.
+- Changing the model, its effort or thinking, the prompts, the voice or
+  `TTS_SPEED` starts over: older answers are never given again. To clear it
+  by hand, delete the folder.
+- You get the kept answer too: to hear a new one, ask with other words or at
+  another level.
+
 ### Costs
 
 List prices as of November 2026, for a typical answer of 400 to 500 characters:
@@ -266,6 +355,10 @@ List prices as of November 2026, for a typical answer of 400 to 500 characters:
   also delay the first word a little, mostly on that first question.
 - Odoo AI costs you nothing, but its answer adds 500 to 1,500 input tokens to
   Claude's request, about 0.003 USD per question.
+- A shared answer heard again costs its voice only, once per visitor: about
+  0.014 USD with Deepgram Aura-2, 0.02 USD with ElevenLabs. Opening a link
+  costs nothing.
+- A kept answer (see above) costs nothing.
 
 ## How a question flows
 
@@ -622,10 +715,88 @@ They cover:
 
 `npm start` serves `client/dist` and the WebSocket on the same port, without Vite.
 
+## Hosting it
+
+The `Dockerfile` builds the page and runs the server in one container, so any
+host that takes a Dockerfile works: Railway, Render, Fly.io or a VPS with Docker.
+Whatever the host:
+
+- **A volume at `/data`.** The image keeps shared links and kept answers there
+  (`SHARES_DIR`, `CACHE_DIR`); without a volume they are lost on every deploy.
+- **HTTPS.** The Quest and the microphone refuse plain http. The hosts below
+  give an https address of their own.
+- **`ALLOWED_ORIGINS` set to that https address.** Otherwise the page cannot open
+  the WebSocket, and a shared link's preview card has no address.
+- **The keys as the host's variables.** `.env` never leaves this folder
+  (`.railwayignore`, `.dockerignore`). Pasting its contents into the host's
+  variables is fine: the image fixes `HOST=0.0.0.0` whatever they say.
+
+The server needs little: about 70 MB of memory idle and 80 MB while answering;
+the built page is 0.7 MB; the volume stays under about 2 GB with the default
+`MAX_CACHED_ANSWERS` and `MAX_SHARES`; speech travels as raw PCM, about 3 MB per
+spoken minute. The bill that grows with visitors is the APIs', not the host's.
+
+### On Railway
+
+The Hobby plan (5 USD a month in November 2026, usage included up to that
+amount) covers a server this size, a volume up to 5 GB and an
+`https://<name>.up.railway.app` address.
+
+    npm install -g @railway/cli
+    railway login
+    cd immersive_teacher
+    railway init              # a new project
+    railway up                # uploads this folder, builds the Dockerfile, starts it
+    railway domain            # the public https address
+
+`railway up` uploads this folder only, without what `.gitignore` and
+`.railwayignore` list, so Railway never needs access to the git repository. Then,
+on railway.com, in the project:
+
+1. Add a volume to the service, mounted at `/data`.
+2. In the service's Variables:
+
+   | Variable | Value |
+   |---|---|
+   | `ANTHROPIC_API_KEY`, `DEEPGRAM_API_KEY`, and `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` if that is the voice | your keys |
+   | `ALLOWED_ORIGINS` | the address `railway domain` printed, with `https://` |
+   | `MAX_QUESTIONS_PER_HOUR` | low for a public link (each question costs about 3 cents) |
+   | `ODOO_AI` | `off` for the public: it is an internal route of odoo.com without a public contract |
+   | `TTS_PROVIDER` | `deepgram` while ElevenLabs is on its free plan (about 40 answers a month) |
+
+   Apply the changes (Deploy) so the service restarts with them.
+3. Optionally, the service's healthcheck path: `/health`.
+4. A spending limit in the Anthropic console: a public link spends your key.
+
+To publish a change, run `railway up` again from `immersive_teacher/`. With a
+volume attached, the service is down a few seconds on each deploy (two
+deployments cannot share one volume). Claude Code can do the deploys and read
+the logs through Railway's MCP server
+(`claude mcp add railway --transport http https://mcp.railway.com`); the keys are
+still set by you, in the panel.
+
+### Elsewhere
+
+- **Render:** a web service from the Dockerfile, with a disk mounted at `/data`
+  (a paid instance: the free one sleeps after 15 minutes idle and takes no disk).
+- **Fly.io:** `fly launch` reads the Dockerfile; internal port 8787 and a volume
+  at `/data`.
+- **A VPS:** Docker plus Caddy for HTTPS.
+
+      docker build -t immersive-teacher .
+      docker run -d --restart unless-stopped --env-file .env \
+          -p 127.0.0.1:8787:8787 -v teacher-data:/data immersive-teacher
+
+  and in Caddy's config, `teacher.example.com { reverse_proxy 127.0.0.1:8787 }`.
+  Docker reads `.env` literally: no quotes around the values. On a server with
+  1 GB of memory, build the image elsewhere or add swap first.
+
 ## Structure
 
     immersive_teacher/
     |- .env.example                 every variable, with its default
+    |- Dockerfile                   the server and the built page in one container (see Hosting it)
+    |- .dockerignore, .railwayignore   what never leaves this folder: .env, local data
     |- server/src/
     |  |- index.js                  HTTP + Vite middleware (dev) or static files (prod) + /ws
     |  |- config.js                 reads and checks the environment

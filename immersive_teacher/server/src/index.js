@@ -10,20 +10,24 @@
  */
 
 import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { WebSocket, WebSocketServer } from "ws";
 
+import { AnswerCache, signatureOf } from "./answer_cache.js";
 import { ConfigError, loadConfig } from "./config.js";
 import { HourlyLimiter } from "./limits.js";
 import { createLlm } from "./llm/index.js";
 import { createOdooAi } from "./odoo_ai.js";
 import { Session } from "./session.js";
+import { createShareRoutes } from "./share_page.js";
+import { Sealer, ShareStore, loadSecret } from "./shares.js";
 import { createStt } from "./speech/stt/index.js";
 import { createTts } from "./speech/tts/index.js";
+import { speedFor } from "./speech/tts/speed.js";
 
 const ENV_FILE = fileURLToPath(new URL("../../.env", import.meta.url));
 const CLIENT_DIR = fileURLToPath(new URL("../../client/", import.meta.url));
@@ -87,7 +91,18 @@ async function createViteHandler(server) {
     });
     const handler = (req, res) => vite.middlewares(req, res);
     handler.close = () => vite.close();
+    // The page as Vite serves it, for the shared links' previews.
+    handler.readIndex = async (url) => vite.transformIndexHtml(url, await readFile(path.join(CLIENT_DIR, "index.html"), "utf8"));
     return handler;
+}
+
+/** The built page, read once, for the shared links' previews. */
+function builtIndexReader() {
+    let html = null;
+    return async () => {
+        html ??= await readFile(path.join(DIST_DIR, "index.html"), "utf8");
+        return html;
+    };
 }
 
 /**
@@ -123,14 +138,35 @@ async function main() {
     const tts = createTts(config.tts);
     const odooAi = createOdooAi(config.odooAi);
     const limiter = new HourlyLimiter(config.maxQuestionsPerHour);
+    const voiceLimiter = new HourlyLimiter(config.maxQuestionsPerHour);
+    const { shares: sharesConfig } = config;
+    const sealer = sharesConfig.maxCount ? new Sealer(await loadSecret(sharesConfig.dir)) : null;
+    const shares = sealer && new ShareStore({ dir: sharesConfig.dir, maxShares: sharesConfig.maxCount, days: sharesConfig.days });
+    const { answers: answersConfig } = config;
+    const answers = answersConfig.maxCount
+        ? new AnswerCache({ dir: answersConfig.dir, maxEntries: answersConfig.maxCount, signature: signatureOf(config) })
+        : null;
     const server = http.createServer();
     const handler = config.isProd ? createStaticHandler(DIST_DIR) : await createViteHandler(server);
+    const shareRoutes = createShareRoutes({
+        shares,
+        allowedOrigins: config.allowedOrigins,
+        readIndex: handler.readIndex ?? builtIndexReader(),
+    });
 
-    server.on("request", (req, res) => {
+    server.on("request", async (req, res) => {
         if (req.url === "/health") {
             res.writeHead(200, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ ok: true, llm: llm.name }));
             return;
+        }
+        try {
+            if (await shareRoutes(req, res)) {
+                return;
+            }
+        } catch (error) {
+            // Without its preview, the page still opens the link.
+            console.error(`Share preview for ${req.url} failed:`, error);
         }
         handler(req, res);
     });
@@ -154,7 +190,9 @@ async function main() {
         }
         wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
     });
-    wss.on("connection", (socket) => new Session({ socket, config, llm, stt, tts, odooAi, limiter }));
+    wss.on("connection", (socket) => new Session({
+        socket, config, llm, stt, tts, odooAi, limiter, shares, sealer, voiceLimiter, answers,
+    }));
     const pings = setInterval(() => {
         for (const client of wss.clients) {
             if (client.readyState === WebSocket.OPEN) {
@@ -180,9 +218,10 @@ async function main() {
         console.info(`Immersive teacher (${config.isProd ? "production" : "development"}) on http://localhost:${config.port}`);
         const pairs = (values) => Object.entries(values).map(([language, value]) => `${language}=${value}`).join(" ");
         const sttInfo = stt.name === "deepgram" ? `deepgram ${config.stt.model} (${pairs(config.stt.languages)})` : stt.name;
+        const speed = (provider) => `speed ${speedFor(provider, config.tts.speed) ?? 1}`;
         const ttsInfo = {
-            elevenlabs: `elevenlabs ${config.tts.model}, voices ${pairs(config.tts.voices)}`,
-            deepgram: `deepgram ${pairs(config.tts.voices)}`,
+            elevenlabs: `elevenlabs ${config.tts.model}, voices ${pairs(config.tts.voices)}, ${speed("elevenlabs")}`,
+            deepgram: `deepgram ${pairs(config.tts.voices)}, ${speed("deepgram")}`,
         }[tts?.name] ?? (tts?.name ?? "none (text only)");
         console.info(`LLM: ${llmInfo} | ${config.maxQuestionsPerHour || "unlimited"} questions/hour`);
         console.info(`Speech: STT ${sttInfo} | TTS ${ttsInfo} | pages start in ${config.language}`);
@@ -193,6 +232,12 @@ async function main() {
         console.info(odooAi
             ? `Odoo AI: ${odooAi.name === "fake" ? "fake answers" : `on (${odooAi.url})`}, asked when the page's switch is on`
             : "Odoo AI: off (ODOO_AI=off)");
+        console.info(shares
+            ? `Shares: up to ${sharesConfig.maxCount} links in ${sharesConfig.dir}, kept ${sharesConfig.days} days`
+            : "Shares: off (MAX_SHARES=0)");
+        console.info(answers
+            ? `Answer cache: up to ${answersConfig.maxCount} answers in ${answersConfig.dir}`
+            : "Answer cache: off (MAX_CACHED_ANSWERS=0)");
     });
 
     let closing = false;

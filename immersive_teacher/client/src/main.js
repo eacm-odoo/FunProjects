@@ -18,10 +18,15 @@
  * rearrange it. The path above the diagram ("‹ Photosynthesis › Glucose")
  * goes back to any diagram above.
  *
+ * "Compartir" under an answer makes a link to it (and the path to it) or to
+ * its whole tree; whoever opens the link starts there, and can hear it,
+ * browse it and go on asking.
+ *
  * URL options:
  *   ?q=...      asks that question as soon as the server is connected. Without
  *               a click first the browser keeps audio muted, so that answer is
  *               paced as text.
+ *   ?share=id   opens a shared exploration (see sharing.js).
  *   ?emulate    (development only) emulates a Quest 3 with Meta's IWER, to try
  *               the headset mode in a desktop browser.
  */
@@ -37,9 +42,11 @@ import { AudioNarrator } from "./narration/audio_narrator.js";
 import { TimedNarrator } from "./narration/timed_narrator.js";
 import { Connection } from "./net/connection.js";
 import { Lesson } from "./scene/lesson.js";
+import { Snapshot } from "./scene/snapshot.js";
 import { Stage } from "./scene/stage.js";
 import { Status } from "./status.js";
 import { syntheticSpeechLevel } from "./teacher/lip_sync.js";
+import { shareIdFrom, shareUrl } from "./sharing.js";
 import { SourceManager } from "./sources.js";
 import { Teacher } from "./teacher/teacher.js";
 import { TurnController } from "./turn_controller.js";
@@ -107,6 +114,8 @@ placeForDesktop();
 
 const captions = new XrCaptions();
 stage.add(captions.group);
+// The picture of a shared link's card.
+const snapshot = new Snapshot(stage.renderer, stage.background);
 
 const connection = new Connection();
 const status = new Status();
@@ -133,6 +142,8 @@ controller = new TurnController({
     timedNarrator,
     onTrouble: () => teacher.react("confused"),
     onReplayable: () => refreshReplay(),
+    linkFor: (id) => shareUrl(id, window.location),
+    snapshot: (view) => snapshot.take(view.diagram, view, t("app.title")),
 });
 status.subscribe((state) => {
     ui.setStatus(state);
@@ -368,6 +379,7 @@ if (import.meta.env.DEV) {
 // --- Server ----------------------------------------------------------------
 
 let pendingQuestion = params.get("q");
+let pendingShare = shareIdFrom(params.get("share"));
 let hello = null;
 
 /** The line under the panel: model, ears, voice and limit, from the server's hello. */
@@ -422,6 +434,12 @@ connection.on("hello", (message) => {
     sources.setLimits(message.sources ?? { maxCount: 0 });
     sources.resend();
     setOdooAvailable(Boolean(message.odooAi));
+    controller.setSharing(Boolean(message.share));
+    // Once: after a reconnection the exploration is already on the page.
+    if (pendingShare) {
+        controller.openLink(pendingShare);
+        pendingShare = null;
+    }
     // After the hello, so a ?q= question goes in the page's language.
     if (pendingQuestion) {
         controller.ask(pendingQuestion);

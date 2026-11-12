@@ -6,8 +6,14 @@
  * startup with a message that names the variable, not at the first question.
  */
 
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { LANGUAGES } from "./i18n.js";
 import { ODOO_AI_URL } from "./odoo_ai.js";
+
+/** immersive_teacher/: where a relative SHARES_DIR or CACHE_DIR starts. */
+const APP_DIR = fileURLToPath(new URL("../../", import.meta.url));
 
 const LLM_PROVIDERS = ["claude", "fake"];
 const ODOO_AI_MODES = ["on", "off", "fake"];
@@ -15,6 +21,8 @@ const STT_PROVIDERS = ["deepgram", "fake"];
 const TTS_PROVIDERS = ["elevenlabs", "deepgram", "fake", "none"];
 /** Every TTS adapter streams 16-bit mono PCM at this rate. */
 export const TTS_SAMPLE_RATE = 24000;
+/** A little faster than the voices' own pace, which sounds slow for a lesson. */
+export const TTS_SPEED = 1.2;
 const THINKING_MODES = ["adaptive", "off"];
 const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"];
 
@@ -36,6 +44,18 @@ function readInt(env, name, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER }
     const value = Number(raw);
     if (!Number.isInteger(value) || value < min || value > max) {
         throw new ConfigError(`${name}="${raw}" must be an integer between ${min} and ${max}`);
+    }
+    return value;
+}
+
+function readNumber(env, name, fallback, { min, max }) {
+    const raw = env[name];
+    if (raw === undefined || raw.trim() === "") {
+        return fallback;
+    }
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < min || value > max) {
+        throw new ConfigError(`${name}="${raw}" must be a number between ${min} and ${max}`);
     }
     return value;
 }
@@ -194,7 +214,20 @@ export function loadConfig(env = process.env, argv = process.argv) {
             voices: ttsVoices(env, ttsProvider),
             // ElevenLabs only: Deepgram's voice already is its model.
             model: (env.ELEVENLABS_MODEL || "eleven_flash_v2_5").trim(),
+            // How fast the voice speaks (1 = the voice's own pace); each provider clamps it to its range.
+            speed: readNumber(env, "TTS_SPEED", TTS_SPEED, { min: 0.5, max: 2 }),
             sampleRate: TTS_SAMPLE_RATE,
+        }),
+        // Links to shared explorations; MAX_SHARES=0 turns them off.
+        shares: Object.freeze({
+            maxCount: readInt(env, "MAX_SHARES", 500, { min: 0, max: 100_000 }),
+            days: readInt(env, "SHARE_DAYS", 30, { min: 1, max: 3650 }),
+            dir: path.resolve(APP_DIR, (env.SHARES_DIR ?? "").trim() || "shares"),
+        }),
+        // Answers kept for whoever asks the same again; MAX_CACHED_ANSWERS=0 turns them off.
+        answers: Object.freeze({
+            maxCount: readInt(env, "MAX_CACHED_ANSWERS", 200, { min: 0, max: 100_000 }),
+            dir: path.resolve(APP_DIR, (env.CACHE_DIR ?? "").trim() || "cache"),
         }),
     });
 }

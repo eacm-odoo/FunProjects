@@ -5,16 +5,20 @@
  * free credit) covers both ears and voice. The voice is the model name, one
  * per language: aura-2-estrella-es, aura-2-thalia-en. Aura has no equivalent
  * of ElevenLabs' previous_text, so each sentence is read on its own.
+ * TTS_SPEED goes as the `speed` query parameter (see speed.js).
  */
 
 import { fetchWithDeadline } from "../http.js";
 import { alignPcm16 } from "../pcm.js";
+import { speedFor, withSpeed } from "./speed.js";
 
 const API_URL = "https://api.deepgram.com/v1/speak";
 const DEADLINE_MS = 8000;
 
 /** @param {{deadlineMs?: number}} [options] tests shorten the deadline */
 export function createDeepgramTts(ttsConfig, { deadlineMs = DEADLINE_MS } = {}) {
+    const speed = speedFor("deepgram", ttsConfig.speed ?? 1);
+    const speedState = { refused: false };
     return {
         name: "deepgram",
         label: "Deepgram",
@@ -32,14 +36,20 @@ export function createDeepgramTts(ttsConfig, { deadlineMs = DEADLINE_MS } = {}) 
             url.searchParams.set("sample_rate", String(ttsConfig.sampleRate));
             // Raw samples, no WAV header in front of them.
             url.searchParams.set("container", "none");
-            const { response, release } = await fetchWithDeadline("tts", url, {
-                method: "POST",
-                headers: {
-                    Authorization: `Token ${ttsConfig.apiKey}`,
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ text }),
-            }, { signal, deadlineMs });
+            const { response, release } = await withSpeed(speedState, "Deepgram", speed, (sent) => {
+                const target = new URL(url);
+                if (sent !== null) {
+                    target.searchParams.set("speed", String(sent));
+                }
+                return fetchWithDeadline("tts", target, {
+                    method: "POST",
+                    headers: {
+                        Authorization: `Token ${ttsConfig.apiKey}`,
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({ text }),
+                }, { signal, deadlineMs });
+            });
             try {
                 yield* alignPcm16(response.body);
             } finally {

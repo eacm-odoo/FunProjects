@@ -5,16 +5,20 @@
  * sentence before it: the voice keeps its intonation across the cut instead
  * of starting every sentence like the first one. Flash v2.5 speaks both
  * languages; `language_code` keeps it from guessing on a short sentence.
+ * TTS_SPEED goes as `voice_settings.speed` (see speed.js).
  */
 
 import { fetchWithDeadline } from "../http.js";
 import { alignPcm16 } from "../pcm.js";
+import { speedFor, withSpeed } from "./speed.js";
 
 const API_URL = "https://api.elevenlabs.io/v1/text-to-speech";
 const DEADLINE_MS = 8000;
 
 /** @param {{deadlineMs?: number}} [options] tests shorten the deadline */
 export function createElevenLabsTts(ttsConfig, { deadlineMs = DEADLINE_MS } = {}) {
+    const speed = speedFor("elevenlabs", ttsConfig.speed ?? 1);
+    const speedState = { refused: false };
     return {
         name: "elevenlabs",
         label: "ElevenLabs",
@@ -37,14 +41,14 @@ export function createElevenLabsTts(ttsConfig, { deadlineMs = DEADLINE_MS } = {}
             if (previousText) {
                 body.previous_text = previousText;
             }
-            const { response, release } = await fetchWithDeadline("tts", url, {
+            const { response, release } = await withSpeed(speedState, "ElevenLabs", speed, (sent) => fetchWithDeadline("tts", url, {
                 method: "POST",
                 headers: {
                     "xi-api-key": ttsConfig.apiKey,
                     "Content-Type": "application/json",
                 },
-                body: JSON.stringify(body),
-            }, { signal, deadlineMs });
+                body: JSON.stringify(sent === null ? body : { ...body, voice_settings: { speed: sent } }),
+            }, { signal, deadlineMs }));
             try {
                 yield* alignPcm16(response.body);
             } finally {

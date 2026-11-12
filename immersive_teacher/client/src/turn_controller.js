@@ -27,13 +27,21 @@
  * Nothing is asked twice: a node already explored shows the diagram it gave,
  * without a word, and replay() says an explanation again from the sentences
  * and the speech received the first time.
+ *
+ * With the server's shares on, share() makes a link of an explanation (and
+ * the ones above it) or of its whole tree, and openLink() takes in a shared
+ * one as if it had been explored here, opening where its author was. A
+ * shared explanation arrives without its speech: the first replay() asks the
+ * server to say its sentences again (speak_share), and keeps that speech for
+ * the next times.
  */
 
 import { decodeAudioFrame } from "./audio/audio_frame.js";
 import { Exploration } from "./exploration.js";
 import { language, t } from "./i18n.js";
-import { level } from "./level.js";
+import { level, setLevel } from "./level.js";
 import { odooActive } from "./odoo_mode.js";
+import { ShareRequests } from "./sharing.js";
 
 function formatTimings(timings = {}) {
     return Object.entries(timings).map(([stage, ms]) => `${stage}=+${ms}ms`).join(" ");
@@ -50,9 +58,14 @@ export class TurnController {
      * @param {import("./narration/timed_narrator.js").TimedNarrator} options.timedNarrator
      * @param {() => void} [options.onTrouble] the teacher starts apologizing, or a turn failed silently
      * @param {(available: boolean) => void} [options.onReplayable] whether the diagram on screen can be explained again
+     * @param {(id: string) => string} [options.linkFor] the link that opens share `id`
+     * @param {((view: {diagram: object, path: object[], hooks: string[], explored: Set<string>,
+     *   pins: Map<string, object>}) => string|null)|null} [options.snapshot] the picture of a link's
+     *   preview card, as a base64 JPEG (see scene/snapshot.js)
      */
     constructor({
         connection, panel, status, diagram, audioNarrator, timedNarrator, onTrouble = () => {}, onReplayable = () => {},
+        linkFor = (id) => `?share=${id}`, snapshot = null,
     }) {
         this.connection = connection;
         this.panel = panel;
@@ -72,12 +85,17 @@ export class TurnController {
         }
         this.narrator = timedNarrator;
         this.speechEnabled = false;
+        this.sharing = false;
+        this.linkFor = linkFor;
+        this.snapshot = snapshot;
+        this.shareRequests = new ShareRequests(connection, { timeoutMessage: () => t("share.failed") });
         this.exploration = new Exploration();
         this.turnId = 0;
         this.#resetTurnState();
 
         const types = [
             "transcript", "title", "sentence", "citation", "diagram_step", "odoo_answer", "audio_start", "audio_end", "warning", "done", "error",
+            "spoken",
         ];
         for (const type of types) {
             connection.on(type, (event) => {
@@ -92,11 +110,23 @@ export class TurnController {
                 return;
             }
             // Kept for replay(), whoever narrates now.
-            this.exploration.speechChunk(frame.turn, frame.step, frame.samples);
+            this.exploration.speechChunk(this.voicing ?? frame.turn, frame.step, frame.samples);
             if (this.narrator === this.audioNarrator) {
                 this.narrator.audioChunk(frame.step, frame.samples);
             }
         });
+        connection.on("shared", (event) => this.shareRequests.answer(event));
+        connection.on("share_error", (event) => {
+            if (!this.shareRequests.answer(event)) {
+                this.panel.showError(null, event.message); // the link opened did not
+            }
+        });
+        connection.on("share_opened", (event) => this.#openShare(event));
+    }
+
+    /** Whether the server keeps links to shared explorations (from its hello). */
+    setSharing(enabled) {
+        this.sharing = enabled;
     }
 
     /** Whether the server speaks (from its hello). */
@@ -114,6 +144,7 @@ export class TurnController {
         if (this.active) {
             this.connection.send({ type: "cancel", turn: this.turnId });
         }
+        this.#dropVoicing();
         this.active = false;
         this.audioNarrator.stop();
         this.timedNarrator.stop();
@@ -129,10 +160,19 @@ export class TurnController {
             return; // the answer was complete: what is buffered keeps playing
         }
         this.active = false;
+        this.#dropVoicing();
         this.audioNarrator.stop();
         this.timedNarrator.stop();
         this.panel.showError(this.turnId, t("turn.connectionLost"));
         this.onTrouble();
+    }
+
+    /** A shared explanation's speech stopped coming: half of it would play cut short, so it is asked again next time. */
+    #dropVoicing() {
+        if (this.voicing !== null) {
+            this.exploration.entry(this.voicing)?.speech.clear();
+            this.voicing = null;
+        }
     }
 
     /** Asks a typed question. */
@@ -230,9 +270,13 @@ export class TurnController {
      * When the level changed since it was asked (too basic, too expert), the
      * same question is asked again at the level chosen now instead: a new
      * answer, which counts and costs like any question.
+     *
+     * A shared explanation has no speech the first time: the server says its
+     * sentences again (only those, Claude is not asked), and they are kept.
+     * @param {{voiceFromServer?: boolean}} [options] false to pace it as text instead
      * @returns {boolean} false when that explanation is not kept whole
      */
-    replay(turnId) {
+    replay(turnId, { voiceFromServer = true } = {}) {
         const entry = this.exploration.entry(turnId);
         if (entry?.complete && entry.diagram && entry.level !== level()) {
             return this.#explainAgain(entry);
@@ -247,14 +291,31 @@ export class TurnController {
         if (this.exploration.shown !== turnId) {
             this.#showDiagram(turnId);
         }
-        const { sentences, speech } = this.exploration.entry(turnId);
-        const withVoice = this.speechEnabled && this.audioNarrator.unlocked && speech.size > 0;
+        const { sentences, speech, shared } = this.exploration.entry(turnId);
+        const canSpeak = this.speechEnabled && this.audioNarrator.unlocked;
+        const fromServer = voiceFromServer && canSpeak && !speech.size && shared !== null;
+        const withVoice = canSpeak && (speech.size > 0 || fromServer);
         this.narrator = withVoice ? this.audioNarrator : this.timedNarrator;
         this.replaying = turnId;
         this.panel.replayTurn(turnId, sentences, this.exploration.entry(turnId).citations);
+        if (fromServer) {
+            // Its speech comes as a turn of its own, and is kept under this explanation.
+            this.turnId += 1;
+            this.#resetTurnState();
+            this.voicing = turnId;
+            this.active = true;
+            const sent = this.connection.send({
+                type: "speak_share", turn: this.turnId, id: shared.id, entry: shared.turn, language: language(),
+            });
+            if (!sent) {
+                this.active = false;
+                this.voicing = null;
+                return this.replay(turnId, { voiceFromServer: false });
+            }
+        }
         for (const step of [...sentences.keys()].sort((a, b) => a - b)) {
             this.narrator.enqueue(step, sentences.get(step));
-            if (withVoice) {
+            if (withVoice && !fromServer) {
                 const voice = speech.get(step);
                 if (voice) {
                     this.narrator.audioStart(step, voice.sampleRate);
@@ -288,6 +349,109 @@ export class TurnController {
         }
         this.ask(question);
         return true;
+    }
+
+    /**
+     * Makes a link of the explanation of `turnId`: with scope "path", it and
+     * the ones above it; with "tree", its whole tree. Whoever opens it starts
+     * at that explanation.
+     * @param {"path"|"tree"} scope
+     * @returns {Promise<string>} the link; rejects with the message to show
+     */
+    async share(turnId, scope = "path") {
+        if (turnId === this.exploration.shown) {
+            this.#keepArrangement(); // where the nodes on screen are now
+        }
+        const payload = this.exploration.shareOf(turnId, scope);
+        if (!payload) {
+            throw new Error(t("share.failed"));
+        }
+        const image = this.#pictureOf(turnId);
+        return this.linkFor(await this.shareRequests.request({ ...payload, language: language(), ...(image ? { image } : {}) }));
+    }
+
+    /** The picture of the link's card: the diagram of `turnId` as it is shown. Null when it cannot be drawn. */
+    #pictureOf(turnId) {
+        const entry = this.exploration.entry(turnId);
+        if (!this.snapshot || !entry?.diagram) {
+            return null;
+        }
+        try {
+            return this.snapshot({
+                diagram: entry.diagram,
+                path: this.exploration.pathTo(turnId),
+                hooks: this.exploration.hooksOf(turnId).map((hook) => hook.id),
+                explored: entry.explored,
+                pins: entry.pins,
+            });
+        } catch (error) {
+            // The link works without its picture: the card just has none.
+            console.warn("Could not draw the link's picture:", error);
+            return null;
+        }
+    }
+
+    /** Asks the server for the shared exploration `id` (a ?share= link); it shows when it arrives. */
+    openLink(id) {
+        if (!this.sharing) {
+            this.panel.showError(null, t("share.off"));
+            return false;
+        }
+        return this.connection.send({ type: "open_share", id, language: language() });
+    }
+
+    /** A shared exploration arrived: every explanation in the panel, and the diagram it opens at. */
+    #openShare({ id, share }) {
+        if (!share?.turns?.length) {
+            return;
+        }
+        this.interrupt();
+        const { turnIds, shown } = this.exploration.load(id, share, this.turnId + 1);
+        this.turnId += turnIds.length;
+        this.#resetTurnState();
+        this.panel.showNote(null, t("share.opened"));
+        for (const turnId of turnIds) {
+            this.#showKept(turnId);
+        }
+        // At its own level, "explain it again" says it as it was.
+        setLevel(this.exploration.entry(shown).level);
+        this.#showDiagram(shown);
+        this.panel.revealTurn(shown);
+        this.status.set("ready");
+    }
+
+    /** A finished explanation that was not given here, written out in the panel as if it had been. */
+    #showKept(turnId) {
+        const entry = this.exploration.entry(turnId);
+        this.panel.startTurn(turnId, entry.asked, { dive: entry.parentTurnId !== null, level: entry.level });
+        const path = this.exploration.pathTo(turnId);
+        if (path.length) {
+            this.panel.setPath(turnId, path, (target) => this.showTurn(target));
+        }
+        this.panel.setTitle(turnId, entry.diagram.title);
+        for (const step of [...entry.sentences.keys()].sort((a, b) => a - b)) {
+            this.panel.addSentence(turnId, step, entry.sentences.get(step));
+            for (const citation of entry.citations.get(step) ?? []) {
+                this.panel.addCitation(turnId, step, citation);
+            }
+        }
+        this.panel.finishTurn(turnId, { hasDiagram: true });
+        this.panel.setReplay(turnId, () => this.replay(turnId), entry.level);
+        this.#offerShare(turnId);
+        const hooks = this.exploration.hooksOf(turnId);
+        if (hooks.length) {
+            this.panel.setHooks(turnId, hooks, (nodeId) => this.explore(turnId, nodeId));
+        }
+    }
+
+    /** "Share" under the answer of `turnId`, when the server keeps links and that answer can go in one. */
+    #offerShare(turnId) {
+        if (this.sharing && this.exploration.shareable(turnId)) {
+            this.panel.setShare(turnId, {
+                sizes: () => this.exploration.shareSizes(turnId),
+                onShare: (scope) => this.share(turnId, scope),
+            });
+        }
     }
 
     /** The level the answer on screen was asked at, null before the first one. */
@@ -381,7 +545,7 @@ export class TurnController {
         }
         this.turnId += 1;
         this.#resetTurnState();
-        this.exploration.begin(this.turnId, dive && { from: dive.from, node: dive.node }, { level: level(), question });
+        this.exploration.begin(this.turnId, dive && { from: dive.from, node: dive.node }, { level: level(), question, language: language() });
         this.#refreshReplayable();
         this.active = true;
         this.startedAt = startedAt;
@@ -409,6 +573,8 @@ export class TurnController {
         this.apologyStep = null;
         this.firstSentenceLogged = false;
         this.firstStepLogged = false;
+        /** The shared explanation whose speech this turn brings (speak_share), null otherwise. */
+        this.voicing = null;
     }
 
     #elapsed() {
@@ -453,7 +619,7 @@ export class TurnController {
                 this.panel.addOdooAnswer(this.turnId, event.text, event.links ?? []);
                 break;
             case "audio_start":
-                this.exploration.speechStart(this.turnId, event.step, event.sampleRate);
+                this.exploration.speechStart(this.voicing ?? this.turnId, event.step, event.sampleRate);
                 if (this.narrator === this.audioNarrator) {
                     this.narrator.audioStart(event.step, event.sampleRate);
                 }
@@ -469,18 +635,32 @@ export class TurnController {
             case "done":
                 this.doneEvent = event;
                 this.active = false;
-                this.exploration.finish(this.turnId, event.diagram);
+                this.exploration.finish(this.turnId, event.diagram, event.seal ?? null);
                 // Its nodes can be explored from now on, even while the teacher still talks.
                 this.diagram.interactive = Boolean(event.diagram);
                 if (this.exploration.replayable(this.turnId)) {
                     const turnId = this.turnId;
                     this.panel.setReplay(turnId, () => this.replay(turnId), this.exploration.entry(turnId).level);
                 }
+                this.#offerShare(this.turnId);
                 this.#refreshReplayable();
                 console.info(`[turn ${this.turnId}] ${this.fromVoice ? "release" : "ask"}->done=${this.#elapsed()}ms | server ${formatTimings(event.timings)}`);
                 this.narrator.finish();
                 break;
+            case "spoken":
+                // The shared explanation's speech is all here, and kept.
+                this.active = false;
+                this.voicing = null;
+                break;
             case "error":
+                if (this.voicing !== null) {
+                    // No voice for the shared explanation (the link expired, the hourly limit): said as text.
+                    const turnId = this.voicing;
+                    this.panel.showNote(turnId, event.message);
+                    this.interrupt();
+                    this.replay(turnId, { voiceFromServer: false });
+                    break;
+                }
                 this.active = false;
                 this.failed = true;
                 if (event.apologized) {

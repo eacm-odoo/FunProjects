@@ -1,0 +1,11 @@
+# Never uploaded by `railway up`. It already skips what .gitignore lists; this
+# keeps the keys and local data out even where .gitignore is not read.
+.env
+.env.*
+!.env.example
+node_modules/
+client/dist/
+shares/
+cache/
+test/
+*.log
